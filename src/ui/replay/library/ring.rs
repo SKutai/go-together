@@ -282,7 +282,7 @@ mod tests {
     /// a test can remove it.
     fn library_app(replays: usize) -> (App, std::path::PathBuf) {
         let (library, root) = saved_library(replays);
-        let mut app = real_layout_app();
+        let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .insert_state(AppScreen::Home)
             .add_plugins(UiFocusPlugin)

@@ -976,7 +976,7 @@ mod tests {
         use crate::ui::focus::real_layout_app;
         use bevy::ui_widgets::Button;
 
-        let mut app = real_layout_app();
+        let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
         app.insert_resource(GameState::default())
             .insert_resource(HudState::default())
             .insert_resource(GamePreferences::default())

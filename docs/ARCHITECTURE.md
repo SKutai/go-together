@@ -409,7 +409,10 @@ Four ownership lifetimes exist:
   (resources, not entities, reused by every screen that draws a board). The
   camera and the handles exist because re-uploading the same mesh/materials
   on every screen transition would be pure waste; nothing about them is
-  screen-specific. The Help modal is here for a different reason,
+  screen-specific but the camera's framing, which a screen with a board
+  sets and every change of screen puts back - see
+  [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it).
+  The Help modal is here for a different reason,
   and is the category's first *interactive* member: it is reachable from two
   screens, Home and the Match, so no screen's lifetime is its own - see the
   modal-scoped bullet below for the rule it amends. Its root is spawned
@@ -417,9 +420,11 @@ Four ownership lifetimes exist:
   `Display`, and it is closed on every screen change by
   `close_hud_modals_on_screen_change`, a screen-agnostic system in
   `StateTransition` that resets `HudState` whenever a screen's `OnEnter`
-  would run - the one resource reset on the transition itself rather than in
-  an entering screen's `OnEnter` chain, because the modal it governs belongs
-  to no screen.
+  would run - one of the two resources reset on the transition itself rather
+  than in an entering screen's `OnEnter` chain, because the modal it governs
+  belongs to no screen. The camera's `WorldFraming` is the other, reset
+  beside it for the same reason: no screen's entry is the right owner of
+  undoing another's zoom.
 - **Screen-scoped.** Everything else a screen spawns: the board, cursors, HUD
   text, opening-selection dots, the capture marks and their count lines,
   the hold-progress and round-time bars,
@@ -479,6 +484,70 @@ in place after a search, sort, rename, or delete, none of which change
 `AppScreen`, so the built-in on-exit despawn never fires for that rebuild.
 Every other screen relies on the automatic mechanism exclusively.
 
+## The window's size, and what answers to it
+
+The window opens at 1040x900 logical pixels, and every screen was first
+laid out for exactly that. The Match screen is now laid out for any size
+from 1040x600 up; the window itself is still fixed at the opening size
+(`resizable: false`), and Home, the Replay screens, Settings and the Help
+modal are still laid out for it alone.
+
+**One input.** `app::visuals::WindowSize` is the primary window's logical
+size, kept equal to it by `track_window_size` in `PreUpdate` and written
+only when the size really changes. A screen's layout is a pure function of
+`WindowSize::layout()`, which is that size raised to the 1040x600 minimum,
+so a window or a browser page smaller than the minimum is laid out as the
+minimum would be. `WINDOW_WIDTH` and `WINDOW_HEIGHT` are only the opening
+size; nothing adapted positions itself from them.
+
+**Text never changes size.** Interface nodes are laid out in the window's
+own pixels at their own sizes, so the 14px floor holds at every size. What
+grows and shrinks is the world-space scene - the Match board with every
+mark on it - and it is placed and scaled by the main
+camera, not by moving or resizing the scene. A screen writes
+`WorldFraming`, a zoom and the world point at the window's centre, and
+`frame_main_camera` gives the camera that projection scale and
+translation in `PostUpdate`, before the projection is recomputed.
+`bevy_ui` never sees the projection. So `board_position`, `GRID_SPACING`
+and the rest of the boards' geometry, and the tests of it, are the same at
+every size, and every stroke keeps its proportion to the cell. A screen
+with no board writes nothing: `reset_world_framing_on_screen_change`, in
+`StateTransition` beside the HUD's modal reset, puts the framing back to a
+scale of 1 over the origin on every change of screen, so Settings and the
+Replay Library never inherit a zoom. Text drawn in world space, as the
+Replay Viewer's score badges are, is scaled by the camera as well, and the
+14px floor's scan reads the sizes text is set at, not a camera's zoom; so
+on a screen that zooms, such text has to be counter-scaled or moved into
+`bevy_ui`.
+
+**The Match screen** (`ui::match_screen::geometry`) has two arrangements.
+*Tall* is the 1040x900 layout, which in that window is the screen exactly
+as it always was, pixel for pixel; in a window with room to spare it stands
+centred down the window as one piece. *Wide* stands each player's stack
+beside the board from the top of the window, puts the round panel to the
+heading's left and the Match timer to its right, and lets the board fill
+the height between the title row and the band under it. Wide is chosen only
+where it gives the board more than 4% more room than tall, which keeps a
+window of about the opening shape on the familiar layout; the board ranges
+from 0.70 of its own size at the minimum to twice it. Nothing but the board
+shrinks, so the smallest windows are made to fit by moving: the line of end
+reasons is never wrapped and the stacks stand further from the board when
+it needs the room, the round panel takes two lines beside the heading when
+one does not fit, and the band under the board holds two lines of text or
+one with a bar. The module's docs give the numbers. `ui::match_screen::layout`
+spawns each piece where the layout says, marks it with its
+`MatchPlacement`, and moves it when the window's size changes; the
+countdown card is placed over the same rows of the board at any zoom by the
+rule `ui::countdown_card` shares with the Replay Viewer, and the capture
+marks, being world-space, scale with the stones they stand on.
+
+**The tests** sweep every layout over `app::visuals::layout_sweep`, from the
+minimum to 2560x1440, and hold that nothing overlaps, nothing leaves the
+window, the board never falls below the smallest window's zoom, and at
+1040x900 every position is the one the screen always had; the real-layout
+tests run the same screens at the sizes in `NAMED_WINDOW_SIZES`. See
+[Pure tests versus ECS tests](TESTING.md#pure-tests-versus-ecs-tests).
+
 ## Presentation: continuous vs change-driven display
 
 The live Match board is 81 intersections, each a stone entity and a ring
@@ -497,7 +566,7 @@ that includes the UI's render data: it is retained between frames and
 rebuilt only for a node whose layout, colours, text or visibility are marked
 changed, so a write of an equal `BackgroundColor` or `Text` now costs that
 node's re-extraction too, where 0.19 re-extracted every node every frame
-whatever was written. Two mechanisms keep that cost tied to real change
+whatever was written. Three mechanisms keep that cost tied to real change
 instead of frame count:
 
 * **Compare before writing.** `update_match_display`, `update_shared_display`
@@ -556,6 +625,13 @@ instead of frame count:
   caught by
   `a_new_replay_at_the_same_boundary_index_is_never_mistaken_for_a_cached_one`
   during development).
+* **Size-gated placement**, for where things stand. The Match screen's
+  `place_match_furniture` moves its nodes only on a frame the window's size
+  changed or its furniture was spawned - which its spawners have already
+  placed - and then only the nodes that moved, compared as above. Its camera
+  framing is the one placement compared every frame, because a change of
+  screen resets it and the screen's first frame has to take it back. See
+  [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it).
 
 What stays a true, unguarded per-frame write on purpose:
 
@@ -1042,7 +1118,8 @@ at the line and pushes the others along, so the rule "with three held, a
 new distinct selection removes the oldest" can be watched rather than told.
 Every length in the row is made from three that were already on screen - a
 dot's 13 px diameter, its 2 px border and the 10 px gap between dots - so
-the row scales with the window as one piece.
+the row keeps its proportions at whatever scale the interface is drawn; a
+window of another size moves it and leaves its size alone.
 
 **The static form is a mark on the line.** With three held, no end state
 can carry the difference: both outcomes finish with the same three dots in

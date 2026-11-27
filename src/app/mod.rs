@@ -75,7 +75,7 @@ use crate::settings::{ControlsConfig, SettingsStore, load_user_controls};
 use crate::ui::UiPlugin;
 use motion::{MotionPolicy, read_platform_motion_signal};
 use startup_log::{DeferredStartupWarnings, emit_deferred_startup_warnings};
-use visuals::{WINDOW_HEIGHT, WINDOW_WIDTH, setup_app};
+use visuals::{WINDOW_HEIGHT, WINDOW_WIDTH, WindowLayoutPlugin, setup_app};
 
 /// Loads persisted settings, builds the Bevy app and blocks until the window
 /// closes.
@@ -292,6 +292,7 @@ impl Plugin for AppPlugin {
         }
         app.add_plugins(engine_plugins(asset_path, platform_window))
             .init_state::<AppScreen>()
+            .add_plugins(WindowLayoutPlugin)
             .init_resource::<MotionPolicy>();
         configure_app_systems(app);
         app.add_systems(

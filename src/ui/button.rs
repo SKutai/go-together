@@ -531,7 +531,7 @@ mod tests {
     /// A 300 by 80 button with a label, centred in the window, under real
     /// layout and real picking, with every activation recorded.
     fn button_app() -> (App, Entity, Entity) {
-        let mut app = crate::ui::focus::real_layout_app();
+        let mut app = crate::ui::focus::real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
         record_activations(&mut app);
         let (button, label) = spawn_button(&mut app);
         (app, button, label)
@@ -898,7 +898,7 @@ mod tests {
         use bevy::input_focus::{InputDispatchPlugin, InputFocus, InputFocusPlugin};
         use bevy::ui_widgets::ButtonPlugin;
 
-        let mut app = crate::ui::focus::engine_ui_app();
+        let mut app = crate::ui::focus::engine_ui_app(crate::app::visuals::WindowSize::OPENING.0);
         app.add_plugins((ButtonPlugin, InputFocusPlugin, InputDispatchPlugin))
             // The other two inputs `InputDispatchPlugin` dispatches.
             .add_message::<bevy::input::gamepad::GamepadButtonChangedEvent>()

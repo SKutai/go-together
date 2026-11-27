@@ -1231,7 +1231,7 @@ mod tests {
             storage.replays.lock().unwrap().extend(replays);
             let mut ui = ReplayLibraryUiState::default();
             ui.search.text = search.into();
-            let mut app = real_layout_app();
+            let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
             app.insert_resource(ReplayLibrary::from_store(storage))
                 .insert_resource(ui)
                 .add_systems(Startup, super::super::spawn_library_screen);

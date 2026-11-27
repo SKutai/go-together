@@ -222,6 +222,12 @@ const fn viewer_result_bottom() -> f32 {
     VIEWER_RESULT_TOP + VIEWER_RESULT_HEIGHT
 }
 
+/// How far down the window the board's centre is drawn, in logical pixels:
+/// what the Round 0 countdown card is placed over.
+pub(super) const fn viewer_board_center_from_window() -> f32 {
+    WINDOW_HEIGHT as f32 * 0.5 - VIEWER_BOARD_CENTER_Y
+}
+
 const fn viewer_board_top_from_window() -> f32 {
     WINDOW_HEIGHT as f32 * 0.5 - (VIEWER_BOARD_CENTER_Y + VIEWER_BOARD_OUTER_SIZE * 0.5)
 }

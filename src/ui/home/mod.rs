@@ -177,7 +177,7 @@ mod tests {
         use crate::ui::button::{covered_at_their_centres, reachable_buttons};
         use crate::ui::focus::real_layout_app;
 
-        let mut app = real_layout_app();
+        let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .insert_state(AppScreen::Home)
             .add_systems(OnEnter(AppScreen::Home), spawn_home_screen);

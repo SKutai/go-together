@@ -5,12 +5,17 @@
 //!
 //! A card is centred across the window, which is where both boards are
 //! centred, and its centre stands [`COUNTDOWN_CARD_RISE`] above its board's
-//! centre, scaled by that board's grid spacing - so on the Viewer's smaller
-//! board its centre lands on the same point of the grid as on the live one. The
-//! rise is the Match screen's, where the card was placed by eye with its top
-//! 250 px down the window. Until 2026-10-05 the Viewer had a `top` of its
-//! own, 268 px, which stood its card 29 px - nearly half a row of its grid -
-//! higher on its board than this rule puts it.
+//! centre, scaled by that board's grid spacing and by the zoom the board is
+//! drawn at - so on the Viewer's smaller board, and on either board at any
+//! zoom, its centre lands on the same point of the grid. The card is
+//! interface, so it keeps its own size while the board grows and shrinks
+//! under it. The screen says where its board is drawn, since that is its
+//! layout's to know: see [`CountdownCard::overlay_node`]. The rise is the
+//! Match screen's, where the card was placed by eye with its top 250 px
+//! down the 1040x900 window, over a board drawn at its own size. Until
+//! 2026-10-05 the Viewer had a `top` of its own, 268 px, which stood its
+//! card 29 px - nearly half a row of its grid - higher on its board than
+//! this rule puts it.
 //!
 //! # Why the digit is a child of the card
 //!
@@ -33,21 +38,21 @@
 
 use bevy::prelude::*;
 
-use crate::app::visuals::{GRID_SPACING, WINDOW_HEIGHT};
+use crate::app::visuals::GRID_SPACING;
 use crate::presentation::{BLUE_BORDER, TEXT_HEADING};
 
 /// How far a countdown card's centre stands above its board's centre, in
-/// logical pixels on a board of the Match screen's [`GRID_SPACING`]. A board
-/// of another spacing scales it: see [`CountdownCard::center_y`].
+/// logical pixels on a board of the Match screen's [`GRID_SPACING`] drawn
+/// at its own size. A board of another spacing, or drawn at another zoom,
+/// scales it: see [`CountdownCard::center_y`].
 const COUNTDOWN_CARD_RISE: f32 = 157.0;
 const COUNTDOWN_CARD_BORDER: f32 = 3.0;
 
-/// One screen's countdown card: the board it stands over, its own size, its
-/// digit's size, and its fill.
+/// One screen's countdown card: the spacing of the board it stands over,
+/// its own size, its digit's size, and its fill.
 pub(super) struct CountdownCard {
-    /// The board's centre as its sprite is placed: world-space y, upward
-    /// from the middle of the window.
-    pub(super) board_center_y: f32,
+    /// The board's grid spacing in world units, as its intersections are
+    /// placed.
     pub(super) grid_spacing: f32,
     pub(super) size: Vec2,
     pub(super) font_size: FontSize,
@@ -55,23 +60,31 @@ pub(super) struct CountdownCard {
 }
 
 impl CountdownCard {
-    /// The card's centre, in logical pixels down from the top of the window.
-    pub(super) fn center_y(&self) -> f32 {
-        let board_center = WINDOW_HEIGHT as f32 / 2.0 - self.board_center_y;
-        board_center - COUNTDOWN_CARD_RISE * self.grid_spacing / GRID_SPACING
+    /// The card's centre, in logical pixels down from the top of the
+    /// window, over a board whose centre is drawn `board_center_y` down the
+    /// window at `zoom` logical pixels to a world unit.
+    pub(super) fn center_y(&self, board_center_y: f32, zoom: f32) -> f32 {
+        board_center_y - COUNTDOWN_CARD_RISE * self.grid_spacing / GRID_SPACING * zoom
     }
 
-    /// The full-width row the card is centred in. Its `top` is measured
-    /// from whatever it is laid out against, so it must be spawned as a
-    /// root node or as the child of one that covers the whole window.
-    pub(super) fn overlay_node(&self) -> Node {
+    /// The full-width row the card is centred in, over a board drawn as
+    /// [`Self::center_y`] describes. Its `top` is measured from whatever it
+    /// is laid out against, so it must be spawned as a root node or as the
+    /// child of one that covers the whole window.
+    pub(super) fn overlay_node(&self, board_center_y: f32, zoom: f32) -> Node {
         Node {
             position_type: PositionType::Absolute,
-            top: px(self.center_y() - self.size.y / 2.0),
+            top: px(self.overlay_top(board_center_y, zoom)),
             width: percent(100),
             justify_content: JustifyContent::Center,
             ..default()
         }
+    }
+
+    /// The `top` of [`Self::overlay_node`], for a layout pass that moves
+    /// the card when its board moves.
+    pub(super) fn overlay_top(&self, board_center_y: f32, zoom: f32) -> f32 {
+        self.center_y(board_center_y, zoom) - self.size.y / 2.0
     }
 
     /// Spawns the card into `overlay`, an entity spawned with
@@ -134,16 +147,16 @@ pub(super) fn measure_countdown_card(app: &mut App, stage: &str) -> CountdownLan
 
 /// Asserts what both screens owe their countdown: the digit centred on the
 /// card, and the card centred across the board and standing at the shared
-/// height above its centre. Returns the card's top, for a screen that also
-/// pins its own.
+/// height above its centre, at the zoom the board is drawn at. The board's
+/// centre is where it is drawn, in logical pixels from the window's
+/// top-left. Returns the card's top, for a screen that also pins its own.
 #[cfg(test)]
 pub(super) fn assert_countdown_card_lands_on_board(
     landing: &CountdownLanding,
-    board_center_y: f32,
+    board_center: Vec2,
     grid_spacing: f32,
+    zoom: f32,
 ) -> f32 {
-    use crate::app::visuals::WINDOW_WIDTH;
-
     // A glyph's ink is not quite centred in its advance and line, so the
     // digit is allowed a few pixels; the defect was 56 left and 15 up.
     const DIGIT_TOLERANCE: f32 = 3.0;
@@ -158,20 +171,18 @@ pub(super) fn assert_countdown_card_lands_on_board(
         "the digit {digit:?} spills out of its card {card:?}"
     );
 
-    let board_center = Vec2::new(
-        WINDOW_WIDTH as f32 / 2.0,
-        WINDOW_HEIGHT as f32 / 2.0 - board_center_y,
-    );
     assert!(
         (card.center().x - board_center.x).abs() < 0.5,
         "the card {card:?} is not centred across its board at x {}",
         board_center.x
     );
-    let rise_in_rows = (board_center.y - card.center().y) / grid_spacing;
+    // The same number of the board's rows above its centre at every zoom,
+    // to the half pixel `bevy_ui` rounds the card's top to.
+    let rows = (board_center.y - card.center().y) / (grid_spacing * zoom);
     let expected_rows = COUNTDOWN_CARD_RISE / GRID_SPACING;
     assert!(
-        (rise_in_rows - expected_rows).abs() < 0.01,
-        "the card stands {rise_in_rows} rows above its board's centre, not {expected_rows}"
+        (rows - expected_rows).abs() * grid_spacing * zoom <= 0.5,
+        "the card stands {rows} rows above its board's centre, not {expected_rows}"
     );
     card.min.y
 }

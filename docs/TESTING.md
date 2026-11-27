@@ -414,13 +414,29 @@ recorder-built fixture rather than a struct literal so it stays a `Replay` that
 could really exist in storage.
 
 `src/ui/focus.rs` carries `real_layout_app`, which runs the production UI
-headlessly against the game's 1040x900 window: `bevy_ui`'s own plugin -
-layout, its text systems and the font the game draws with, stacking and
-visibility - with `bevy_picking`, its UI backend and the crate's
-`ui::button` plugin, but no renderer. A `Text` node is sized by its glyphs
-and its glyphs are placed, so it answers where text is *drawn* as well as
-where its node is, which can differ - see the next section. Every screen's
-tests build on it.
+headlessly against a window of the size it is handed: `bevy_ui`'s own
+plugin - layout, its text systems and the font the game draws with,
+stacking and visibility - with `bevy_picking`, its UI backend and the
+crate's `ui::button` plugin, but no renderer. A `Text` node is sized by its
+glyphs and its glyphs are placed, so it answers where text is *drawn* as
+well as where its node is, which can differ - see the next section. Every
+screen's tests build on it.
+
+The size is the window's and the app's `WindowSize` alike, so a screen that
+lays itself out from the window's size is laid out for it. A test of a
+screen as it was first laid out passes `WindowSize::OPENING`, 1040x900. A
+screen laid out for any size is tested at several:
+`app::visuals::NAMED_WINDOW_SIZES` names the ones that matter, from the
+1040x600 minimum and a 1280x720 laptop's maximised window up to 2560x1440,
+and the Match screen runs its real-layout tests at all of them - every
+button reached by the pointer, every text inside the window, and nothing
+drawn meeting anything else. Its layout is a pure function of the size as
+well (`ui::match_screen::geometry`), so its own tests run every size in
+`app::visuals::layout_sweep`, which steps from the minimum to 2560x1440,
+and check the same things from the layout's own boxes. The two halves
+check different things: the sweep reaches every size, at the cost of
+trusting the layout's own idea of where each box is, and the real layout
+checks that idea against `bevy_ui` at the sizes it runs.
 
 It is also how a test presses a button. `ui::button` carries the helpers -
 `click`, `hover`, `mouse_button`, `queue_mouse_button` for a key in the same
@@ -443,11 +459,16 @@ Beside it, `measure_drawn_text` reads where one `Text` was
 drawn on such an app: its glyphs' inked box, and the nearest filled node
 under it. `measure_drawn_lines` reads the glyphs alone, line by line, for
 text drawn straight onto the window with no filled node beneath it; it is
-also the way to ask whether a line wrapped. The Match screen's
-`the_longest_end_reason_line_fits_on_one_line_inside_the_board_width` uses
-it with the font's real advance - 0.6 em, so 9.6 px a character at 16 px -
-which is what makes a line's width predictable from its character count
-before a run.
+also the way to ask whether a line wrapped. `drawn_texts` reads every text
+drawn at once, by its glyphs, and `laid_out_texts` every text by its node,
+for a test that holds a whole screen inside the window or clear of
+itself. The Match screen's
+`the_longest_end_reason_line_fits_on_one_line_clear_of_both_stacks` uses
+them with the font's real advance - 0.6 em, so 9.6 px a character at 16 px
+- which is what makes a line's width predictable from its character count
+before a run. `ui::text_metrics` is that prediction, for a layout that has
+to know before `bevy_ui` runs whether a line fits, and its test holds it to
+what `bevy_ui` lays out.
 
 The Settings Game tab's `the_game_tab_fits_its_panel_at_its_most_crowded`
 uses the same app on a panel that clips, and two things it learned are worth
@@ -996,7 +1017,8 @@ Four things about it are not obvious, and each cost a failed capture to learn
 on 2026-09-30 with Bevy 0.19.1. All four were checked again on 2026-10-27
 with Bevy 0.20.0, where each still holds - the scaled target still saves
 solid black, and the blended pixel below is the same - and the probe below
-compiles and runs unchanged:
+compiles and runs unchanged. A fifth came with the layouts that adapt to
+the window, on 2026-11-27:
 
 - **Scale with the projection, not the target.** Rendering at twice the
   logical size is `OrthographicProjection { scale: 0.5, .. }` on an image twice
@@ -1013,6 +1035,17 @@ compiles and runs unchanged:
   world sprites alike. A 96%-opaque dark panel over the Home screen's orange
   diamond is sRGB (56, 34, 23), not the (23, 22, 22) that blending the encoded
   values would give. Anything that predicts a composite has to do the same.
+- **The main camera frames the world.** A screen that lays itself out for
+  the window's size places and scales its world-space scene through the
+  main camera's projection and translation (`WorldFraming` in
+  `app::visuals`), not by moving the scene. In the opening window that is a
+  scale of 1 over the origin, which is what the probe below assumes. A
+  capture of a screen laid out for any other size - by writing the probe's
+  size into `WindowSize` before the screens' layout passes run - needs its
+  own camera to take the main camera's projection scale, divided by the
+  capture's `SCALE`, and its translation, every frame, or the board is
+  drawn at its own size about the image's centre, wherever the layout
+  around it has made room for it.
 
 The probe below is the one that work used. Save it as
 `src/ui/replay/viewer/board_probe.rs` - it lives there because the Viewer's

@@ -598,7 +598,7 @@ mod tests {
     /// the digit is measured by its glyphs.
     #[test]
     fn the_countdown_digit_is_drawn_centred_on_a_card_over_the_board() {
-        use super::geometry::{VIEWER_BOARD_CENTER_Y, VIEWER_GRID_SPACING};
+        use super::geometry::{VIEWER_GRID_SPACING, viewer_board_center_from_window};
         use crate::ui::countdown_card::{
             assert_countdown_card_lands_on_board, measure_countdown_card,
         };
@@ -608,7 +608,10 @@ mod tests {
             .join("tests/fixtures/replays/v6-round-zero.json");
         let json = std::fs::read_to_string(fixture).expect("the Round 0 fixture is checked in");
         let replay = Replay::from_json(&json).expect("the fixture is a valid Replay");
-        let mut app = viewer_screen_app(real_layout_app(), replay);
+        let mut app = viewer_screen_app(
+            real_layout_app(crate::app::visuals::WindowSize::OPENING.0),
+            replay,
+        );
         app.update();
         // Half a second in, the fixture's countdown is showing its 3. The
         // display pass shows the card on the next update, and the layout
@@ -621,7 +624,11 @@ mod tests {
         app.update();
 
         let landing = measure_countdown_card(&mut app, "3");
-        assert_countdown_card_lands_on_board(&landing, VIEWER_BOARD_CENTER_Y, VIEWER_GRID_SPACING);
+        let board_center = Vec2::new(
+            crate::app::visuals::WINDOW_WIDTH as f32 / 2.0,
+            viewer_board_center_from_window(),
+        );
+        assert_countdown_card_lands_on_board(&landing, board_center, VIEWER_GRID_SPACING, 1.0);
     }
 
     /// The pointer reaches every control the Viewer shows, at its centre,
@@ -635,7 +642,10 @@ mod tests {
         use crate::ui::button::{covered_at_their_centres, reachable_buttons};
         use crate::ui::focus::{FocusGroup, Focusable, real_layout_app};
 
-        let mut app = viewer_screen_app(real_layout_app(), fixed_metadata_replay());
+        let mut app = viewer_screen_app(
+            real_layout_app(crate::app::visuals::WindowSize::OPENING.0),
+            fixed_metadata_replay(),
+        );
         app.update();
         app.update();
         let controls = reachable_buttons(&mut app);
@@ -700,7 +710,10 @@ mod tests {
         use crate::ui::focus::real_layout_app;
         use bevy::input_focus::{InputFocus, InputFocusVisible};
 
-        let mut app = viewer_screen_app(real_layout_app(), fixed_metadata_replay());
+        let mut app = viewer_screen_app(
+            real_layout_app(crate::app::visuals::WindowSize::OPENING.0),
+            fixed_metadata_replay(),
+        );
         app.update();
 
         let control = |app: &mut App, wanted: ViewerAction| -> Entity {

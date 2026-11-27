@@ -65,7 +65,9 @@
 //! is how much of it is past the line, so a dot is full exactly when it is
 //! wholly on the near side. Every size is made from a dot's diameter, its
 //! border and the gap between two dots, which are the row's only lengths,
-//! so the row scales with the window as one piece. The clock is Bevy's
+//! so the row keeps its proportions at whatever scale the interface is
+//! drawn; a larger or smaller window moves the row and leaves its size
+//! alone, as it does all of the interface. The clock is Bevy's
 //! `Time`, never the Match clock, and the animation reads the Match and
 //! writes nothing of it.
 //!
@@ -119,20 +121,23 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-use super::layout::{CONTROL_HINT_SIDE_OFFSET, CONTROL_HINT_WIDTH};
+use super::geometry::{StackItem, match_layout};
+use super::layout::{CONTROL_HINT_WIDTH, MatchPlacement, place};
 use crate::app::AppScreen;
 use crate::app::motion::Motion;
+use crate::app::visuals::WindowSize;
 use crate::gameplay::{GameState, MatchPhase, OpeningAttempt, OpeningAttemptOutcome, player_index};
 use crate::opening::OPENING_SELECTION_LIMIT;
 use crate::presentation::{opening_dot_fill, opening_dot_frame, player_accent};
 use crate::rules::Player;
 
-/// Top of each row: below the Home and Help buttons, above the control
-/// hints.
-const ROW_TOP: f32 = 174.0;
 /// A dot's diameter, its border and the gap between two neighbours: the
 /// row's only lengths. Every other one here is made of these.
 const DOT: f32 = 13.0;
+/// The height of each row's node, which stands in its player's stack below
+/// the Home and Help buttons and above the control hints;
+/// `super::geometry` places it.
+pub(super) const ROW_HEIGHT: f32 = DOT;
 const DOT_BORDER: f32 = 2.0;
 const DOT_GAP: f32 = 10.0;
 const RADIUS: f32 = DOT / 2.0;
@@ -511,24 +516,27 @@ fn dot_node(player: Player, frame: DotFrame) -> Node {
 /// Spawns both rows, resting and empty, and forgets whatever an earlier
 /// visit to the screen was showing. Runs on entry, after the rest of the
 /// HUD, so a falling dot passes over the control hints rather than under.
-pub(super) fn spawn_opening_dots(mut commands: Commands, mut rows: ResMut<OpeningDotRows>) {
+pub(super) fn spawn_opening_dots(
+    mut commands: Commands,
+    mut rows: ResMut<OpeningDotRows>,
+    window: Res<WindowSize>,
+) {
     *rows = OpeningDotRows::default();
+    let layout = match_layout(window.layout());
     for player in [Player::Two, Player::One] {
+        let placement = MatchPlacement::Stack(player, StackItem::OpeningDots);
         let mut node = Node {
             position_type: PositionType::Absolute,
-            top: px(ROW_TOP),
             width: px(CONTROL_HINT_WIDTH),
-            height: px(DOT),
+            height: px(ROW_HEIGHT),
             ..default()
         };
-        match player {
-            Player::One => node.right = px(CONTROL_HINT_SIDE_OFFSET),
-            Player::Two => node.left = px(CONTROL_HINT_SIDE_OFFSET),
-        }
+        place(&layout, placement, &mut node);
         let accent = player_accent(player);
         commands
             .spawn((
                 node,
+                placement,
                 Visibility::Visible,
                 OpeningDots,
                 DespawnOnExit(AppScreen::Match),
@@ -983,6 +991,7 @@ mod tests {
             })
             .insert_resource(MotionPolicy::default())
             .insert_resource(Time::<()>::default())
+            .init_resource::<WindowSize>()
             .init_resource::<OpeningDotRows>()
             .add_systems(Startup, spawn_opening_dots)
             .add_systems(Update, update_opening_dots);

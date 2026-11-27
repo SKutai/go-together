@@ -146,11 +146,13 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::sprite_render::AlphaMode2d;
 
-use super::layout::{CONTROL_HINT_SIDE_OFFSET, CONTROL_HINT_WIDTH};
+use super::geometry::{StackItem, match_layout};
+use super::layout::{CONTROL_HINT_WIDTH, MatchPlacement, place};
 use crate::app::AppScreen;
 use crate::app::motion::Motion;
 use crate::app::visuals::{
-    STONE_RADIUS, STONE_RING_WIDTH, StoneMesh, StonePalette, board_position, stone_geometry,
+    STONE_RADIUS, STONE_RING_WIDTH, StoneMesh, StonePalette, WindowSize, board_position,
+    stone_geometry,
 };
 use crate::gameplay::{GameState, MatchPhase, RoundRemovals};
 use crate::presentation::{BLACK_STONE, TEXT_PRIMARY, WHITE_STONE, captured_stone_fill};
@@ -166,10 +168,10 @@ const GHOST_STROKE_WIDTH: f32 = 2.0 * STONE_RING_WIDTH;
 /// The X through the ghost, as heavy as its stroke.
 const CROSS_BAR_WIDTH: f32 = 2.0 * STONE_RING_WIDTH;
 const ANNULUS_RESOLUTION: u32 = 64;
-/// Top of the per-side count line: below the Home and Help buttons, above
-/// the Round 0 dot rows, which are hidden whenever a count can show.
-const CAPTURE_COUNT_TOP: f32 = 140.0;
-const CAPTURE_COUNT_FONT_PX: f32 = 15.0;
+/// The per-side count line stands in its player's stack, below the Home
+/// and Help buttons and above the Round 0 dot rows, which are hidden
+/// whenever a count can show; `super::geometry` places it.
+pub(super) const CAPTURE_COUNT_FONT_PX: f32 = 15.0;
 
 /// How long one stone's fade to its captor's colour takes.
 const FADE_SECONDS: f32 = 0.15;
@@ -462,6 +464,7 @@ pub(super) fn spawn_capture_marks(
     mut materials: ResMut<Assets<ColorMaterial>>,
     palette: Res<StonePalette>,
     stone_mesh: Res<StoneMesh>,
+    window: Res<WindowSize>,
     mut indication: ResMut<CaptureIndication>,
 ) {
     *indication = CaptureIndication::default();
@@ -544,18 +547,16 @@ pub(super) fn spawn_capture_marks(
         }
     }
 
+    let layout = match_layout(window.layout());
     for player in Player::ALL {
+        let placement = MatchPlacement::Stack(player, StackItem::CaptureCount);
         let mut node = Node {
             position_type: PositionType::Absolute,
-            top: px(CAPTURE_COUNT_TOP),
             width: px(CONTROL_HINT_WIDTH),
             justify_content: JustifyContent::Center,
             ..default()
         };
-        match player {
-            Player::One => node.right = px(CONTROL_HINT_SIDE_OFFSET),
-            Player::Two => node.left = px(CONTROL_HINT_SIDE_OFFSET),
-        }
+        place(&layout, placement, &mut node);
         commands.spawn((
             Text::new(""),
             TextFont {
@@ -565,6 +566,7 @@ pub(super) fn spawn_capture_marks(
             TextColor(TEXT_PRIMARY),
             TextLayout::justify(Justify::Center),
             node,
+            placement,
             CaptureCount(player),
             DespawnOnExit(AppScreen::Match),
         ));
@@ -1021,6 +1023,7 @@ mod tests {
             })
             .insert_resource(MotionPolicy::default())
             .insert_resource(Time::<()>::default())
+            .init_resource::<WindowSize>()
             .init_resource::<CaptureIndication>()
             .add_systems(Startup, spawn_capture_marks)
             .add_systems(Update, update_capture_indication);
