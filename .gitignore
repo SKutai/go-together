@@ -1,0 +1,13 @@
+/target
+/dist
+.DS_Store
+/.idea
+# The game never writes either of these here: both live under the platform
+# application-data directory (`app_data_dir` in src/platform/native.rs), and
+# tests write under the system temporary directory. Ignored only so a
+# hand-copied settings file or Replay folder cannot be committed by accident.
+/controls.json
+/replays
+/proptest-regressions
+/tools/__pycache__
+/scripts/__pycache__

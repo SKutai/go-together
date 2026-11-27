@@ -1,0 +1,88 @@
+[package]
+name = "go-together"
+version = "0.1.0"
+edition = "2024"
+description = "A local two-player simultaneous-move Go variant built with Bevy"
+license = "MIT"
+repository = "https://github.com/SKutai/go-together"
+readme = "README.md"
+publish = false
+
+[lib]
+name = "go_together"
+path = "src/lib.rs"
+
+[[bin]]
+name = "go-together"
+path = "src/main.rs"
+required-features = ["client"]
+
+[features]
+default = ["client"]
+# The Bevy application: rendering, windowing, audio playback, device
+# polling, local/browser storage, and every UI screen. The headless core
+# (rules, opening, match_settings, clock, authority, view, cue, and all of
+# replay - its crate-private recorder is compiled only under `client` or
+# `cfg(test)` because a headless non-test build has no caller for it, not
+# because it needs Bevy) compiles without it; see docs/ARCHITECTURE.md.
+client = [
+    "dep:bevy",
+    "dep:atomicwrites",
+    "dep:chrono",
+    "dep:js-sys",
+    "dep:wasm-bindgen",
+    "dep:web-sys",
+]
+
+[dependencies]
+bevy = { version = "0.20.0", default-features = false, features = ["2d", "ui", "bevy_audio", "wav"], optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+atomicwrites = { version = "0.4", optional = true }
+chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
+uuid = { version = "1.18", features = ["v4"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", features = ["MediaQueryList", "Storage", "Window"], optional = true }
+uuid = { version = "1.18", features = ["js", "v4"] }
+
+[dev-dependencies]
+proptest = "1"
+
+# Keep application code fully debuggable while reducing Bevy's dev-build
+# code and unwind-table size enough for Apple's compact-unwind limit.
+[profile.dev.package."*"]
+opt-level = 1
+
+# A build to publish is made by `scripts/build_native.py` or
+# `scripts/build-web.sh`, which add rustc's `--remap-path-prefix` so that the
+# result records no path of the machine that built it. Cargo's `trim-paths`
+# setting would do that from this profile, with no script, but it is not
+# stable in the toolchain this project pins: Cargo 1.98 refuses a manifest
+# that sets it. See "Paths of the build machine" in docs/DISTRIBUTION.md.
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = 3
+strip = "symbols"
+
+# Used only for the WASM/web build: `scripts/build-web.sh` selects it with
+# `trunk build --release --cargo-profile wasm-release`. It is deliberately
+# not set in Trunk.toml's `[build]` section, so `trunk serve` stays on the
+# ordinary dev profile; `cargo build --release` never uses it either. Measured
+# on this project's own dependency tree: opt-level = "z" instead of the
+# native release profile's 3 cuts the built .wasm from ~47.7 MiB to ~26.1
+# MiB (~45% smaller) with everything else unchanged, which materially
+# shortens download and instantiation time for a browser player. Native
+# builds keep opt-level = 3 in [profile.release] above - a local desktop
+# install has no comparable download-size pressure, and this project is not
+# CPU-bound in a way "z"'s runtime-speed tradeoff would be worth making
+# there too. See docs/DISTRIBUTION.md's "Build profiles" section for the
+# full measurement this decision is based on.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"

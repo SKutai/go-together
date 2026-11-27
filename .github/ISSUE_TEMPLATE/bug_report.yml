@@ -1,0 +1,81 @@
+name: Bug report
+description: The game did something wrong, or something other than what its rules and Help say.
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting this. The more exactly a bug can be repeated, the sooner it can be fixed, so the questions below ask for what a fix usually needs.
+
+        **An issue is public, and so is every file attached to it.** If what you found could harm other players, please do not describe it here: [docs/SECURITY.md](https://github.com/SKutai/go-together/blob/main/docs/SECURITY.md#reporting-a-vulnerability) says how to report it privately.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+      description: What you saw or heard, and what you expected instead. If a rule is involved, say which one you had in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps that lead to it
+      description: Starting from the Home screen if you can. Say whether it happens every time, sometimes, or happened once.
+      placeholder: |
+        1. Start a Match with Round Time on.
+        2. In Round 0, ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Which build
+      description: The game does not show a version number yet. If you built it yourself, give the commit, which `git rev-parse --short HEAD` prints. If you downloaded it or played it on a web page, give the name of the file or the address of the page.
+      placeholder: "a1b2c3d, or the name of the download"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where you were playing
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - A web browser
+    validations:
+      required: true
+  - type: input
+    id: platform-version
+    attributes:
+      label: System or browser version
+      description: The version of the operating system. In a browser, the browser's name and version as well.
+    validations:
+      required: true
+  - type: dropdown
+    id: input-device
+    attributes:
+      label: How the game was being played
+      description: If a controller was involved, please name its make and model in the steps above.
+      options:
+        - Keyboard only
+        - Controller only
+        - Keyboard and controller together
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        ### Settings, Replays and logs
+
+        A report about lost controls or preferences, or about a Replay that will not load or plays back wrongly, is far more useful with the file itself. The README's [Local data and compatibility](https://github.com/SKutai/go-together/blob/main/README.md#local-data-and-compatibility) section says where Settings and Replays are kept on each system, and under which keys a browser stores them.
+
+        Please look at a file before you attach it, because it becomes public with the issue. A Replay holds its label and the time the Match was played; Settings hold your key and controller bindings and your preferences. If the game was started from a terminal, or the browser's console is open, a warning printed there is welcome too - it can contain a path with your user name in it, which you may wish to remove first.
+  - type: textarea
+    id: files
+    attributes:
+      label: Files, logs and anything else
+      description: Optional. Drag files into this box to attach them. The section just above says where Settings and Replays are kept, and that whatever is attached here is public.
+    validations:
+      required: false

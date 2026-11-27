@@ -1,0 +1,90 @@
+name: Advisory scan
+
+# Deliberately a workflow of its own rather than a job in `ci.yml`, and
+# deliberately not on `push` or `pull_request`. Nothing here gates anything, so
+# running it on every commit spends a third runner per push to produce a log
+# nobody is required to read - and the RustSec advisory database moves on its
+# own timeline rather than with this repository's commits, so a weekly answer
+# is as current as a per-push one in every way that matters.
+#
+# `workflow_dispatch` is the escape hatch: run it by hand from the Actions tab
+# when the answer matters now, which is the same thing `cargo audit` locally
+# gives you.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays, 06:00 UTC.
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # Informational only: nothing here gates anything, in this workflow or any
+  # other. It scans `Cargo.lock` against the RustSec advisory database, which
+  # moves independently of this repository - a newly published advisory in a
+  # transitive dependency with no available fix yet is not a statement about
+  # this repository's code. See docs/SECURITY.md#dependencies-and-automation.
+  # Findings show up in this job's log for a maintainer to review, and both
+  # steps below are guarded so neither the scan nor the install that precedes
+  # it can turn this run red.
+  #
+  # It also runs on a runner of its own, not merely in a workflow of its own.
+  # As the last step of `ci.yml`'s `native` job it exhausted the disk every
+  # time it was attempted: `cargo install cargo-audit` compiles `rustls` and
+  # `aws-lc-rs` in release mode, and that runner had already built Bevy with
+  # full debug information, built documentation and run the whole test suite.
+  # A fresh runner removes that pressure instead of masking it, and leaves the
+  # room `native` has had since it stopped building debug information as
+  # margin for that job's own growth.
+  audit:
+    name: Advisory scan (informational, non-blocking)
+    runs-on: ubuntu-latest
+    env:
+      # Set empty on purpose, and kept even though this workflow's `env` block
+      # does not deny warnings the way `ci.yml`'s does. `-D warnings` is a rule
+      # about this repository's own code; it has no business denying warnings
+      # in a third-party tool's dependency tree, where any newly introduced one
+      # would break the install instead. Stating it here means that stays true
+      # if a workflow-wide default is ever added above.
+      RUSTFLAGS: ''
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+
+      # Keyed on the pinned tool version rather than on `Cargo.lock`, the way
+      # the `web` job caches Trunk: the binary does not depend on this
+      # project's dependency graph, so a `Cargo.lock` edit must not force it
+      # to be rebuilt from source.
+      - name: Cache cargo-audit
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/bin/cargo-audit
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: ${{ runner.os }}-cargo-audit-0.22.2-v1
+
+      - name: Install cargo-audit 0.22.2 (failure cannot fail CI)
+        id: install_cargo_audit
+        continue-on-error: true
+        run: cargo install cargo-audit --locked --version 0.22.2
+
+      # Skipped rather than run against a missing binary when the install
+      # above did not succeed. `continue-on-error` sets `outcome` to the real
+      # result while forcing `conclusion` to success, so this reads the former.
+      - name: Scan Cargo.lock for advisories (failure cannot fail CI)
+        if: steps.install_cargo_audit.outcome == 'success'
+        continue-on-error: true
+        run: cargo audit

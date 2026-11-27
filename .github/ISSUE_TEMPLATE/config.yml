@@ -1,0 +1,6 @@
+# Blank issues stay enabled: an idea or a question fits no form.
+#
+# There is no contact link for a security report. GitHub lists a repository's
+# security policy on this page by itself, and docs/SECURITY.md is that
+# policy, so a link here would be a second entry for the same thing.
+blank_issues_enabled: true

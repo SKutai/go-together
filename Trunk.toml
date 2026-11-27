@@ -1,0 +1,21 @@
+trunk-version = "=0.21.14"
+
+[build]
+target = "index.html"
+dist = "dist"
+public_url = "./"
+filehash = true
+inject_scripts = true
+locked = true
+# Trunk 0.21's JS minifier does not parse current wasm-bindgen output.
+minify = "never"
+pattern_script = """
+<script id="go-together-loader" type="module" src="{base}web/shell.js" data-bindings="{base}{js}" data-wasm="{base}{wasm}"></script>
+"""
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8080
+open = false
+no_autoreload = true
+no_error_reporting = true

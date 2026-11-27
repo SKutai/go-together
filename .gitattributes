@@ -1,0 +1,4 @@
+# The Replay fixtures are compared byte-for-byte against what the crate
+# writes (LF line endings), so they must check out identically on every
+# platform - see tests/fixtures/replays/README.md.
+tests/fixtures/replays/*.json text eol=lf

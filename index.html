@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'none'; object-src 'none'; frame-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; form-action 'none'"
+    >
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#11191a">
+    <title>Go Together</title>
+
+    <link rel="stylesheet" href="./web/styles.css">
+    <link data-trunk rel="copy-file" href="LICENSE">
+    <link data-trunk rel="copy-dir" href="web">
+    <link data-trunk rel="copy-dir" href="assets">
+    <link data-trunk rel="rust" data-wasm-opt="0">
+  </head>
+  <body>
+    <main class="game-shell">
+      <h1 class="visually-hidden">Go Together</h1>
+      <div class="canvas-frame">
+        <canvas
+          id="go-together"
+          width="1040"
+          height="900"
+          tabindex="0"
+          aria-label="Go Together game"
+          aria-describedby="web-status focus-guidance"
+        >
+          Go Together needs a browser with WebAssembly and canvas support.
+        </canvas>
+      </div>
+      <div class="shell-copy">
+        <p id="web-status" class="status-line" data-state="loading" role="status" aria-live="polite">
+          Loading Go Together...
+        </p>
+        <p id="focus-guidance" class="focus-guidance">
+          After loading, click or tap the game, or focus it and press a key, to start with audio enabled.
+        </p>
+      </div>
+      <noscript>
+        <p class="noscript-message">JavaScript is required to start Go Together.</p>
+      </noscript>
+    </main>
+  </body>
+</html>
