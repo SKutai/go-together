@@ -16,14 +16,14 @@
 //! [`WindowSize::layout`], which is the window's own size but never less
 //! than [`MIN_WINDOW_WIDTH`] by [`MIN_WINDOW_HEIGHT`]. [`WINDOW_WIDTH`] and
 //! [`WINDOW_HEIGHT`] are only the size the window opens at, and the window
-//! keeps it: it is not resizable. The Match screen is laid out for any
-//! size; Home, the Replay screens, Settings and the Help modal are still
-//! laid out for the opening size.
+//! keeps it: it is not resizable. The Match screen and Home are laid out for
+//! any size; the Replay screens, Settings and the Help modal are still laid
+//! out for the opening size.
 //!
 //! Text and controls are `bevy_ui` nodes, which no camera transform touches,
 //! so they keep their size whatever the window does. What grows and shrinks
-//! is the world-space scene - the Match board with everything drawn on it -
-//! and it is placed and scaled by the one camera that
+//! is the world-space scene - the Match board with everything drawn on it,
+//! and Home's diamond - and it is placed and scaled by the one camera that
 //! draws it, [`MainCamera`], rather than by moving the scene: a screen
 //! writes [`WorldFraming`], the zoom and the world point at the window's
 //! centre, and [`frame_main_camera`] gives the camera that projection scale

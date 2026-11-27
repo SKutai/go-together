@@ -428,10 +428,11 @@ screen as it was first laid out passes `WindowSize::OPENING`, 1040x900. A
 screen laid out for any size is tested at several:
 `app::visuals::NAMED_WINDOW_SIZES` names the ones that matter, from the
 1040x600 minimum and a 1280x720 laptop's maximised window up to 2560x1440,
-and the Match screen runs its real-layout tests at all of them - every
-button reached by the pointer, every text inside the window, and nothing
-drawn meeting anything else. Its layout is a pure function of the size as
-well (`ui::match_screen::geometry`), so its own tests run every size in
+and the Match screen and Home run their real-layout tests at all of them -
+every button reached by the pointer, every text inside the window, and on
+the Match nothing drawn meeting anything else. Their layouts are pure
+functions of the size as well (`ui::match_screen::geometry`,
+`ui::home::geometry`), so their own tests run every size in
 `app::visuals::layout_sweep`, which steps from the minimum to 2560x1440,
 and check the same things from the layout's own boxes. The two halves
 check different things: the sweep reaches every size, at the cost of

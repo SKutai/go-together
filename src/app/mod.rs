@@ -252,7 +252,9 @@ fn deferred_startup_warnings(
 pub(crate) enum AppSystems {
     /// HUD button presses: screen navigation and modal open/close.
     HudInput,
-    /// The home-screen marimba Easter egg: note input and fade animation.
+    /// The home-screen marimba Easter egg: note input and fade animation,
+    /// and where the marimba and the diamond stand when the window's size
+    /// changes.
     HomeEasterEgg,
     /// Settings screen: tab/preference buttons and binding capture.
     SettingsInput,

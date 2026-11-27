@@ -5,7 +5,12 @@
 //! clean slate: any abandoned match is discarded and its recorder dropped
 //! without being saved. Leaving Home despawns its entities and resets the
 //! marimba, which is why the Easter egg has to be re-earned on every visit.
+//!
+//! The panel is centred at its own size in a window of any size; the
+//! diamond behind it and the marimba answer to the window's size as
+//! [`geometry`] says, set at entry and again whenever the size changes.
 
+mod geometry;
 mod marimba;
 
 use bevy::prelude::*;
@@ -14,12 +19,20 @@ use super::focus::{FocusGroup, Focusable};
 use super::hud::HudAction;
 use super::settings::SETTINGS_TITLE;
 use super::widgets::spawn_menu_button;
-use crate::app::AppScreen;
+use crate::app::visuals::{WindowSize, WorldFraming};
+use crate::app::{AppScreen, AppSystems};
 use crate::gameplay::{GameState, InputGate, initialize_home_state};
 use crate::presentation::{
     HOME_PANEL_BACKGROUND, ORANGE, PANEL_BACKGROUND, TEXT_HEADING, TEXT_MUTED,
 };
-use marimba::{HomeMarimbaState, MarimbaPlugin, reset_home_marimba, spawn_home_marimba};
+use geometry::{
+    DIAMOND_CENTER_Y, DIAMOND_FACE_SIDE, DIAMOND_SIDE, PANEL_BORDER, PANEL_GAP, PANEL_PADDING,
+    PANEL_WIDTH, SUBTITLE_MARGIN_ABOVE, SUBTITLE_SIZE, TAGLINE_MARGIN_BELOW, TAGLINE_SIZE,
+    TITLE_SIZE, home_layout,
+};
+use marimba::{
+    HomeMarimbaState, MarimbaNodes, MarimbaPlugin, reset_home_marimba, spawn_home_marimba,
+};
 
 /// Owns the Home screen lifecycle and the marimba systems.
 pub(super) struct HomePlugin;
@@ -30,6 +43,13 @@ impl Plugin for HomePlugin {
             .add_systems(
                 OnEnter(AppScreen::Home),
                 (prepare_home_screen, spawn_home_screen).chain(),
+            )
+            .add_systems(
+                Update,
+                place_home_furniture
+                    .run_if(in_state(AppScreen::Home))
+                    .run_if(resource_changed::<WindowSize>)
+                    .in_set(AppSystems::HomeEasterEgg),
             )
             .add_systems(OnExit(AppScreen::Home), reset_home_screen_resources);
     }
@@ -63,16 +83,25 @@ fn reset_home_screen_resources(mut marimba: ResMut<HomeMarimbaState>) {
     reset_home_marimba(&mut marimba);
 }
 
-fn spawn_home_screen(mut commands: Commands) {
+/// Spawns Home for the window's size: the diamond, framed by the main
+/// camera at the zoom [`geometry`] gives it, the panel, and the marimba in
+/// its stance.
+fn spawn_home_screen(
+    mut commands: Commands,
+    window: Res<WindowSize>,
+    mut framing: ResMut<WorldFraming>,
+) {
+    let layout = home_layout(window.layout());
+    framing.set_if_neq(layout.framing());
     commands.spawn((
-        Sprite::from_color(ORANGE, Vec2::splat(470.0)),
-        Transform::from_xyz(0.0, 10.0, -2.0)
+        Sprite::from_color(ORANGE, Vec2::splat(DIAMOND_SIDE)),
+        Transform::from_xyz(0.0, DIAMOND_CENTER_Y, -2.0)
             .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_4)),
         DespawnOnExit(AppScreen::Home),
     ));
     commands.spawn((
-        Sprite::from_color(PANEL_BACKGROUND, Vec2::splat(430.0)),
-        Transform::from_xyz(0.0, 10.0, -1.0)
+        Sprite::from_color(PANEL_BACKGROUND, Vec2::splat(DIAMOND_FACE_SIDE)),
+        Transform::from_xyz(0.0, DIAMOND_CENTER_Y, -1.0)
             .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_4)),
         DespawnOnExit(AppScreen::Home),
     ));
@@ -89,12 +118,12 @@ fn spawn_home_screen(mut commands: Commands) {
         ))
         .with_children(|root| {
             root.spawn(Node {
-                width: px(590),
-                padding: UiRect::axes(px(54), px(46)),
-                border: UiRect::all(px(2)),
+                width: px(PANEL_WIDTH),
+                padding: UiRect::axes(px(PANEL_PADDING.x), px(PANEL_PADDING.y)),
+                border: UiRect::all(px(PANEL_BORDER)),
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
-                row_gap: px(16),
+                row_gap: px(PANEL_GAP),
                 ..default()
             })
             .insert((
@@ -106,7 +135,7 @@ fn spawn_home_screen(mut commands: Commands) {
                 panel.spawn((
                     Text::new("Go Together"),
                     TextFont {
-                        font_size: FontSize::Px(68.0),
+                        font_size: FontSize::Px(TITLE_SIZE),
                         ..default()
                     },
                     TextColor(TEXT_HEADING),
@@ -115,13 +144,13 @@ fn spawn_home_screen(mut commands: Commands) {
                 panel.spawn((
                     Text::new("SIMULTANEOUS GO  |  SHARED BOARD"),
                     TextFont {
-                        font_size: FontSize::Px(15.0),
+                        font_size: FontSize::Px(TAGLINE_SIZE),
                         ..default()
                     },
                     TextColor(TEXT_MUTED),
                     TextLayout::justify(Justify::Center),
                     Node {
-                        margin: UiRect::bottom(px(20)),
+                        margin: UiRect::bottom(px(TAGLINE_MARGIN_BELOW)),
                         ..default()
                     },
                 ));
@@ -140,7 +169,7 @@ fn spawn_home_screen(mut commands: Commands) {
                 panel.spawn((
                     Text::new(HOME_SUBTITLE),
                     TextFont {
-                        font_size: FontSize::Px(14.0),
+                        font_size: FontSize::Px(SUBTITLE_SIZE),
                         ..default()
                     },
                     // Muted rather than subtle: the panel is translucent,
@@ -149,14 +178,26 @@ fn spawn_home_screen(mut commands: Commands) {
                     TextColor(TEXT_MUTED),
                     TextLayout::justify(Justify::Center),
                     Node {
-                        margin: UiRect::top(px(12)),
+                        margin: UiRect::top(px(SUBTITLE_MARGIN_ABOVE)),
                         ..default()
                     },
                 ));
             });
         });
 
-    spawn_home_marimba(&mut commands);
+    spawn_home_marimba(&mut commands, layout.marimba);
+}
+
+/// Moves Home's diamond and marimba to where a window of the new size puts
+/// them; runs only on a frame the window's size changed.
+fn place_home_furniture(
+    window: Res<WindowSize>,
+    mut framing: ResMut<WorldFraming>,
+    mut marimba: MarimbaNodes,
+) {
+    let layout = home_layout(window.layout());
+    framing.set_if_neq(layout.framing());
+    marimba.place(layout.marimba);
 }
 
 #[cfg(test)]
@@ -167,18 +208,15 @@ mod tests {
     use crate::ui::hud::{HudState, apply_hud_action};
     use crate::ui::settings::{SETTINGS_TAB_ORDER, settings_tab_action_and_label};
 
-    /// The pointer reaches each of Home's four menu buttons at its centre,
-    /// under real layout and real picking, with everything the screen can
-    /// draw shown - the marimba included. The title panel and the marimba
-    /// stand above the screen's root on `GlobalZIndex`es of their own, and
-    /// picking stops at the first node under the pointer whatever it is.
-    #[test]
-    fn the_pointer_reaches_every_home_button_with_the_marimba_drawn() {
-        use crate::ui::button::{covered_at_their_centres, reachable_buttons};
+    /// Home laid out by `bevy_ui` in a window of `window` logical pixels,
+    /// entered as the game enters it, with the one thing it hides - the
+    /// marimba - shown.
+    fn home_layout_app(window: Vec2) -> App {
         use crate::ui::focus::real_layout_app;
 
-        let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
+        let mut app = real_layout_app(window);
         app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_resource::<WorldFraming>()
             .insert_state(AppScreen::Home)
             .add_systems(OnEnter(AppScreen::Home), spawn_home_screen);
         app.update();
@@ -192,10 +230,169 @@ mod tests {
         }
         assert_eq!(hidden, 1, "the marimba is the one thing Home hides");
         app.update();
+        app
+    }
 
-        let buttons = reachable_buttons(&mut app);
-        assert_eq!(buttons.len(), HOME_ACTIONS.len());
-        assert_eq!(covered_at_their_centres(&mut app, &buttons), []);
+    /// The boxes of the panel and of each marimba bar, lowest note first, in
+    /// logical pixels from the window's top-left, as `bevy_ui` laid them
+    /// out.
+    fn panel_and_bars(app: &mut App) -> (Rect, Vec<Rect>) {
+        use bevy::ui::{ComputedNode, UiGlobalTransform};
+        use marimba::HomeMarimbaBar;
+
+        let world = app.world_mut();
+        let rect = |node: &ComputedNode, transform: &UiGlobalTransform| {
+            let scale = node.inverse_scale_factor;
+            Rect::from_center_size(transform.translation * scale, node.size * scale)
+        };
+        let panels: Vec<Rect> = world
+            .query::<(&ComputedNode, &UiGlobalTransform, &BackgroundColor)>()
+            .iter(world)
+            .filter(|(.., fill)| fill.0 == HOME_PANEL_BACKGROUND)
+            .map(|(node, transform, _)| rect(node, transform))
+            .collect();
+        assert_eq!(panels.len(), 1, "one panel");
+        let mut bars: Vec<(usize, Rect)> = world
+            .query::<(&HomeMarimbaBar, &ComputedNode, &UiGlobalTransform)>()
+            .iter(world)
+            .map(|(bar, node, transform)| (bar.0, rect(node, transform)))
+            .collect();
+        bars.sort_by_key(|(index, _)| *index);
+        (panels[0], bars.into_iter().map(|(_, rect)| rect).collect())
+    }
+
+    /// At every named size, under real layout and real picking: the pointer
+    /// reaches each of Home's four menu buttons at its centre with
+    /// everything the screen can draw shown, the marimba included; every
+    /// text stands inside the window; the panel is as tall as `geometry`
+    /// reckons, which is what the marimba's stance is worked out from; the
+    /// camera frames the diamond as `geometry` says; and the marimba's bars
+    /// stand inside the window, clear of the panel, running across under it
+    /// or up beside it. The title panel and the marimba stand above the
+    /// screen's root on `GlobalZIndex`es of their own, and picking stops at
+    /// the first node under the pointer whatever it is.
+    #[test]
+    fn the_pointer_reaches_every_home_button_with_the_marimba_drawn() {
+        use crate::app::visuals::NAMED_WINDOW_SIZES;
+        use crate::ui::button::{covered_at_their_centres, reachable_buttons};
+        use crate::ui::focus::laid_out_texts;
+        use geometry::{MarimbaStance, PANEL_HEIGHT};
+
+        let mut stances = Vec::new();
+        for window in NAMED_WINDOW_SIZES {
+            let mut app = home_layout_app(window);
+            let buttons = reachable_buttons(&mut app);
+            assert_eq!(buttons.len(), HOME_ACTIONS.len(), "{window}");
+            assert_eq!(covered_at_their_centres(&mut app, &buttons), [], "{window}");
+            let inside = Rect::from_corners(Vec2::ZERO, window);
+            for (text, rect) in laid_out_texts(&mut app) {
+                assert!(
+                    inside.contains(rect.min) && inside.contains(rect.max),
+                    "{window}: {text:?} at {rect:?}"
+                );
+            }
+
+            let layout = home_layout(window);
+            assert_eq!(*app.world().resource::<WorldFraming>(), layout.framing());
+            let (panel, bars) = panel_and_bars(&mut app);
+            assert!(
+                (panel.height() - PANEL_HEIGHT).abs() < 1.0,
+                "{window}: the panel is {} tall, reckoned {PANEL_HEIGHT}",
+                panel.height()
+            );
+            assert_eq!(bars.len(), 11);
+            for bar in &bars {
+                assert!(
+                    inside.contains(bar.min) && inside.contains(bar.max),
+                    "{window}: a bar at {bar:?} leaves the window"
+                );
+                assert!(
+                    bar.intersect(panel).is_empty(),
+                    "{window}: a bar at {bar:?} covers the panel {panel:?}"
+                );
+            }
+            // The lowest bar is the longest: across the window it stands at
+            // the left, upright it lies at the bottom.
+            let (lowest, highest) = (bars[0], bars[10]);
+            match layout.marimba {
+                MarimbaStance::UnderPanel => {
+                    assert!(lowest.height() > highest.height(), "{window}");
+                    assert!(lowest.max.x < highest.min.x, "{window}");
+                    assert!(bars.iter().all(|bar| bar.min.y > panel.max.y), "{window}");
+                }
+                MarimbaStance::Upright(_) => {
+                    assert!(lowest.width() > highest.width(), "{window}");
+                    assert!(lowest.min.y > highest.max.y, "{window}");
+                    assert!(bars.iter().all(|bar| bar.min.x > panel.max.x), "{window}");
+                }
+            }
+            stances.push(matches!(layout.marimba, MarimbaStance::Upright(_)));
+        }
+        assert!(stances.contains(&true) && stances.contains(&false));
+    }
+
+    /// When the window's size changes, Home moves with it: the diamond's
+    /// framing and the marimba's stance follow, and back in the opening
+    /// window every node is again the one a fresh entry spawns, so turning
+    /// the marimba upright and back leaves nothing of the turn behind.
+    #[test]
+    fn a_change_of_window_size_moves_home_and_moving_back_restores_it() {
+        use crate::app::visuals::WindowSize;
+        use marimba::{HomeMarimbaBar, HomeMarimbaVisual};
+
+        fn marimba_nodes(app: &mut App) -> Vec<Node> {
+            let world = app.world_mut();
+            let mut nodes: Vec<Node> = world
+                .query_filtered::<&Node, With<HomeMarimbaVisual>>()
+                .iter(world)
+                .cloned()
+                .collect();
+            nodes.extend(
+                world
+                    .query_filtered::<&Node, With<HomeMarimbaBar>>()
+                    .iter(world)
+                    .cloned(),
+            );
+            nodes
+        }
+
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<AppScreen>()
+            .init_resource::<WindowSize>()
+            .init_resource::<WorldFraming>()
+            .add_systems(OnEnter(AppScreen::Home), spawn_home_screen)
+            .add_systems(
+                Update,
+                place_home_furniture
+                    .run_if(in_state(AppScreen::Home))
+                    .run_if(resource_changed::<WindowSize>),
+            );
+        app.update();
+        let opening = marimba_nodes(&mut app);
+        assert_eq!(
+            *app.world().resource::<WorldFraming>(),
+            WorldFraming::IDENTITY
+        );
+
+        app.insert_resource(WindowSize::MINIMUM);
+        app.update();
+        let smallest = home_layout(WindowSize::MINIMUM.0);
+        assert_eq!(*app.world().resource::<WorldFraming>(), smallest.framing());
+        let moved = marimba_nodes(&mut app);
+        assert_ne!(moved, opening, "the marimba turned upright");
+        let geometry::MarimbaStance::Upright(top_left) = smallest.marimba else {
+            panic!("the smallest window stands the marimba upright");
+        };
+        assert_eq!(moved[0].left, px(top_left.x));
+
+        app.insert_resource(WindowSize::OPENING);
+        app.update();
+        assert_eq!(marimba_nodes(&mut app), opening);
+        assert_eq!(
+            *app.world().resource::<WorldFraming>(),
+            WorldFraming::IDENTITY
+        );
     }
 
     #[test]
@@ -239,7 +436,9 @@ mod tests {
     #[test]
     fn home_menu_buttons_are_focusable_in_drawn_order_and_nothing_else_is() {
         let mut app = App::new();
-        app.add_systems(Update, spawn_home_screen);
+        app.init_resource::<crate::app::visuals::WindowSize>()
+            .init_resource::<WorldFraming>()
+            .add_systems(Update, spawn_home_screen);
         app.update();
 
         let world = app.world_mut();

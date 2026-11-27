@@ -487,9 +487,9 @@ Every other screen relies on the automatic mechanism exclusively.
 ## The window's size, and what answers to it
 
 The window opens at 1040x900 logical pixels, and every screen was first
-laid out for exactly that. The Match screen is now laid out for any size
-from 1040x600 up; the window itself is still fixed at the opening size
-(`resizable: false`), and Home, the Replay screens, Settings and the Help
+laid out for exactly that. The Match screen and Home are now laid out for
+any size from 1040x600 up; the window itself is still fixed at the opening
+size (`resizable: false`), and the Replay screens, Settings and the Help
 modal are still laid out for it alone.
 
 **One input.** `app::visuals::WindowSize` is the primary window's logical
@@ -503,7 +503,7 @@ size; nothing adapted positions itself from them.
 **Text never changes size.** Interface nodes are laid out in the window's
 own pixels at their own sizes, so the 14px floor holds at every size. What
 grows and shrinks is the world-space scene - the Match board with every
-mark on it - and it is placed and scaled by the main
+mark on it, and Home's diamond - and it is placed and scaled by the main
 camera, not by moving or resizing the scene. A screen writes
 `WorldFraming`, a zoom and the world point at the window's centre, and
 `frame_main_camera` gives the camera that projection scale and
@@ -540,6 +540,12 @@ spawns each piece where the layout says, marks it with its
 countdown card is placed over the same rows of the board at any zoom by the
 rule `ui::countdown_card` shares with the Replay Viewer, and the capture
 marks, being world-space, scale with the stones they stand on.
+
+**Home** (`ui::home::geometry`) stays centred at its own size. In a window
+shorter than the opening one its diamond shrinks, through the camera, until
+its corners stay inside the window, but never below the panel's height;
+and the hidden marimba, which stands under the panel, stands upright beside
+it wherever under the panel it would meet the panel or the diamond.
 
 **The tests** sweep every layout over `app::visuals::layout_sweep`, from the
 minimum to 2560x1440, and hold that nothing overlaps, nothing leaves the
@@ -626,11 +632,12 @@ instead of frame count:
   `a_new_replay_at_the_same_boundary_index_is_never_mistaken_for_a_cached_one`
   during development).
 * **Size-gated placement**, for where things stand. The Match screen's
-  `place_match_furniture` moves its nodes only on a frame the window's size
-  changed or its furniture was spawned - which its spawners have already
-  placed - and then only the nodes that moved, compared as above. Its camera
-  framing is the one placement compared every frame, because a change of
-  screen resets it and the screen's first frame has to take it back. See
+  `place_match_furniture` and Home's `place_home_furniture` move their nodes
+  only on a frame the window's size changed - or, on the Match, the frame its
+  furniture was spawned, which its spawners have already placed - and then
+  only the nodes that moved, compared as above. The Match's camera framing
+  is the one placement compared every frame, because a change of screen
+  resets it and the screen's first frame has to take it back. See
   [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it).
 
 What stays a true, unguarded per-frame write on purpose:
