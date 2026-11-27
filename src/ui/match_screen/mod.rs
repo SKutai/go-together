@@ -1456,11 +1456,11 @@ mod tests {
     /// result, reasons, Match timer and round panel, all shown - ends above
     /// the board.
     ///
-    /// Until this test the banner's tests used one or two reasons, and none
-    /// of them would have seen that the single 34 px line they pinned was,
-    /// at this worst case, 110 characters and 2,239 px of ink in a 1,040 px
-    /// window, wrapping to three lines across both corner headings and the
-    /// clocks. Measured on 2026-10-07 with this app, before the change.
+    /// A test with one or two reasons would not find this case. When the
+    /// banner was a single 34 px line, this case made it 110 characters and
+    /// 2,239 px of ink in a 1,040 px window, wrapping to three lines across
+    /// both corner headings and the clocks (measured on 2026-10-07 with this
+    /// app, on that earlier layout).
     #[test]
     fn the_longest_end_reason_line_fits_on_one_line_inside_the_board_width() {
         use crate::app::visuals::{WINDOW_HEIGHT, WINDOW_WIDTH};

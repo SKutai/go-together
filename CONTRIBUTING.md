@@ -352,8 +352,8 @@ that should be: a key name withdrawn because the interface reserved the key
 for itself. `f1` left `KeyboardKey` when F1 became the Help key, so a
 settings file naming it loses its keyboard section to defaults with a
 warning. A file naming `escape` has always failed to parse, since that key
-never had a name; until the keyboard section became recoverable in the same
-change, that failure cost the whole file. No schema version could have
+never had a name; until the keyboard section was made recoverable, that
+failure cost the whole file. No schema version could have
 expressed the withdrawal - a key no version may bind is not a schema - and
 the per-section isolation of rule 4 is what makes the cost one section rather
 than the file.

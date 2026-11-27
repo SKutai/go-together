@@ -206,9 +206,9 @@
 //! Home. Every resolved focus change also lands
 //! in [`InputFocus`], which is what makes `bevy_winit` publish the
 //! screen-reader cursor alongside the ring; inbound AccessKit action
-//! routing is deliberately absent here (part 4). When it comes, the
-//! natural shape is an `Activate` on the button the screen reader clicked,
-//! which every reader already answers.
+//! routing is deliberately left for later, as work of its own. When it
+//! comes, the natural shape is an `Activate` on the button the screen
+//! reader clicked, which every reader already answers.
 
 use std::collections::HashMap;
 
@@ -387,9 +387,9 @@ impl UiFocusState {
 /// that the ring should stop moving as well as pressing while a control
 /// reads the keys, records why there. The Replay Library raises it, from
 /// `ui::replay::library::ring`, for its search field and its rename
-/// dialog. Landing the resource ahead of both was a deliberate exception to
-/// not inventing mechanisms ahead of their screens: they would otherwise
-/// each have added the same resource and edited the same three lines here.
+/// dialog. Both share this one resource, defined beside the ring that reads
+/// it, rather than each adding the same resource and editing the same three
+/// lines of this module.
 #[derive(Resource, Default)]
 pub(crate) struct FocusYield(pub(crate) bool);
 
