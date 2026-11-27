@@ -3065,6 +3065,47 @@ documentation, and tidies the guard away.
 8. Add a navigation/cleanup regression test - see [Screen, modal, and
    persistent entity ownership](#screen-modal-and-persistent-entity-ownership).
 
+### Lay a screen out for any window size
+
+The Match screen and Home are the worked examples; see
+[The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it)
+for why each step is the way it is.
+
+1. Read the size from `app::visuals::WindowSize`, through
+   `WindowSize::layout()`, which raises it to the 1040x600 minimum. Never
+   place anything from `WINDOW_WIDTH` and `WINDOW_HEIGHT`, which are only
+   the size the window opens at.
+2. Write the layout as a pure function of that size, in the screen's
+   `geometry.rs` beside its `layout.rs`, as `ui::match_screen::geometry` and
+   `ui::home::geometry` do. Keep every text at its size and find room by
+   moving things; where a line must fit, size its place for the longest text
+   it can hold, with `ui::text_metrics`, and add a test that holds each such
+   budget to the text the screen really writes there.
+3. Test the function over `app::visuals::layout_sweep()`: every box at its
+   largest inside the window and clear of every other, and the opening
+   window's positions written out as numbers and equal to what the screen
+   had before, so the familiar layout stays pixel-identical.
+4. Mark every node whose place depends on the window with a placement
+   component, and write places through one function that both the spawner
+   and a placement pass call - the pass running when `WindowSize` changes,
+   and when the furniture first appears. Have each arrangement set every
+   field it owns, so a node moved into one arrangement and back is the node
+   it was, and test that a change of size moves every node to where a fresh
+   entry at the new size puts it.
+5. Place a world-space board through the main camera: write
+   `WorldFraming::placing(board_centre_in_world, board_centre_in_window,
+   size, zoom)` from the screen's first frame on, since every change of
+   screen puts the framing back, and never move the board's sprites to fit.
+   Text drawn in world space is scaled by the camera too, so counter-scale
+   it or move it into `bevy_ui`. A Round 0 countdown card takes its board's
+   place in the window and its zoom (`CountdownCard::overlay_node`).
+6. Run the screen's real-layout tests at `app::visuals::NAMED_WINDOW_SIZES`
+   with `real_layout_app(size)`: every button reached by the pointer and
+   every text inside the window. Then look at the named sizes with the
+   capture probe in [docs/TESTING.md](TESTING.md#capturing-a-screen-to-a-file),
+   its camera given the main camera's framing; the opening window's capture
+   should match the one taken before the change, pixel for pixel.
+
 ### Add an input action
 
 1. Add the semantic `GameAction` variant in `src/input/mod.rs`, including its

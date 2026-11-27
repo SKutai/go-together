@@ -536,6 +536,22 @@ docs carry the detail. Two things follow for anyone checking an overlay:
   `TextLayout::justify(Justify::Center)` already gives, so it does nothing
   and shows nothing. A scan that reads only the literal in each spawn
   misses the first two, whose `Node` arrives as a parameter and a variable.
+- **A text whose line count varies centres only as a child.** The Match
+  screen's round panel, beside the heading in a wide window, is one line,
+  or two while Round Time runs. Placed by a `top` worked out for two lines,
+  its one-line form stood 10 px above the heading's line (2026-11-27). It
+  is now a plain node as tall as the title row, holding the `Text`, which
+  its `align_items: Center` centres whatever the line count, as the Match
+  timer's panel always did;
+  `the_readouts_beside_the_heading_stand_centred_on_its_line` holds it.
+- **A justification is not free either.** Right-justifying that same text,
+  one line in a node exactly its own width, moved its glyphs by a fraction
+  of a pixel: ImageMagick's `compare -metric AE` counted 75 differing pixels
+  in the 1040x900 capture at twice its size, all in the glyphs of
+  `Round 0` (2026-11-27). Wrapping it in the plain node changed none. So a
+  change meant to leave a screen pixel-identical keeps each text's
+  justification as it was, and the round panel is right-justified only
+  beside the heading.
 
 ## Temporary persistence roots
 
@@ -1281,7 +1297,12 @@ the game then reads and writes its settings and Replays there, so every
 capture starts from the defaults and an empty Library, and a probe that edits
 `MatchSettings` in memory - as the text-size floor's did on 2026-10-07, to
 show the longest Match Time caption - cannot reach your real settings file
-through a stray key press while its window has focus.
+through a stray key press while its window has focus. Point `HOME` at the
+binary itself, not at `cargo run`: cargo and rustup find their own homes
+through it as well, and with an empty one rustup sets about installing a
+fresh toolchain into the scratch directory (seen on 2026-11-27). Build
+first and run `./target/debug/go-together`, or keep `CARGO_HOME` and
+`RUSTUP_HOME` pointing at the real ones.
 
 **Showing the Viewer something no fixture holds.** No Replay under
 `tests/fixtures/replays/` carries a Teleport Marker or a selection on a
