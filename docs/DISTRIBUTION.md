@@ -526,11 +526,10 @@ rel="rust">` element in `index.html`; `Trunk.toml` carries no `wasm_opt`
 entry.
 
 Fat LTO (`lto = "fat"` instead of `"thin"`) and higher/lower `codegen-units`
-were not separately re-measured for the figures above, since the existing
-`thin`/`1` combination was already a deliberate prior choice (per this file's
-git history) rather than an unexamined default; revisiting it is reasonable
-future work but out of scope for the build-size question this measurement
-was actually answering.
+were not separately re-measured for the figures above: the `thin`/`1`
+combination is set explicitly in `[profile.release]` rather than left at
+Cargo's defaults, and the figures were measured to choose an `opt-level`.
+Revisiting it is reasonable future work.
 
 ## Optional Butler uploads
 

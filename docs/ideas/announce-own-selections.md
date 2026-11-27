@@ -67,12 +67,12 @@ commit message.
 ## What it costs structurally
 
 **It would be the first per-player preference.** `GamePreferences`
-(`src/settings/config.rs`) is entirely global today - every one of its four
+(`src/settings/config.rs`) is entirely global today - every one of its five
 fields applies to both players at once. Per-player data in settings does have
 precedent: `ControllerBindings` holds `profiles: [[ControllerInput; _]; 2]`
 indexed by player. So the shape exists, just not in the preferences struct.
 
-Settings are at schema v5, so this is a v6 with a migration, under the standing
+Settings are at schema v6, so this is a v7 with a migration, under the standing
 rule in `CONTRIBUTING.md`'s persisted-data section: add a version, never
 reinterpret one.
 

@@ -12,8 +12,8 @@
 //! No version could have expressed that: a key no version may bind is not a
 //! schema, so a file naming it loses its keyboard section to defaults with a
 //! warning. A file naming `escape` has always failed to parse, since that
-//! key never had a name; until the keyboard section became recoverable in
-//! the same change, that failure cost the whole file.
+//! key never had a name; until the keyboard section was made recoverable,
+//! that failure cost the whole file.
 //!
 //! This module describes shapes only. Turning any of those shapes into a live
 //! [`super::ControlsConfig`] - which sections a given version has, and what a
@@ -108,8 +108,7 @@ impl fmt::Display for BindingConfigError {
 /// F1 became the Help key and left [`KeyboardKey`], so a file that
 /// still names it fails to parse here and its keyboard section falls back
 /// to defaults with a warning - the outcome a file naming `escape`, which
-/// never had a name, now shares; before this change either name cost the
-/// whole document.
+/// never had a name, now shares, where it once cost the whole document.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct BindingRecord {

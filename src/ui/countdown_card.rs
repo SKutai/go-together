@@ -23,9 +23,9 @@
 //! at the top of its box all the same. So a `Text` that is also a sized,
 //! bordered card draws its digit in the card's top-left corner, as ordinary
 //! text would sit, whatever alignment the card asks for. That is what the
-//! Viewer's card did as far back as this repository's history goes, until
-//! 2026-10-05: its `3` sat 56 px left of the card's centre and 15 px above
-//! it, while the card itself stood exactly where it was meant to. The card
+//! Viewer's card had always done, until 2026-10-05: its `3` sat 56 px left
+//! of the card's centre and 15 px above it, while the card itself stood
+//! exactly where it was meant to. The card
 //! is therefore a plain node, and the digit a `Text` child that its own
 //! glyphs size, which the card's alignment then centres. `docs/TESTING.md`
 //! carries the same warning for any other overlay, under "A Text node does

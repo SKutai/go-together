@@ -479,9 +479,9 @@ text would sit, while every node rect on the screen reads correctly. The fix
 is structural: make the box a plain node and the `Text` its child, sized by
 its glyphs, which the box's alignment then centres.
 
-That is how the Replay Viewer's countdown card drew its `3` 56 px left of its
-centre and 15 px high, from the start of this repository's history until
-2026-10-05, with the card itself exactly where its spawner put it. Both
+That is how the Replay Viewer's countdown card had always drawn its `3`, until
+2026-10-05: 56 px left of its centre and 15 px high, with the card itself
+exactly where its spawner put it. Both
 countdown cards now come from one spawner, `ui::countdown_card`, whose module
 docs carry the detail. Two things follow for anyone checking an overlay:
 

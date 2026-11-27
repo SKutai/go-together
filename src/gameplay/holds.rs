@@ -2266,8 +2266,7 @@ mod tests {
             .count()
     }
 
-    /// Recovered from the review that found the stale-snapshot rollback,
-    /// with its assertions inverted by the fix. A short tap of both Selects
+    /// Pins the fix for a stale-snapshot rollback. A short tap of both Selects
     /// captures a snapshot and resolves Round 1 as an ordinary round; Restart
     /// goes down as the Selects come up, and a whole round is played while it
     /// is held. Restart used to keep that snapshot alive, so pressing both
@@ -2332,11 +2331,11 @@ mod tests {
     }
 
     /// The same sequence, with Restart released in the frame the Selects go
-    /// down again. Recovered alongside the test above: under the old
-    /// ordering, where Restart outranked the end gesture, this was the only
-    /// way into the end branch with the stale snapshot still held, which is
-    /// how the review showed the rollback predates the priority flip. Kept so
-    /// that both routes stay closed.
+    /// down again. Under the old ordering, where Restart outranked the end
+    /// gesture, this was the only way into the end branch with the stale
+    /// snapshot still held, so the rollback was reachable under either order
+    /// and is older than the priority flip. Kept so that both routes stay
+    /// closed.
     #[test]
     fn a_round_played_while_restart_is_held_survives_an_end_hold_begun_as_restart_is_released() {
         let (mut app, root) = active_match_input_app(KeyboardBindings::default());

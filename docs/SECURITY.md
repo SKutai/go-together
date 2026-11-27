@@ -205,33 +205,32 @@ licensed Rust/Bevy ecosystem, but no automated check enforces that today.
 `cargo audit` runs from `.github/workflows/audit.yml` (installed via
 `cargo install cargo-audit --locked --version 0.22.2`, cached on that pinned
 version the way Trunk is in `ci.yml`'s `web` job), scanning `Cargo.lock`
-against the RustSec advisory database. *Both* of its steps are
-`continue-on-error: true`, so nothing in it can turn a run red - not the scan
-and not the install that precedes it: a newly published advisory in a
-transitive dependency with no available fix yet is not a statement about this
-repository's code. The advisory set moves with the RustSec database and
-`Cargo.lock` independently of this repository, so that workflow's log is the
-live answer and a maintainer can run `cargo audit` locally at any time for the
-current, authoritative result.
+against the RustSec advisory database. The scan and the install that precedes
+it are both `continue-on-error: true`, so neither can turn a run red: a newly
+published advisory in a transitive dependency with no available fix yet is not
+a statement about this repository's code. The advisory set moves with the
+RustSec database and `Cargo.lock` independently of this repository, so that
+workflow's log is the live answer and a maintainer can run `cargo audit`
+locally at any time for the current, authoritative result.
 
 It runs **weekly, and on manual dispatch** - never on a push or a pull
-request. Nothing gates on it, so running it per commit spent a third runner on
-every push to produce a log nobody is required to read, and the advisory
-database moves on its own timeline rather than with this repository's commits.
-A weekly answer is as current as a per-push one in every way that matters, and
-the Actions tab's *Run workflow* button is there for when it is not.
+request. Nothing gates on it, so running it per commit would spend a third
+runner on every push to produce a log nobody is required to read, and the
+advisory database moves on its own timeline rather than with this repository's
+commits. A weekly answer is as current as a per-push one in every way that
+matters, and the Actions tab's *Run workflow* button is there for when it is
+not.
 
-It also runs on a runner of its own. It used to run as the last step of
-`native`, where `cargo install cargo-audit` compiled `rustls` and `aws-lc-rs`
-in release mode onto a runner that had already built Bevy with full debug
-information, built documentation and run the whole test suite - and it
-exhausted that runner's disk on every attempt it was given. Because only the
-`cargo audit` step carried `continue-on-error`, the blocking install failed
-the job before the guard was ever reached, so the check documented as
-informational was in practice the only thing failing CI. A fresh runner
-removes the disk pressure rather than masking it. `native` has since stopped
-building debug information, and the room that freed is margin for its own
-growth, not space for an unrelated tool; see
+It also runs on a runner of its own. `cargo install cargo-audit` compiles
+`rustls` and `aws-lc-rs` in release mode, and as the last step of `native`, on
+a runner that had already built Bevy with full debug information, built
+documentation and run the whole test suite, that exhausted the disk in
+September 2026. The install is guarded as well as the scan because a guard on
+the scan alone is never reached when the install fails first, and the check
+meant to be informational is then what fails the run. A fresh runner removes
+the disk pressure rather than masking it. `native` no longer builds debug
+information, and the room it saves is margin for its own growth, not space
+for an unrelated tool; see
 [CONTRIBUTING.md](../CONTRIBUTING.md#required-checks). The job also sets
 `RUSTFLAGS` empty: `-D warnings` is a rule about this repository's own code
 and has no business denying warnings in a third-party tool's dependency tree.

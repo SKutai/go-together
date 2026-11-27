@@ -44,7 +44,7 @@
 //!   drives it from input, the match clock, and hold gestures; `input`
 //!   translates physical keyboard/controller devices into semantic actions;
 //!   `settings` persists those bindings and preferences, and keeps the
-//!   five settings schema versions loadable through the same
+//!   six settings schema versions loadable through the same
 //!   schema/compat split [`replay`] uses; `replay_library`
 //!   owns the saved-Replay collection the Library screen browses;
 //!   `platform` adapts native filesystem and browser storage;

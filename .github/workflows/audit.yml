@@ -29,18 +29,18 @@ jobs:
   # moves independently of this repository - a newly published advisory in a
   # transitive dependency with no available fix yet is not a statement about
   # this repository's code. See docs/SECURITY.md#dependencies-and-automation.
-  # Findings show up in this job's log for a maintainer to review, and both
-  # steps below are guarded so neither the scan nor the install that precedes
-  # it can turn this run red.
+  # Findings show up in this job's log for a maintainer to review, and the
+  # install and the scan below are both guarded, so neither can turn this run
+  # red.
   #
   # It also runs on a runner of its own, not merely in a workflow of its own.
-  # As the last step of `ci.yml`'s `native` job it exhausted the disk every
-  # time it was attempted: `cargo install cargo-audit` compiles `rustls` and
-  # `aws-lc-rs` in release mode, and that runner had already built Bevy with
-  # full debug information, built documentation and run the whole test suite.
+  # `cargo install cargo-audit` compiles `rustls` and `aws-lc-rs` in release
+  # mode, and as the last step of `ci.yml`'s `native` job, on a runner that
+  # had already built Bevy with full debug information, built documentation
+  # and run the whole test suite, that exhausted the disk (September 2026).
   # A fresh runner removes that pressure instead of masking it, and leaves the
-  # room `native` has had since it stopped building debug information as
-  # margin for that job's own growth.
+  # room `native` saves by building no debug information as margin for that
+  # job's own growth.
   audit:
     name: Advisory scan (informational, non-blocking)
     runs-on: ubuntu-latest

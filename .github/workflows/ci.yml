@@ -22,8 +22,8 @@ jobs:
     env:
       # No debug information in this job's builds. The `dev` profile's full
       # debug information makes every binary that links Bevy over a gigabyte,
-      # and with it this job ran the runner out of disk while linking a
-      # doctest. Nothing here uses it: no debugger runs and no backtrace is
+      # enough to fill the `ubuntu-24.04` runner's disk while this job links
+      # a doctest. Nothing here uses it: no debugger runs and no backtrace is
       # printed, and a failing test still reports the file and line it
       # panicked at. Local builds keep the ordinary profile. The measurements
       # are in CONTRIBUTING.md's "Required checks" section.

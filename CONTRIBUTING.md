@@ -154,9 +154,9 @@ change there can fail `cargo test` through a doc comment.
 If touching `Cargo.toml`'s dependency graph, also consider running `cargo tree
 --duplicates` and, if available locally, `cargo audit`. CI runs `cargo audit`
 too, but not on your commit: it lives in `.github/workflows/audit.yml`, which
-runs weekly and on manual dispatch, and in which *every* step is
-`continue-on-error` so neither the scan nor the `cargo install` that precedes
-it can turn a run red. It gates nothing, which means a green CI run is not a
+runs weekly and on manual dispatch, and in which the scan and the
+`cargo install` that precedes it are both `continue-on-error`, so neither can
+turn a run red. It gates nothing, which means a green CI run is not a
 statement that the advisory scan found anything - or even that it ran at all
 this week. Read that workflow's log, dispatch it from the Actions tab, or run
 `cargo audit` locally when that answer matters. See
@@ -177,27 +177,29 @@ change. On a headless machine the window opens under `xvfb-run` with
 llvmpipe's software rasterizer, which is slow but renders correctly and is
 enough to check layout and read text.
 
-The `native` job's tightest limit is disk. A GitHub-hosted `ubuntu-latest`
-runner keeps the workspace, Cargo's home and `/tmp` on one volume, which
-started the job with **13-14GB** free of 72GB in its first three runs, on
-2026-10-27; the job's `Show free disk space` and `Show disk use` steps log
-those figures on every run. Measured
+Disk is the limit the `native` job has run into. A GitHub-hosted
+`ubuntu-latest` runner keeps the workspace, Cargo's home and `/tmp` on one
+volume. On the `ubuntu-24.04` image that volume started the job with
+**13-14GB** free of 72GB (2026-10-27); on 2026-11-27 `ubuntu-latest` was the
+`ubuntu-26.04` image, whose volume started it with 91GB free of 145GB. The
+job's `Show free disk space` and `Show disk use` steps log those figures on
+every run. Measured
 on 2026-10-26 in an arm64 Ubuntu 24.04 container with Rust 1.99.1, the `dev`
 profile's full debug information makes every binary that links Bevy over a
 gigabyte: `target` reached 12.5GB once `cargo test --locked` had run and
-14.6GB by the end of the job. The crate's first doctests, added on 2026-09-09,
-link one more such binary into `/tmp` at the fullest moment of that, another
-1.35GB, and from 2026-10-01 every run failed there with `ld terminated with
-signal 7 [Bus error]` - which is what a linker writing through a memory map
-gets, instead of an error message, when the disk fills.
+14.6GB by the end of the job. The crate's doctests link one more such binary
+into `/tmp` at the fullest moment of that, another 1.35GB. On the
+`ubuntu-24.04` runner that was more than was left, and the link failed with
+`ld terminated with signal 7 [Bus error]` - which is what a linker writing
+through a memory map gets, instead of an error message, when the disk fills.
 
 So the job builds with `CARGO_PROFILE_DEV_DEBUG: none`, which leaves local
 builds alone. Measured the same way, it now peaks at **3.3GB**, the doctest
-binary included (`line-tables-only` would have been 7.1GB), and on the runner
-it ended those runs with 9-11GB still free. Its cache holds only the
-dependencies' build output and the downloaded crates, 2.5GB on disk and 0.6GB
-as saved: the last steps remove this crate's own output before saving, so a
-warm run rebuilds `go-together` and nothing else.
+binary included (`line-tables-only` would have been 7.1GB), and on the
+`ubuntu-24.04` runner the job ended with 9-11GB still free. Its cache holds
+only the dependencies' build output and the downloaded crates, 2.5GB on disk
+and 0.6GB as saved: the last steps remove this crate's own output before
+saving, so a warm run rebuilds `go-together` and nothing else.
 
 If disk runs short again, find what grew in those logged figures and shrink
 what the job writes, rather than deleting the runner's preinstalled software
@@ -352,8 +354,8 @@ that should be: a key name withdrawn because the interface reserved the key
 for itself. `f1` left `KeyboardKey` when F1 became the Help key, so a
 settings file naming it loses its keyboard section to defaults with a
 warning. A file naming `escape` has always failed to parse, since that key
-never had a name; until the keyboard section became recoverable in the same
-change, that failure cost the whole file. No schema version could have
+never had a name; until the keyboard section was made recoverable, that
+failure cost the whole file. No schema version could have
 expressed the withdrawal - a key no version may bind is not a schema - and
 the per-section isolation of rule 4 is what makes the cost one section rather
 than the file.
