@@ -432,7 +432,7 @@ mod tests {
     /// out and collected, with the ring parked on its first control and not
     /// yet drawn.
     fn settings_app() -> App {
-        let mut app = real_layout_app();
+        let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .insert_state(AppScreen::Home)
             .add_plugins(UiFocusPlugin)

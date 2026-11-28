@@ -11,6 +11,14 @@
 //! temporary control hints and the HUD. The ring is hidden except behind a white or gray stone;
 //! `stone_geometry` in `app::visuals` says why those two.
 //!
+//! Where all of it stands is [`geometry`]'s to say, as a pure function of
+//! the window's size: the familiar layout in every window narrower than
+//! about 1.12 times its height, and in a wider one until the wide
+//! arrangement beside the board would draw the board more than 4% larger -
+//! the opening shape stays familiar up to about 1182x1023 - with the board
+//! itself placed and zoomed by the main camera. [`layout`] spawns the
+//! furniture there and moves it when the size changes.
+//!
 //! # What the HUD deliberately does not show
 //!
 //! Round 0 cursors and selected locations are never drawn. There is no live
@@ -47,6 +55,7 @@
 //! would not help).
 
 mod capture;
+mod geometry;
 mod layout;
 mod opening_dots;
 
@@ -60,7 +69,7 @@ use super::hud::{HudState, UiRole, modal_pause_state};
 use crate::app::motion::MotionPolicy;
 use crate::app::visuals::{
     BOARD_CENTER_Y, GRID_EXTENT, GRID_SPACING, STAR_POINT_RADIUS, STAR_POINTS, STONE_RADIUS,
-    StoneMesh, StonePalette, board_position, cursor_visual_style, format_elapsed_time,
+    StoneMesh, StonePalette, WindowSize, board_position, cursor_visual_style, format_elapsed_time,
     stone_geometry,
 };
 use crate::app::{AppScreen, AppSystems};
@@ -75,7 +84,8 @@ use crate::match_settings::MatchSettings;
 use crate::presentation::{BOARD_GRID, BOARD_WOOD};
 use crate::replay::{EndReason, ReplayWinner};
 use crate::rules::{BOARD_SIZE, Cell, Player, Point, Score};
-use layout::{BOARD_OUTER_SIZE, bar_fill_width, spawn_cursor, spawn_ui};
+use geometry::{Lines, match_layout};
+use layout::{BOARD_OUTER_SIZE, bar_fill_width, place_match_furniture, spawn_cursor, spawn_ui};
 
 /// Owns the match screen lifecycle and its display refresh.
 pub(super) struct MatchScreenPlugin;
@@ -97,9 +107,16 @@ impl Plugin for MatchScreenPlugin {
             )
             .add_systems(
                 Update,
+                place_match_furniture
+                    .run_if(in_state(AppScreen::Match))
+                    .in_set(AppSystems::ScreenLayout),
+            )
+            .add_systems(
+                Update,
                 // Unordered against each other: they share no entity, and
                 // all only read the Match. See `capture`'s and
-                // `opening_dots`' module docs.
+                // `opening_dots`' module docs. The layout pass that places
+                // some of their nodes runs before all three.
                 (
                     update_match_display,
                     capture::update_capture_indication,
@@ -155,6 +172,7 @@ fn spawn_match_screen(
     mut commands: Commands,
     palette: Res<StonePalette>,
     stone_mesh: Res<StoneMesh>,
+    window: Res<WindowSize>,
 ) {
     commands.spawn((
         Sprite::from_color(BOARD_WOOD, Vec2::splat(BOARD_OUTER_SIZE)),
@@ -219,7 +237,7 @@ fn spawn_match_screen(
         let style = cursor_visual_style(player);
         spawn_cursor(&mut commands, player, style);
     }
-    spawn_ui(&mut commands);
+    spawn_ui(&mut commands, &match_layout(window.layout()));
 }
 
 // The four bar nodes as four provably disjoint queries: each `With` its own
@@ -323,6 +341,8 @@ struct MatchDisplayResources<'w> {
     hud: Res<'w, HudState>,
     controls: ControlBindings<'w>,
     palette: Res<'w, StonePalette>,
+    /// For how many lines the round panel is written on.
+    window: Res<'w, WindowSize>,
 }
 
 fn update_match_display(
@@ -343,7 +363,9 @@ fn update_match_display(
         hud,
         controls,
         palette,
+        window,
     } = resources;
+    let layout = match_layout(window.layout());
 
     for (intersection, mut material, mut transform) in &mut intersections {
         let cell = game.board.get(intersection.0);
@@ -412,8 +434,12 @@ fn update_match_display(
             UiRole::EndReasons => end_reasons_text(&game.end_reasons),
             UiRole::PlayerOne => player_heading(Player::One, final_score),
             UiRole::PlayerTwo => player_heading(Player::Two, final_score),
-            UiRole::Timer => format!("TIME  {}", format_elapsed_time(game.elapsed.as_secs_f64())),
-            UiRole::Round => round_panel_text(game.round, game.round_time_remaining_seconds()),
+            UiRole::Timer => timer_text(game.elapsed.as_secs_f64()),
+            UiRole::Round => round_panel_text(
+                game.round,
+                game.round_time_remaining_seconds(),
+                layout.round_lines,
+            ),
             UiRole::Countdown => countdown_text(&game).unwrap_or_default().into(),
             UiRole::ControlHint(player) => control_hint_text(*player, &controls.keyboard),
             UiRole::Gesture => gesture_text.clone(),
@@ -434,21 +460,32 @@ fn update_match_display(
 /// The round panel's text: the round number and, while a Round Time clock is
 /// running, how much of it is left. `remaining` is that clock in whole
 /// seconds, rounded up, from `MatchState::round_time_remaining_seconds`.
+/// On two lines, for a title row with no room for one, the countdown
+/// stands under the round instead of beside it.
 ///
 /// Printable ASCII throughout, which Bevy's bundled fallback font requires
 /// and `crate::architecture`'s guard enforces: the separator was once a
 /// middle dot, which the font drew as a box. The clock is worded as the
 /// countdown it is rather than as a second "Round", which read as two
 /// different rounds side by side.
-fn round_panel_text(round: usize, remaining: Option<u64>) -> String {
+fn round_panel_text(round: usize, remaining: Option<u64>, lines: Lines) -> String {
+    let separator = match lines {
+        Lines::One => "  |  ",
+        Lines::Two => "\n",
+    };
     match remaining {
         Some(remaining) => format!(
-            "Round {round}  |  {:02}:{:02} left",
+            "Round {round}{separator}{:02}:{:02} left",
             remaining / 60,
             remaining % 60
         ),
         None => format!("Round {round}"),
     }
+}
+
+/// The Match timer's text: `TIME` and the time the Match has run.
+fn timer_text(elapsed_seconds: f64) -> String {
+    format!("TIME  {}", format_elapsed_time(elapsed_seconds))
 }
 
 /// What the slot below the board draws this frame, as `(hold, round)`
@@ -705,15 +742,21 @@ fn end_reasons_text(reasons: &[EndReason]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::geometry::{
+        END_REASONS_MAX_CHARS, HEADING_MAX_CHARS, PLAYER_HEADING_MAX_CHARS, ROUND_PANEL_MAX_CHARS,
+        STACK_GAP, TIMER_MAX_CHARS,
+    };
     use super::layout::{
-        CONTROL_HINT_SIDE_OFFSET, CONTROL_HINT_WIDTH, END_REASONS_SIZE, HOLD_PROGRESS_FILL_COLOR,
-        HOLD_PROGRESS_OUTLINE_COLOR, PLAYER_HEADER_OFFSET, ROUND_TIME_FILL_COLOR,
-        ROUND_TIME_OUTLINE_COLOR, bar_fill_width, control_hint_node, hold_progress_track_node,
-        hold_progress_track_outline, player_header_node, round_time_track_node,
-        round_time_track_outline, spawn_ui, under_heading_node,
+        CONTROL_HINT_WIDTH, END_REASONS_SIZE, HOLD_PROGRESS_FILL_COLOR,
+        HOLD_PROGRESS_OUTLINE_COLOR, ROUND_TIME_FILL_COLOR, ROUND_TIME_OUTLINE_COLOR,
+        bar_fill_width, control_hint_node, hold_progress_track_node, hold_progress_track_outline,
+        player_header_node, round_time_track_node, round_time_track_outline, spawn_ui,
+        under_heading_node,
     };
     use super::*;
-    use crate::app::visuals::{cursor_outline_layers, cursor_visual_style};
+    use crate::app::visuals::{
+        NAMED_WINDOW_SIZES, WorldFraming, cursor_outline_layers, cursor_visual_style, layout_sweep,
+    };
     use crate::architecture::{source_file, sources_in};
     use crate::clock::MatchDuration;
     use crate::gameplay::HoldGesture;
@@ -804,11 +847,14 @@ mod tests {
 
     /// A Match under real `bevy_ui` layout and the production graph - the
     /// focus core, the HUD, the whole gameplay pipeline with semantic fusion
-    /// in front of it, and this screen's own plugin - entered through a real
-    /// state transition and advanced until play is live. Returns the app and
-    /// the temporary Replay root, which the caller removes.
-    fn live_match_app() -> (App, std::path::PathBuf) {
+    /// in front of it, the window layout, and this screen's own plugin -
+    /// entered through a real state transition and advanced until play is
+    /// live, in a window of `window` logical pixels, with the framing set
+    /// for the board where the layout puts it. Returns the app and the
+    /// temporary Replay root, which the caller removes.
+    fn live_match_app(window: Vec2) -> (App, std::path::PathBuf) {
         use crate::app::configure_app_systems;
+        use crate::app::visuals::WindowLayoutPlugin;
         use crate::gameplay::GameplayPlugin;
         use crate::input::controller::ControllerHysteresisState;
         use crate::input::update_semantic_input;
@@ -821,7 +867,7 @@ mod tests {
             std::env::temp_dir().join(format!("go-together-modal-ring-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
 
-        let mut app = real_layout_app();
+        let mut app = real_layout_app(window);
         app.init_resource::<Assets<ColorMaterial>>();
         app.init_resource::<Assets<Mesh>>();
         let palette = {
@@ -834,6 +880,7 @@ mod tests {
         };
         app.add_plugins(bevy::state::app::StatesPlugin)
             .init_state::<AppScreen>()
+            .add_plugins(WindowLayoutPlugin)
             .add_plugins(UiFocusPlugin)
             .add_plugins(HudPlugin)
             .add_plugins(GameplayPlugin)
@@ -861,6 +908,7 @@ mod tests {
             .resource_mut::<NextState<AppScreen>>()
             .set(AppScreen::Match);
         advance_test_app(&mut app, 0.1);
+        assert_match_frames_its_board(&app, window, "on entry");
         // Screen entry armed the gate; nothing is held, so this frame
         // releases every action and play is live.
         advance_test_app(&mut app, 0.1);
@@ -870,6 +918,48 @@ mod tests {
         );
         assert!(!app.world().resource::<InputGate>().any_gated());
         (app, root)
+    }
+
+    /// The camera's framing in `app` is the one the Match's layout gives
+    /// the board in a window of `window` logical pixels.
+    fn assert_match_frames_its_board(app: &App, window: Vec2, context: &str) {
+        assert_eq!(
+            *app.world().resource::<WorldFraming>(),
+            match_layout(WindowSize(window).layout()).framing(),
+            "{window} {context}"
+        );
+    }
+
+    /// Through the game's own schedule, at every named size: the Match
+    /// frames its board on entry, a change of screen puts the framing back,
+    /// and coming back frames the board again. The layout pass writes the
+    /// framing on every frame of the Match, so it holds even on an entry
+    /// where the window's size has not changed since the last; a pass run
+    /// only when the size changes, or not at all, would leave the board
+    /// drawn at its own size over the origin.
+    #[test]
+    fn leaving_the_match_and_coming_back_frames_the_board_again() {
+        use crate::test_support::advance_test_app;
+
+        for window in NAMED_WINDOW_SIZES {
+            let (mut app, root) = live_match_app(window);
+            assert_match_frames_its_board(&app, window, "in play");
+            app.world_mut()
+                .resource_mut::<NextState<AppScreen>>()
+                .set(AppScreen::ReplayLibrary);
+            advance_test_app(&mut app, 0.1);
+            assert_eq!(
+                *app.world().resource::<WorldFraming>(),
+                WorldFraming::IDENTITY,
+                "{window} off the Match"
+            );
+            app.world_mut()
+                .resource_mut::<NextState<AppScreen>>()
+                .set(AppScreen::Match);
+            advance_test_app(&mut app, 0.1);
+            assert_match_frames_its_board(&app, window, "back on the Match");
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     /// The one button carrying `wanted`, on the Match HUD or in the
@@ -887,78 +977,133 @@ mod tests {
     }
 
     /// The Round 0 countdown card, laid out with its text by `bevy_ui`
-    /// itself: the digit drawn in the middle of the card, and the card where
-    /// it has always stood, its top 250 px down the window. This card is the
-    /// reference the Replay Viewer's agrees with on its own board - see
-    /// `crate::ui::countdown_card`. The HUD's own pass writes the stage in
-    /// play; here it is written directly.
+    /// itself: the digit drawn in the middle of the card, and the card over
+    /// the same rows of the board at every size, at whatever zoom - where
+    /// the board's centre really is drawn, by the camera's framing. In the
+    /// opening window it stands where it always has, its top 250 px down.
+    /// This card is the reference the Replay Viewer's agrees with on its own
+    /// board - see `crate::ui::countdown_card`. The HUD's own pass writes
+    /// the stage in play; here it is written directly.
     #[test]
     fn the_countdown_digit_is_drawn_centred_on_a_card_over_the_board() {
         use super::layout::spawn_countdown_overlay;
-        use crate::app::visuals::{BOARD_CENTER_Y, GRID_SPACING};
+        use crate::app::visuals::GRID_SPACING;
         use crate::ui::countdown_card::{
             assert_countdown_card_lands_on_board, measure_countdown_card,
         };
         use crate::ui::focus::real_layout_app;
         use crate::ui::hud::UiRole;
 
-        let mut app = real_layout_app();
-        let world = app.world_mut();
-        spawn_countdown_overlay(&mut world.commands());
-        world.flush();
-        let mut digits = world.query::<(&UiRole, &mut Text)>();
-        for (role, mut text) in digits.iter_mut(world) {
-            if matches!(role, UiRole::Countdown) {
-                text.0 = "3".into();
+        for window in NAMED_WINDOW_SIZES {
+            let layout = match_layout(window);
+            let mut app = real_layout_app(window);
+            let world = app.world_mut();
+            spawn_countdown_overlay(&mut world.commands(), &layout);
+            world.flush();
+            let mut digits = world.query::<(&UiRole, &mut Text)>();
+            for (role, mut text) in digits.iter_mut(world) {
+                if matches!(role, UiRole::Countdown) {
+                    text.0 = "3".into();
+                }
+            }
+            app.update();
+            app.update();
+
+            let landing = measure_countdown_card(&mut app, "3");
+            let board_center = layout
+                .framing()
+                .window_point(Vec2::new(0.0, BOARD_CENTER_Y), window);
+            let top = assert_countdown_card_lands_on_board(
+                &landing,
+                board_center,
+                GRID_SPACING,
+                layout.zoom(),
+            );
+            if window == WindowSize::OPENING.0 {
+                assert_eq!(top, 250.0);
             }
         }
-        app.update();
-        app.update();
-
-        let landing = measure_countdown_card(&mut app, "3");
-        let top = assert_countdown_card_lands_on_board(&landing, BOARD_CENTER_Y, GRID_SPACING);
-        assert_eq!(top, 250.0);
     }
 
-    /// The pointer reaches the Match HUD's two buttons at their centres
-    /// over a live board, under real layout and real picking - nothing the
-    /// HUD draws over the board stops it - and with either modal open, that
-    /// modal's buttons and neither HUD button.
+    /// Every text `app` shows lies inside a window of `window` logical
+    /// pixels, and there is some to show.
+    fn assert_every_text_is_inside(app: &mut App, window: Vec2, context: &str) {
+        use crate::ui::focus::laid_out_texts;
+
+        let texts = laid_out_texts(app);
+        assert!(texts.len() > 5, "{context}: {texts:?}");
+        let inside = Rect::from_corners(Vec2::ZERO, window);
+        for (text, rect) in texts {
+            assert!(
+                inside.contains(rect.min) && inside.contains(rect.max),
+                "{context}: {text:?} at {rect:?} leaves the {window} window"
+            );
+        }
+    }
+
+    /// At every named size, the pointer reaches the Match HUD's two buttons
+    /// at their centres over a live board, under real layout and real
+    /// picking - nothing the HUD draws over the board stops it - and every
+    /// text stands inside the window; with either modal open, the pointer
+    /// reaches that modal's buttons and neither HUD button. The Help modal
+    /// keeps its one size for now, so it is opened only in a window that
+    /// holds it.
     #[test]
     fn the_pointer_reaches_the_hud_buttons_and_a_modal_covers_them() {
         use crate::ui::button::{covered_at_their_centres, reachable_buttons};
+        use crate::ui::help::{HELP_MODAL_HEIGHT, HELP_MODAL_WIDTH};
 
-        let (mut app, root) = live_match_app();
-        let hud_buttons = reachable_buttons(&mut app);
-        let mut actions: Vec<_> = hud_buttons
-            .iter()
-            .map(|entity| *app.world().get::<HudAction>(*entity).unwrap())
-            .collect();
-        actions.sort_by_key(|action| format!("{action:?}"));
-        assert_eq!(actions, [HudAction::OpenHelp, HudAction::OpenReturnHome]);
-        assert_eq!(covered_at_their_centres(&mut app, &hud_buttons), []);
-
-        for modal in ["Help", "Return Home"] {
-            {
-                let mut hud = app.world_mut().resource_mut::<HudState>();
-                hud.help_open = modal == "Help";
-                hud.return_home_open = modal == "Return Home";
-            }
-            app.update();
-            app.update();
-            let in_modal: Vec<_> = reachable_buttons(&mut app)
-                .into_iter()
-                .filter(|entity| !hud_buttons.contains(entity))
+        for window in NAMED_WINDOW_SIZES {
+            let (mut app, root) = live_match_app(window);
+            let hud_buttons = reachable_buttons(&mut app);
+            let mut actions: Vec<_> = hud_buttons
+                .iter()
+                .map(|entity| *app.world().get::<HudAction>(*entity).unwrap())
                 .collect();
-            assert!(!in_modal.is_empty(), "{modal}");
-            assert_eq!(covered_at_their_centres(&mut app, &in_modal), [], "{modal}");
+            actions.sort_by_key(|action| format!("{action:?}"));
+            assert_eq!(
+                actions,
+                [HudAction::OpenHelp, HudAction::OpenReturnHome],
+                "{window}"
+            );
             assert_eq!(
                 covered_at_their_centres(&mut app, &hud_buttons),
-                hud_buttons,
-                "{modal}"
+                [],
+                "{window}"
             );
+            assert_every_text_is_inside(&mut app, window, &format!("{window}"));
+
+            let help_fits = window.x > HELP_MODAL_WIDTH && window.y > HELP_MODAL_HEIGHT;
+            for modal in ["Help", "Return Home"] {
+                if modal == "Help" && !help_fits {
+                    continue;
+                }
+                {
+                    let mut hud = app.world_mut().resource_mut::<HudState>();
+                    hud.help_open = modal == "Help";
+                    hud.return_home_open = modal == "Return Home";
+                }
+                app.update();
+                app.update();
+                let in_modal: Vec<_> = reachable_buttons(&mut app)
+                    .into_iter()
+                    .filter(|entity| !hud_buttons.contains(entity))
+                    .collect();
+                assert!(!in_modal.is_empty(), "{window} {modal}");
+                assert_eq!(
+                    covered_at_their_centres(&mut app, &in_modal),
+                    [],
+                    "{window} {modal}"
+                );
+                assert_eq!(
+                    covered_at_their_centres(&mut app, &hud_buttons),
+                    hud_buttons,
+                    "{window} {modal}"
+                );
+                assert_every_text_is_inside(&mut app, window, &format!("{window} {modal}"));
+            }
+            std::fs::remove_dir_all(root).unwrap();
         }
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// How many Round 0 choices each player holds - what a Select that
@@ -989,7 +1134,7 @@ mod tests {
         use crate::gameplay::{GameplayPause, active_hold_progress};
         use crate::test_support::advance_test_app;
 
-        let (mut app, root) = live_match_app();
+        let (mut app, root) = live_match_app(WindowSize::OPENING.0);
         let cursors_before = app.world().resource::<GameState>().cursors;
 
         let help = hud_button(&mut app, HudAction::OpenHelp);
@@ -1127,7 +1272,7 @@ mod tests {
         use crate::gameplay::{GameplayPause, active_hold_progress};
         use crate::test_support::advance_test_app;
 
-        let (mut app, root) = live_match_app();
+        let (mut app, root) = live_match_app(WindowSize::OPENING.0);
         let left = hud_button(&mut app, HudAction::PreviousHelpPage);
         let cursors_at_entry = app.world().resource::<GameState>().cursors;
         let one = player_index(Player::One);
@@ -1275,15 +1420,23 @@ mod tests {
 
     #[test]
     fn match_header_aligns_white_left_and_black_right() {
-        let white = player_header_node(Player::Two);
-        let black = player_header_node(Player::One);
-
         assert_eq!(player_label(Player::Two), "WHITE");
-        assert_eq!(white.left, px(PLAYER_HEADER_OFFSET));
-        assert_eq!(white.right, Val::Auto);
         assert_eq!(player_label(Player::One), "BLACK");
-        assert_eq!(black.left, Val::Auto);
-        assert_eq!(black.right, px(PLAYER_HEADER_OFFSET));
+        for window in NAMED_WINDOW_SIZES {
+            let layout = match_layout(window);
+            let (white, _) = player_header_node(Player::Two, &layout);
+            let (black, _) = player_header_node(Player::One, &layout);
+            assert!(matches!(white.left, Val::Px(_)), "{window}");
+            assert_eq!(white.right, Val::Auto, "{window}");
+            assert_eq!(black.left, Val::Auto, "{window}");
+            assert!(matches!(black.right, Val::Px(_)), "{window}");
+            assert_eq!(
+                white.left, black.right,
+                "{window}: the two mirror each other"
+            );
+        }
+        let (white, _) = player_header_node(Player::Two, &match_layout(WindowSize::OPENING.0));
+        assert_eq!(white.left, px(28), "where the heading has always stood");
     }
 
     /// The result in words. The centre names the winner by the colour the
@@ -1344,24 +1497,31 @@ mod tests {
 
     /// The Match screen's top edge laid out by `bevy_ui` with the font the
     /// game draws with, its text written by the real display passes, at the
-    /// end of a Match. `prepare` sets the Match up while it is still
-    /// `Playing`, and the Match is finished with `reasons`.
-    fn ended_match_layout_app(prepare: impl FnOnce(&mut GameState), reasons: &[EndReason]) -> App {
+    /// end of a Match, in a window of `window` logical pixels. `prepare`
+    /// sets the Match up while it is still `Playing`, and the Match is
+    /// finished with `reasons`.
+    fn ended_match_layout_app(
+        window: Vec2,
+        prepare: impl FnOnce(&mut GameState),
+        reasons: &[EndReason],
+    ) -> App {
         let mut game = GameState::default();
         game.phase = MatchPhase::Playing;
         prepare(&mut game);
         assert!(game.finish(reasons.to_vec()));
-        match_layout_app(game)
+        match_layout_app(window, game)
     }
 
     /// The Match screen laid out with its text, as
-    /// [`ended_match_layout_app`] describes, for any `game`. Nothing here
-    /// runs gameplay, so the Match stays exactly as it is handed in.
-    fn match_layout_app(game: GameState) -> App {
+    /// [`ended_match_layout_app`] describes, for any `game`, with the
+    /// placement pass that keeps the furniture where the window puts it.
+    /// Nothing here runs gameplay, so the Match stays exactly as it is
+    /// handed in.
+    fn match_layout_app(window: Vec2, game: GameState) -> App {
         use crate::ui::focus::real_layout_app;
         use crate::ui::hud::update_shared_display;
 
-        let mut app = real_layout_app();
+        let mut app = real_layout_app(window);
         app.init_resource::<Assets<ColorMaterial>>();
         app.init_resource::<Assets<Mesh>>();
         let palette = {
@@ -1387,19 +1547,45 @@ mod tests {
             .insert_resource(KeyboardBindings::default())
             .insert_resource(ControllerBindings::default())
             .insert_resource(ControllerAssignments::default())
-            .add_systems(Startup, spawn_match_screen)
-            .add_systems(Update, (update_match_display, update_shared_display));
+            .init_resource::<WorldFraming>()
+            .init_resource::<MotionPolicy>()
+            .init_resource::<capture::CaptureIndication>()
+            .init_resource::<opening_dots::OpeningDotRows>()
+            .add_systems(
+                Startup,
+                (
+                    spawn_match_screen,
+                    capture::spawn_capture_marks,
+                    opening_dots::spawn_opening_dots,
+                )
+                    .chain(),
+            )
+            .add_systems(
+                Update,
+                (
+                    place_match_furniture,
+                    (
+                        update_match_display,
+                        update_shared_display,
+                        opening_dots::update_opening_dots,
+                    ),
+                )
+                    .chain(),
+            );
         app.update();
         app.update();
         app
     }
 
     /// The line under the result is laid out only once the Match has
-    /// ended. During play it takes no room, so the Match timer stands where
-    /// it always has, directly under the heading; when the Match ends, the
-    /// line appears above the timer and moves it down. The positive half is
-    /// what shows the negative one is not vacuous: the same timer, in the
-    /// same app, does move once there is a line to make room for.
+    /// ended. During play it takes no room: in tall the Match timer stands
+    /// where it always has, directly under the heading, and when the Match
+    /// ends the line appears above the timer and moves it down; in wide the
+    /// timer stands beside the heading and the line appears under the
+    /// heading, moving nothing. The positive half is what shows the negative
+    /// one is not vacuous: in tall the same timer, in the same app, does
+    /// move once there is a line to make room for, and in wide the line
+    /// really is shown.
     #[test]
     fn the_end_reason_line_takes_no_room_until_the_match_has_ended() {
         use crate::ui::focus::measure_drawn_lines;
@@ -1416,114 +1602,554 @@ mod tests {
             assert_eq!(found.len(), 1, "one end-reason line");
             found[0]
         };
-        let timer = format!("TIME  {}", format_elapsed_time(0.0));
 
-        let mut game = GameState::default();
-        begin_active_match(&mut game);
-        let mut app = match_layout_app(game);
-        assert_eq!(reason_display(&mut app), Display::None);
-        let in_play = measure_drawn_lines(&mut app, &timer)[0];
-        let heading = measure_drawn_lines(&mut app, "GO TOGETHER")[0];
-        assert!(
-            in_play.min.y - heading.max.y < 20.0,
-            "during play the timer sits directly under the heading: {heading:?} {in_play:?}"
-        );
+        for window in [WindowSize::OPENING.0, Vec2::new(1280.0, 641.0)] {
+            let layout = match_layout(window);
+            let timer = timer_text(0.0);
+            let mut game = GameState::default();
+            begin_active_match(&mut game);
+            let mut app = match_layout_app(window, game);
+            assert_eq!(reason_display(&mut app), Display::None, "{window}");
+            let in_play = measure_drawn_lines(&mut app, &timer)[0];
+            let heading = measure_drawn_lines(&mut app, "GO TOGETHER")[0];
+            if layout.has_title_row() {
+                assert!(
+                    in_play.min.y < heading.max.y && in_play.max.y > heading.min.y,
+                    "{window}: the timer stands beside the heading: {heading:?} {in_play:?}"
+                );
+                assert!(in_play.min.x > heading.max.x, "{window}: right of it");
+            } else {
+                assert!(
+                    in_play.min.y - heading.max.y < 20.0,
+                    "{window}: the timer sits directly under the heading: {heading:?} \
+                     {in_play:?}"
+                );
+            }
 
-        assert!(
-            app.world_mut()
-                .resource_mut::<GameState>()
-                .finish(vec![EndReason::Manual])
-        );
-        app.update();
-        app.update();
-        assert_eq!(reason_display(&mut app), Display::Flex);
-        let reason = measure_drawn_lines(&mut app, "Agreed Ending")[0];
-        let ended = measure_drawn_lines(&mut app, &timer)[0];
-        assert!(
-            reason.max.y < ended.min.y,
-            "the reason {reason:?} stands above the timer {ended:?}"
-        );
-        assert!(
-            ended.min.y - in_play.min.y >= END_REASONS_SIZE,
-            "the timer made room: {in_play:?} -> {ended:?}"
-        );
+            assert!(
+                app.world_mut()
+                    .resource_mut::<GameState>()
+                    .finish(vec![EndReason::Manual])
+            );
+            app.update();
+            app.update();
+            assert_eq!(reason_display(&mut app), Display::Flex, "{window}");
+            let reason = measure_drawn_lines(&mut app, "Agreed Ending")[0];
+            let ended = measure_drawn_lines(&mut app, &timer)[0];
+            let result = measure_drawn_lines(&mut app, "Draw!")[0];
+            assert!(
+                reason.min.y > result.max.y,
+                "{window}: the reason {reason:?} stands under the result {result:?}"
+            );
+            if layout.has_title_row() {
+                assert_eq!(ended, in_play, "{window}: the timer did not move");
+            } else {
+                assert!(
+                    reason.max.y < ended.min.y,
+                    "{window}: the reason {reason:?} stands above the timer {ended:?}"
+                );
+                assert!(
+                    ended.min.y - in_play.min.y >= END_REASONS_SIZE,
+                    "{window}: the timer made room: {in_play:?} -> {ended:?}"
+                );
+            }
+        }
     }
 
-    /// The worst case, measured rather than counted. The line under the
-    /// result is one line, inside the board's width, so it cannot reach the
-    /// corner headings beside it; the corners, at a three-digit score, stay
-    /// outside the board's width in turn; and the whole centre column -
-    /// result, reasons, Match timer and round panel, all shown - ends above
-    /// the board.
+    /// The worst case, measured rather than counted, at every named size.
+    /// The line under the result is one line, and it stands clear of both
+    /// stacks beside it - their names and their buttons; the corners, at a
+    /// three-digit score, stay outside the board's width in turn; and the
+    /// readouts - the Match timer and the round panel, both shown - end
+    /// above the board and clear of the corners, under the heading in tall
+    /// and beside it in wide.
     ///
     /// A test with one or two reasons would not find this case. When the
     /// banner was a single 34 px line, this case made it 110 characters and
     /// 2,239 px of ink in a 1,040 px window, wrapping to three lines across
     /// both corner headings and the clocks (measured on 2026-10-07 with this
-    /// app, on that earlier layout).
+    /// app, on that earlier layout). In the smallest window the line now
+    /// reaches past the board's width, which is why the stacks there stand
+    /// further out.
     #[test]
-    fn the_longest_end_reason_line_fits_on_one_line_inside_the_board_width() {
-        use crate::app::visuals::{WINDOW_HEIGHT, WINDOW_WIDTH};
+    fn the_longest_end_reason_line_fits_on_one_line_clear_of_both_stacks() {
         use crate::ui::focus::measure_drawn_lines;
 
-        let mut app = ended_match_layout_app(
-            |game| {
+        for window in NAMED_WINDOW_SIZES {
+            let layout = match_layout(window);
+            let mut app = ended_match_layout_app(
+                window,
+                |game| {
+                    let mut rules = MatchSettings::default();
+                    rules.set_capture_points(true);
+                    game.match_rules = crate::gameplay::MatchRules::snapshot(&rules);
+                    game.capture_totals = Score {
+                        black: 456,
+                        white: 789,
+                    };
+                },
+                &EVERY_AUTOMATIC_END_REASON,
+            );
+            let score = app.world().resource::<GameState>().current_score();
+            assert!(score.black >= 100 && score.white >= 100);
+            let one_line = |app: &mut App, content: &str| {
+                let lines = measure_drawn_lines(app, content);
+                assert_eq!(lines.len(), 1, "{window}: {content:?} wrapped: {lines:?}");
+                lines[0]
+            };
+
+            let heading = one_line(&mut app, &result_heading(score));
+            let reasons = one_line(&mut app, &end_reasons_text(&EVERY_AUTOMATIC_END_REASON));
+            let left = one_line(&mut app, &player_heading(Player::Two, Some(score)));
+            let right = one_line(&mut app, &player_heading(Player::One, Some(score)));
+            let round = one_line(&mut app, "Round 0");
+            let timer = one_line(&mut app, &timer_text(0.0));
+            let buttons = [
+                hud_button_rect(&mut app, HudAction::OpenReturnHome),
+                hud_button_rect(&mut app, HudAction::OpenHelp),
+            ];
+
+            let board = layout.board;
+            assert!(
+                heading.max.y < reasons.min.y,
+                "{window}: the reasons overlap the result"
+            );
+            for corner in [left, right].into_iter().chain(buttons) {
+                for line in [reasons, round, timer] {
+                    assert!(
+                        line.intersect(corner).is_empty(),
+                        "{window}: {line:?} meets a corner {corner:?}"
+                    );
+                }
+            }
+            assert!(
+                left.max.x < board.min.x && right.min.x > board.max.x,
+                "{window}: a corner heading reaches into the board's width: {left:?} {right:?}"
+            );
+            for readout in [round, timer, reasons] {
+                assert!(
+                    readout.max.y < board.min.y,
+                    "{window}: {readout:?} runs into the board at {}",
+                    board.min.y
+                );
+            }
+        }
+    }
+
+    /// The box of the one button carrying `action`, in logical pixels from
+    /// the window's top-left, as `bevy_ui` laid it out.
+    fn hud_button_rect(app: &mut App, action: HudAction) -> Rect {
+        use bevy::ui::{ComputedNode, UiGlobalTransform};
+
+        let entity = hud_button(app, action);
+        let world = app.world();
+        let node = world.get::<ComputedNode>(entity).unwrap();
+        let transform = world.get::<UiGlobalTransform>(entity).unwrap();
+        let scale = node.inverse_scale_factor;
+        Rect::from_center_size(transform.translation * scale, node.size * scale)
+    }
+
+    /// The Match in one of the states it is drawn in, with the longest text
+    /// each place has room for: a four-digit round with an hour of Round
+    /// Time left and the timer at 999:59 during play, every end reason and
+    /// three-digit scores with the Replay-save notice at the end. The two
+    /// states "past the budgets" go a digit past each of those - round
+    /// 10,000, 1,000 minutes, four-digit scores - which a Match reaches only
+    /// with the limit that would have ended it switched off.
+    fn worst_case_match(state: &str) -> GameState {
+        let mut game = GameState::default();
+        match state {
+            "Round 0" => {}
+            "countdown" => {
+                game.phase = MatchPhase::OpeningCountdown;
+                game.countdown_elapsed = MatchDuration::ZERO;
+            }
+            "play" | "play, hints dismissed" | "play, past the budgets" => {
+                let mut rules = MatchSettings::default();
+                rules.set_enabled(MatchSettingField::RoundTime, true);
+                rules.set_value(MatchSettingField::RoundTime, 3_600);
+                game.match_rules = crate::gameplay::MatchRules::snapshot(&rules);
+                begin_active_match(&mut game);
+                game.round = 9_999;
+                game.elapsed = crate::clock::MatchInstant::from_secs(999 * 60 + 59);
+                if state == "play, past the budgets" {
+                    game.round = 10_000;
+                    game.elapsed = crate::clock::MatchInstant::from_secs(1_000 * 60);
+                }
+                if state == "play, hints dismissed" {
+                    game.control_hints_visible = [false, false];
+                }
+            }
+            "end" | "end, past the budgets" => {
                 let mut rules = MatchSettings::default();
                 rules.set_capture_points(true);
                 game.match_rules = crate::gameplay::MatchRules::snapshot(&rules);
+                game.phase = MatchPhase::Playing;
                 game.capture_totals = Score {
                     black: 456,
                     white: 789,
                 };
-            },
-            &EVERY_AUTOMATIC_END_REASON,
-        );
-        let score = app.world().resource::<GameState>().current_score();
-        assert!(score.black >= 100 && score.white >= 100);
-        let one_line = |app: &mut App, content: &str| {
-            let lines = measure_drawn_lines(app, content);
-            assert_eq!(lines.len(), 1, "{content:?} wrapped: {lines:?}");
-            lines[0]
+                game.elapsed = crate::clock::MatchInstant::from_secs(999 * 60 + 59);
+                if state == "end, past the budgets" {
+                    game.round = 10_000;
+                    game.capture_totals = Score {
+                        black: 1_456,
+                        white: 1_789,
+                    };
+                    game.elapsed = crate::clock::MatchInstant::from_secs(1_000 * 60);
+                }
+                assert!(game.finish(EVERY_AUTOMATIC_END_REASON.to_vec()));
+                game.replay_notice = crate::gameplay::REPLAY_SAVE_FAILED_NOTICE.into();
+            }
+            _ => unreachable!("{state}"),
+        }
+        game
+    }
+
+    /// The real-layout half of `geometry`'s sweep. At every named size, in
+    /// every state a Match is drawn in, with the longest text each place
+    /// can hold, nothing the screen draws meets anything else and nothing
+    /// leaves the window - measured from what `bevy_ui` laid out: glyphs
+    /// for text, and boxes for the buttons, the control-hint cards, the
+    /// Round 0 dot rows, the countdown card and the bars; and the board,
+    /// where the camera's framing draws it. A text inside one of those
+    /// boxes is that box's, and is not counted again. The countdown card is
+    /// the one thing meant to stand over another, the board, and it stands
+    /// inside it. The capture counts, which only their own pass writes, are
+    /// written here, longest first. Two states go a digit past every text
+    /// budget the layout keeps, and stand clear all the same: the timer
+    /// wraps in its slot, and the rest grow into the room kept beside them.
+    #[test]
+    fn nothing_the_match_screen_draws_meets_anything_else_at_the_named_sizes() {
+        use super::geometry::StackItem;
+        use super::layout::MatchPlacement;
+        use crate::ui::focus::drawn_texts;
+        use crate::ui::hud::HudPanel;
+        use bevy::ui::{ComputedNode, UiGlobalTransform};
+
+        for window in NAMED_WINDOW_SIZES {
+            for state in [
+                "Round 0",
+                "countdown",
+                "play",
+                "play, hints dismissed",
+                "end",
+                "play, past the budgets",
+                "end, past the budgets",
+            ] {
+                let mut app = match_layout_app(window, worst_case_match(state));
+                {
+                    let world = app.world_mut();
+                    let mut counts = world.query::<(&MatchPlacement, &mut Text)>();
+                    for (placement, mut text) in counts.iter_mut(world) {
+                        if let MatchPlacement::Stack(player, StackItem::CaptureCount) = placement {
+                            text.0 = format!("Captured {}", 80 + player.index());
+                        }
+                    }
+                }
+                app.update();
+                app.update();
+                let context = format!("{window} {state}");
+
+                // The boxes that draw something of their own: a button, a
+                // card, a row of dots, a bar. A closed modal's are laid out
+                // at no size, so only the screen's own are found.
+                let mut boxes: Vec<(String, Entity, Rect)> = Vec::new();
+                {
+                    let world = app.world_mut();
+                    let countdown_rows: Vec<Entity> = world
+                        .query::<(Entity, &HudPanel)>()
+                        .iter(world)
+                        .filter(|(_, panel)| matches!(panel, HudPanel::Countdown))
+                        .map(|(entity, _)| entity)
+                        .collect();
+                    let mut nodes = world.query::<(
+                        Entity,
+                        &ComputedNode,
+                        &UiGlobalTransform,
+                        &InheritedVisibility,
+                        Option<&HudAction>,
+                        Option<&ControlHint>,
+                        Option<&MatchPlacement>,
+                        Option<&ChildOf>,
+                        Has<HoldProgressTrack>,
+                        Has<RoundTimeTrack>,
+                    )>();
+                    for (
+                        entity,
+                        node,
+                        transform,
+                        visibility,
+                        action,
+                        hint,
+                        placement,
+                        parent,
+                        hold_bar,
+                        round_bar,
+                    ) in nodes.iter(world)
+                    {
+                        if !visibility.get() || node.size() == Vec2::ZERO {
+                            continue;
+                        }
+                        let in_countdown =
+                            parent.is_some_and(|parent| countdown_rows.contains(&parent.parent()));
+                        let label = match (action, hint, placement) {
+                            (Some(action), ..) => format!("{action:?} button"),
+                            (_, Some(hint), _) => format!("{:?}'s control hints", hint.0),
+                            (_, _, Some(MatchPlacement::Stack(player, StackItem::OpeningDots))) => {
+                                format!("{player:?}'s dots")
+                            }
+                            _ if in_countdown => "countdown card".into(),
+                            _ if hold_bar => "hold bar".into(),
+                            _ if round_bar => "round-time bar".into(),
+                            _ => continue,
+                        };
+                        let scale = node.inverse_scale_factor;
+                        let rect = Rect::from_center_size(
+                            transform.translation * scale,
+                            node.size * scale,
+                        );
+                        boxes.push((label, entity, rect));
+                    }
+                }
+
+                let inside_a_box = |app: &App, mut entity: Entity| loop {
+                    if boxes.iter().any(|(_, owner, _)| *owner == entity) {
+                        break true;
+                    }
+                    match app.world().get::<ChildOf>(entity) {
+                        Some(parent) => entity = parent.parent(),
+                        None => break false,
+                    }
+                };
+                let mut items: Vec<(String, Rect)> = boxes
+                    .iter()
+                    .map(|(label, _, rect)| (label.clone(), *rect))
+                    .collect();
+                for (entity, text, ink) in drawn_texts(&mut app) {
+                    if !inside_a_box(&app, entity) {
+                        items.push((format!("{text:?}"), ink));
+                    }
+                }
+                // The board's wood, where the framing the layout pass wrote
+                // has the camera draw it.
+                let framing = *app.world().resource::<WorldFraming>();
+                let (centre, half) = (
+                    Vec2::new(0.0, BOARD_CENTER_Y),
+                    Vec2::splat(BOARD_OUTER_SIZE / 2.0),
+                );
+                let board = Rect::from_corners(
+                    framing.window_point(centre - half, window),
+                    framing.window_point(centre + half, window),
+                );
+                items.push(("board".into(), board));
+                // Both buttons always; both control-hint cards until they are
+                // dismissed; both dot rows in Round 0; the countdown card in
+                // the countdown; and the round-time bar while Round Time
+                // runs.
+                let expected_boxes = match state {
+                    "Round 0" => 6,
+                    "countdown" => 7,
+                    "play" | "play, past the budgets" => 5,
+                    "play, hints dismissed" => 3,
+                    _ => 4,
+                };
+                assert_eq!(boxes.len(), expected_boxes, "{context}: {boxes:?}");
+                assert!(items.len() >= expected_boxes + 7, "{context}: {items:?}");
+
+                let inside = Rect::from_corners(Vec2::ZERO, window);
+                for (label, rect) in &items {
+                    assert!(
+                        inside.contains(rect.min) && inside.contains(rect.max),
+                        "{context}: {label} at {rect:?} leaves the window"
+                    );
+                }
+                let mut card_over_board = false;
+                for (index, (label, rect)) in items.iter().enumerate() {
+                    for (other, other_rect) in &items[index + 1..] {
+                        let pair = [label.as_str(), other.as_str()];
+                        if pair.contains(&"board") && pair.contains(&"countdown card") {
+                            let card = if label == "board" { other_rect } else { rect };
+                            assert!(
+                                board.contains(card.min) && board.contains(card.max),
+                                "{context}: the countdown card {card:?} stands over the board \
+                                 {board:?}"
+                            );
+                            card_over_board = true;
+                            continue;
+                        }
+                        assert!(
+                            rect.intersect(*other_rect).is_empty(),
+                            "{context}: {label} {rect:?} meets {other} {other_rect:?}"
+                        );
+                    }
+                }
+                assert_eq!(card_over_board, state == "countdown", "{context}");
+            }
+        }
+    }
+
+    /// In a wide window the round panel and the Match timer stand beside the
+    /// heading, centred down its line whether the round panel is one line -
+    /// no Round Time - or two, with its countdown under it; under the
+    /// heading in the opening window. Measured by node, which for text is the
+    /// line box the layout centres.
+    #[test]
+    fn the_readouts_beside_the_heading_stand_centred_on_its_line() {
+        use crate::ui::focus::laid_out_texts;
+
+        for window in [
+            WindowSize::OPENING.0,
+            WindowSize::MINIMUM.0,
+            Vec2::new(1280.0, 641.0),
+            Vec2::new(1920.0, 1080.0),
+        ] {
+            let layout = match_layout(window);
+            for round_time in [false, true] {
+                let mut game = GameState::default();
+                if round_time {
+                    let mut rules = MatchSettings::default();
+                    rules.set_enabled(MatchSettingField::RoundTime, true);
+                    rules.set_value(MatchSettingField::RoundTime, 45);
+                    game.match_rules = crate::gameplay::MatchRules::snapshot(&rules);
+                }
+                begin_active_match(&mut game);
+                let round =
+                    round_panel_text(1, game.round_time_remaining_seconds(), layout.round_lines);
+                let mut app = match_layout_app(window, game);
+                let texts = laid_out_texts(&mut app);
+                let find = |content: &str| {
+                    texts
+                        .iter()
+                        .find(|(text, _)| text == content)
+                        .unwrap_or_else(|| panic!("{window}: no {content:?} in {texts:?}"))
+                        .1
+                };
+                let heading = find("GO TOGETHER");
+                let (round, timer) = (find(&round), find(&timer_text(0.0)));
+                let context = format!("{window}, Round Time {round_time}");
+                if layout.has_title_row() {
+                    for readout in [round, timer] {
+                        assert!(
+                            (readout.center().y - heading.center().y).abs() < 1.0,
+                            "{context}: {readout:?} beside {heading:?}"
+                        );
+                    }
+                    assert_eq!(
+                        round_time && layout.round_lines == Lines::Two,
+                        round.height() > 30.0
+                    );
+                } else {
+                    // Under the heading, their line boxes meeting by no more
+                    // than the leading, as they always have.
+                    assert!(
+                        timer.min.y >= heading.max.y - 1.0,
+                        "{context}: {heading:?} {timer:?}"
+                    );
+                    assert!(round.min.y > timer.max.y, "{context}");
+                }
+            }
+        }
+    }
+
+    /// Every placed node on the Match screen, with its place, in an order
+    /// that does not depend on the ECS, and how the round panel's text is
+    /// justified, which the placement pass sets too.
+    fn placed_nodes(app: &mut App) -> (Vec<(String, Node)>, Justify) {
+        use super::layout::MatchPlacement;
+
+        let world = app.world_mut();
+        let mut nodes: Vec<(String, Node)> = world
+            .query::<(&MatchPlacement, &Node)>()
+            .iter(world)
+            .map(|(placement, node)| (format!("{placement:?}"), node.clone()))
+            .collect();
+        nodes.sort_by(|a, b| a.0.cmp(&b.0));
+        let justify: Vec<Justify> = world
+            .query::<(&UiRole, &TextLayout)>()
+            .iter(world)
+            .filter(|(role, _)| matches!(role, UiRole::Round))
+            .map(|(_, layout)| layout.justify)
+            .collect();
+        assert_eq!(justify.len(), 1, "one round panel");
+        (nodes, justify[0])
+    }
+
+    /// When the window's size changes mid-Match, the furniture moves to
+    /// exactly where a Match entered at the new size would have it, and the
+    /// camera frames the board anew; back in the opening window every node
+    /// is again the one the opening window spawns, so wide leaves nothing
+    /// behind. The positive half: the wide nodes really are different.
+    #[test]
+    fn a_change_of_window_size_moves_the_match_and_moving_back_restores_it() {
+        let laptop = Vec2::new(1280.0, 641.0);
+        let in_play = || {
+            let mut game = GameState::default();
+            begin_active_match(&mut game);
+            game
         };
+        let mut app = match_layout_app(WindowSize::OPENING.0, in_play());
+        let opening = placed_nodes(&mut app);
+        // The heading, the column under it and its three lines, five items
+        // in each stack, the countdown and the overlay under the board.
+        assert_eq!(opening.0.len(), 17);
+        assert_eq!(opening.1, Justify::Left, "as the round panel always was");
+        assert_eq!(
+            *app.world().resource::<WorldFraming>(),
+            WorldFraming::IDENTITY
+        );
 
-        let heading = one_line(&mut app, &result_heading(score));
-        let reasons = one_line(&mut app, &end_reasons_text(&EVERY_AUTOMATIC_END_REASON));
-        let left = one_line(&mut app, &player_heading(Player::Two, Some(score)));
-        let right = one_line(&mut app, &player_heading(Player::One, Some(score)));
-        let round = one_line(&mut app, "Round 0");
+        app.insert_resource(WindowSize(laptop));
+        app.update();
+        let moved = placed_nodes(&mut app);
+        assert_ne!(moved.0, opening.0);
+        assert_eq!(moved.1, Justify::Right, "against the heading beside it");
+        let mut fresh = match_layout_app(laptop, in_play());
+        assert_eq!(moved, placed_nodes(&mut fresh));
+        assert_eq!(
+            *app.world().resource::<WorldFraming>(),
+            match_layout(laptop).framing()
+        );
 
-        let board_left = (WINDOW_WIDTH as f32 - BOARD_OUTER_SIZE) / 2.0;
-        let board_right = board_left + BOARD_OUTER_SIZE;
-        let board_top = WINDOW_HEIGHT as f32 / 2.0 - (BOARD_CENTER_Y + BOARD_OUTER_SIZE / 2.0);
-        assert!(
-            reasons.min.x > board_left && reasons.max.x < board_right,
-            "the reasons {reasons:?} reach past the board's width {board_left}..{board_right}"
-        );
-        assert!(
-            heading.max.y < reasons.min.y,
-            "the reasons overlap the result"
-        );
-        assert!(
-            left.max.x < board_left && right.min.x > board_right,
-            "a corner heading reaches into the board's width: {left:?} {right:?}"
-        );
-        assert!(
-            round.max.y < board_top,
-            "the column under the heading runs into the board: {round:?} against {board_top}"
+        app.insert_resource(WindowSize::OPENING);
+        app.update();
+        assert_eq!(placed_nodes(&mut app), opening);
+        assert_eq!(
+            *app.world().resource::<WorldFraming>(),
+            WorldFraming::IDENTITY
         );
     }
 
+    /// The control-hint cards stand on their own players' sides - White's
+    /// from the left edge, Black's from the right, mirroring each other -
+    /// at least their gap from the board, at every size.
     #[test]
     fn control_hints_align_white_left_and_black_right_without_board_overlap() {
-        let white = control_hint_node(Player::Two);
-        let black = control_hint_node(Player::One);
-        let board_left = (crate::app::visuals::WINDOW_WIDTH as f32 - (GRID_EXTENT + 78.0)) / 2.0;
-
-        assert_eq!(white.left, px(CONTROL_HINT_SIDE_OFFSET));
-        assert_eq!(white.right, Val::Auto);
-        assert_eq!(black.left, Val::Auto);
-        assert_eq!(black.right, px(CONTROL_HINT_SIDE_OFFSET));
-        assert!(CONTROL_HINT_SIDE_OFFSET + CONTROL_HINT_WIDTH < board_left);
+        for window in layout_sweep() {
+            let layout = match_layout(window);
+            let (white, _) = control_hint_node(Player::Two, &layout);
+            let (black, _) = control_hint_node(Player::One, &layout);
+            assert_eq!(white.right, Val::Auto, "{window}");
+            assert_eq!(black.left, Val::Auto, "{window}");
+            assert_eq!(
+                white.left, black.right,
+                "{window}: the two mirror each other"
+            );
+            let (Val::Px(left), Val::Px(right)) = (white.left, black.right) else {
+                panic!("{window}: placed in pixels from the sides");
+            };
+            assert!(left >= 12.0 && right >= 12.0, "{window}");
+            assert!(
+                left + CONTROL_HINT_WIDTH + STACK_GAP <= layout.board.min.x + 1e-3,
+                "{window}"
+            );
+            assert!(
+                window.x - right - CONTROL_HINT_WIDTH - STACK_GAP >= layout.board.max.x - 1e-3,
+                "{window}"
+            );
+        }
+        let (white, _) = control_hint_node(Player::Two, &match_layout(WindowSize::OPENING.0));
+        assert_eq!(white.left, px(18), "where the hints have always stood");
     }
 
     #[test]
@@ -1711,7 +2337,7 @@ mod tests {
         app.add_plugins(bevy::state::app::StatesPlugin)
             .init_state::<AppScreen>()
             .add_systems(OnEnter(AppScreen::Match), |mut commands: Commands| {
-                spawn_ui(&mut commands)
+                spawn_ui(&mut commands, &match_layout(WindowSize::OPENING.0))
             });
         app.update();
         app.world_mut()
@@ -1771,7 +2397,7 @@ mod tests {
         use crate::presentation::TEXT_MUTED;
 
         let mut world = World::new();
-        spawn_ui(&mut world.commands());
+        spawn_ui(&mut world.commands(), &match_layout(WindowSize::OPENING.0));
         world.flush();
 
         for player in Player::ALL {
@@ -2050,7 +2676,7 @@ mod tests {
 
     #[test]
     fn timer_and_round_preferences_cover_all_hud_combinations() {
-        let group = under_heading_node();
+        let (group, _) = under_heading_node(&match_layout(WindowSize::OPENING.0));
         let game = GameState::default();
 
         assert_eq!(group.flex_direction, FlexDirection::Column);
@@ -2065,7 +2691,7 @@ mod tests {
         }
         assert_eq!(game.round, 0);
         assert_eq!(
-            round_panel_text(game.round, game.round_time_remaining_seconds()),
+            round_panel_text(game.round, game.round_time_remaining_seconds(), Lines::One),
             "Round 0"
         );
         // Every `.rs` file in this directory, plus the HUD, read from disk at test time rather
@@ -2083,23 +2709,121 @@ mod tests {
         assert!(!source.contains(&["round_hud", "_visible"].concat()));
     }
 
-    /// The round panel with and without a Round Time clock. The separator
-    /// was once a middle dot, which Bevy's bundled fallback font drew as a
-    /// box, and the clock read `Round 01:30` beside `Round 3`, as if there
-    /// were two rounds; it is a countdown, and now says so.
+    /// The round panel with and without a Round Time clock, on one line and
+    /// on two. The separator was once a middle dot, which Bevy's bundled
+    /// fallback font drew as a box, and the clock read `Round 01:30` beside
+    /// `Round 3`, as if there were two rounds; it is a countdown, and now
+    /// says so. On two lines the countdown stands under its round. Beyond
+    /// the texts written out here, every form the panel writes, across the
+    /// rounds and the times it can show, is printable ASCII but for the one
+    /// line break of the two-line form.
     #[test]
     fn round_panel_text_is_printable_ascii_and_reads_as_a_countdown() {
-        assert_eq!(round_panel_text(3, None), "Round 3");
-        assert_eq!(round_panel_text(3, Some(90)), "Round 3  |  01:30 left");
-        assert_eq!(round_panel_text(12, Some(5)), "Round 12  |  00:05 left");
-        assert_eq!(round_panel_text(1, Some(3600)), "Round 1  |  60:00 left");
-        for text in [round_panel_text(3, None), round_panel_text(3, Some(90))] {
-            assert!(
-                text.chars()
-                    .all(|character| (' '..='~').contains(&character)),
-                "{text:?} is not printable ASCII"
+        assert_eq!(round_panel_text(3, None, Lines::One), "Round 3");
+        assert_eq!(
+            round_panel_text(3, Some(90), Lines::One),
+            "Round 3  |  01:30 left"
+        );
+        assert_eq!(
+            round_panel_text(12, Some(5), Lines::One),
+            "Round 12  |  00:05 left"
+        );
+        assert_eq!(
+            round_panel_text(1, Some(3600), Lines::One),
+            "Round 1  |  60:00 left"
+        );
+        assert_eq!(round_panel_text(3, None, Lines::Two), "Round 3");
+        assert_eq!(
+            round_panel_text(3, Some(90), Lines::Two),
+            "Round 3\n01:30 left"
+        );
+        for round in [0, 1, 9, 10, 99, 100, 999, 1_000, 9_999, 10_000] {
+            for remaining in [
+                None,
+                Some(0),
+                Some(5),
+                Some(59),
+                Some(60),
+                Some(3_599),
+                Some(3_600),
+            ] {
+                for lines in [Lines::One, Lines::Two] {
+                    let text = round_panel_text(round, remaining, lines);
+                    let breaks = text.matches('\n').count();
+                    assert_eq!(
+                        breaks,
+                        usize::from(lines == Lines::Two && remaining.is_some()),
+                        "{text:?}"
+                    );
+                    assert!(
+                        text.chars().all(|character| {
+                            character == '\n' || (' '..='~').contains(&character)
+                        }),
+                        "{text:?} is not printable ASCII"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_timer_reads_time_and_how_long_the_match_has_run() {
+        assert_eq!(timer_text(0.0), "TIME  00:00");
+        assert_eq!(timer_text(7_507.9), "TIME  125:07");
+    }
+
+    /// Each longest text `geometry` makes room for is the longest this
+    /// screen writes there, in characters of its monospaced font: the
+    /// heading and every result; a corner's name with a three-digit score;
+    /// every automatic end reason at once; the round panel at the largest
+    /// Round Limit with a full hour of Round Time left, on one line and on
+    /// two; and the timer at 999:59. A budget shorter than its text would let the text run into
+    /// its neighbour; these hold the two together.
+    #[test]
+    fn the_layouts_longest_texts_are_the_screens_longest_texts() {
+        use crate::match_settings::{DURATION_MAX_SECONDS, ROUND_LIMIT_MAX};
+
+        let longest_line = |text: &str| text.lines().map(str::len).max().unwrap();
+        let mut headings = vec!["GO TOGETHER".to_string()];
+        for score in [
+            Score { black: 2, white: 1 },
+            Score { black: 1, white: 2 },
+            Score { black: 1, white: 1 },
+        ] {
+            headings.push(result_heading(score));
+        }
+        assert_eq!(
+            headings.iter().map(|heading| heading.len()).max(),
+            Some(HEADING_MAX_CHARS),
+            "{headings:?}"
+        );
+        let three_digits = Score {
+            black: 999,
+            white: 999,
+        };
+        for player in Player::ALL {
+            assert_eq!(
+                player_heading(player, Some(three_digits)).len(),
+                PLAYER_HEADING_MAX_CHARS
             );
         }
+        assert_eq!(
+            end_reasons_text(&EVERY_AUTOMATIC_END_REASON).len(),
+            END_REASONS_MAX_CHARS
+        );
+        let round = usize::from(ROUND_LIMIT_MAX);
+        let hour = u64::from(DURATION_MAX_SECONDS);
+        // The two-line form's longest line, with Round Time running or not.
+        let two_lines = longest_line(&round_panel_text(round, Some(hour), Lines::Two))
+            .max(longest_line(&round_panel_text(round, None, Lines::Two)));
+        assert_eq!(
+            ROUND_PANEL_MAX_CHARS,
+            [
+                round_panel_text(round, Some(hour), Lines::One).len(),
+                two_lines
+            ]
+        );
+        assert_eq!(timer_text((999 * 60 + 59) as f64).len(), TIMER_MAX_CHARS);
     }
 
     #[test]
@@ -2323,6 +3047,7 @@ mod tests {
             .insert_resource(KeyboardBindings::default())
             .insert_resource(ControllerBindings::default())
             .insert_resource(ControllerAssignments::default())
+            .init_resource::<WindowSize>()
             .init_resource::<DisplayChangeCounts>()
             .add_systems(Startup, spawn_match_screen)
             .add_systems(

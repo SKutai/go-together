@@ -1015,7 +1015,7 @@ mod tests {
         use crate::ui::focus::real_layout_app;
         use crate::ui::hud::{HudState, update_shared_display};
 
-        let mut app = real_layout_app();
+        let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
         app.insert_resource(ControlMappingState::new(None))
             .insert_resource(GameState::default())
             .insert_resource(HudState::default())

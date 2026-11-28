@@ -21,11 +21,25 @@
 //!
 //! Audio and visuals are deliberately independent: muting the game does not
 //! change the reveal progress, and a note always highlights its bar.
+//!
+//! # Where it stands
+//!
+//! Under the panel, across the window, where it has always stood beside
+//! the panel and the diamond, or upright beside the panel in a window too
+//! short for that, as `super::geometry` decides, with the instrument's
+//! dimensions. Upright, the instrument is the same one turned on its end:
+//! the bars lie across, the longest and lowest at the bottom, and the same
+//! key plays the same bar.
 
+use bevy::ecs::system::SystemParam;
 use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 
+use super::geometry::{
+    BAR_BREADTH, BAR_GAP, BAR_LENGTH_STEP, HOME_MARIMBA_BAR_COUNT, LOWEST_BAR_LENGTH,
+    MARIMBA_DEPTH, MARIMBA_LENGTH, MarimbaStance, PADDING_ACROSS, PADDING_ALONG,
+};
 use crate::app::{AppScreen, AppSystems};
 use crate::presentation::{marimba_bar, marimba_border};
 
@@ -59,7 +73,6 @@ use crate::audio::{AudioCueQueue, MarimbaNote, UiCue};
 use crate::ui::hud::{HudState, modal_open};
 
 const HOME_MARIMBA_REVEAL_COUNT: u8 = 20;
-const HOME_MARIMBA_BAR_COUNT: usize = 11;
 const HOME_MARIMBA_FADE_IN_SECONDS: f32 = 0.6;
 const HOME_MARIMBA_IDLE_SECONDS: f32 = 10.0;
 const HOME_MARIMBA_FADE_OUT_SECONDS: f32 = 0.8;
@@ -113,27 +126,22 @@ impl Default for HomeMarimbaState {
 }
 
 #[derive(Component)]
-struct HomeMarimbaVisual;
+pub(super) struct HomeMarimbaVisual;
 
 #[derive(Component)]
-struct HomeMarimbaBar(usize);
+pub(super) struct HomeMarimbaBar(pub(super) usize);
 
-pub(super) fn spawn_home_marimba(commands: &mut Commands) {
+pub(super) fn spawn_home_marimba(commands: &mut Commands, stance: MarimbaStance) {
+    let mut root = Node {
+        position_type: PositionType::Absolute,
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        ..default()
+    };
+    place_marimba(stance, &mut root);
     commands
         .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                bottom: px(28),
-                left: percent(50),
-                width: px(350),
-                height: px(92),
-                margin: UiRect::left(px(-175)),
-                padding: UiRect::axes(px(9), px(8)),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                column_gap: px(5),
-                ..default()
-            },
+            root,
             Visibility::Hidden,
             GlobalZIndex(3),
             HomeMarimbaVisual,
@@ -141,20 +149,87 @@ pub(super) fn spawn_home_marimba(commands: &mut Commands) {
         ))
         .with_children(|marimba| {
             for index in 0..HOME_MARIMBA_BAR_COUNT {
+                let mut bar = Node {
+                    border: UiRect::all(px(2)),
+                    border_radius: BorderRadius::all(px(4)),
+                    ..default()
+                };
+                place_bar(index, stance, &mut bar);
                 marimba.spawn((
-                    Node {
-                        width: px(23),
-                        height: px(72.0 - index as f32 * 3.2),
-                        border: UiRect::all(px(2)),
-                        border_radius: BorderRadius::all(px(4)),
-                        ..default()
-                    },
+                    bar,
                     BackgroundColor(marimba_bar(0.0, 0.0)),
                     BorderColor::all(marimba_border(0.0)),
                     HomeMarimbaBar(index),
                 ));
             }
         });
+}
+
+/// Writes where the instrument's root stands, and which way its bars run,
+/// for `stance`. Each stance sets every field it owns, so a marimba turned
+/// upright and back is the one it was.
+fn place_marimba(stance: MarimbaStance, node: &mut Node) {
+    let top_left = stance.top_left();
+    node.left = px(top_left.x);
+    node.top = px(top_left.y);
+    match stance {
+        MarimbaStance::UnderPanel(_) => {
+            node.width = px(MARIMBA_LENGTH);
+            node.height = px(MARIMBA_DEPTH);
+            node.padding = UiRect::axes(px(PADDING_ALONG), px(PADDING_ACROSS));
+            node.flex_direction = FlexDirection::Row;
+            node.column_gap = px(BAR_GAP);
+            node.row_gap = Val::ZERO;
+        }
+        MarimbaStance::Upright(_) => {
+            node.width = px(MARIMBA_DEPTH);
+            node.height = px(MARIMBA_LENGTH);
+            node.padding = UiRect::axes(px(PADDING_ACROSS), px(PADDING_ALONG));
+            // The lowest bar first, at the bottom.
+            node.flex_direction = FlexDirection::ColumnReverse;
+            node.column_gap = Val::ZERO;
+            node.row_gap = px(BAR_GAP);
+        }
+    }
+}
+
+/// Writes one bar's size for `stance`: standing across the instrument
+/// under the panel, lying across it upright.
+fn place_bar(index: usize, stance: MarimbaStance, node: &mut Node) {
+    let length = px(LOWEST_BAR_LENGTH - index as f32 * BAR_LENGTH_STEP);
+    let breadth = px(BAR_BREADTH);
+    (node.width, node.height) = match stance {
+        MarimbaStance::UnderPanel(_) => (breadth, length),
+        MarimbaStance::Upright(_) => (length, breadth),
+    };
+}
+
+/// The instrument's root and its bars, for a pass that moves them when the
+/// window's size changes.
+#[derive(SystemParam)]
+pub(super) struct MarimbaNodes<'w, 's> {
+    roots: Query<'w, 's, &'static mut Node, (With<HomeMarimbaVisual>, Without<HomeMarimbaBar>)>,
+    bars: Query<'w, 's, (&'static HomeMarimbaBar, &'static mut Node), Without<HomeMarimbaVisual>>,
+}
+
+impl MarimbaNodes<'_, '_> {
+    /// Stands the instrument as `stance` says, writing only what changes.
+    pub(super) fn place(&mut self, stance: MarimbaStance) {
+        for mut root in &mut self.roots {
+            let mut placed = root.clone();
+            place_marimba(stance, &mut placed);
+            if *root != placed {
+                *root = placed;
+            }
+        }
+        for (bar, mut node) in &mut self.bars {
+            let mut placed = node.clone();
+            place_bar(bar.0, stance, &mut placed);
+            if *node != placed {
+                *node = placed;
+            }
+        }
+    }
 }
 
 fn handle_home_marimba_input(
@@ -373,6 +448,7 @@ fn animate_home_marimba(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::visuals::{WindowSize, WorldFraming};
     use crate::audio;
     use crate::gameplay::{GameState, InputGate};
     use crate::settings::{GamePreferences, VolumeLevel};
@@ -676,7 +752,9 @@ mod tests {
     #[test]
     fn home_marimba_visual_has_eleven_textless_bars_and_starts_hidden() {
         let mut app = App::new();
-        app.add_systems(Update, spawn_home_screen);
+        app.init_resource::<WindowSize>()
+            .init_resource::<WorldFraming>()
+            .add_systems(Update, spawn_home_screen);
         app.update();
 
         let world = app.world_mut();
@@ -706,6 +784,8 @@ mod tests {
             .insert_resource(HudState::default())
             .insert_resource(InputGate::default())
             .insert_resource(HomeMarimbaState::default())
+            .init_resource::<WindowSize>()
+            .init_resource::<WorldFraming>()
             .add_systems(
                 OnEnter(AppScreen::Home),
                 (prepare_home_screen, spawn_home_screen).chain(),

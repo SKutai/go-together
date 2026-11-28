@@ -75,7 +75,7 @@ use crate::settings::{ControlsConfig, SettingsStore, load_user_controls};
 use crate::ui::UiPlugin;
 use motion::{MotionPolicy, read_platform_motion_signal};
 use startup_log::{DeferredStartupWarnings, emit_deferred_startup_warnings};
-use visuals::{WINDOW_HEIGHT, WINDOW_WIDTH, setup_app};
+use visuals::{WINDOW_HEIGHT, WINDOW_WIDTH, WindowLayoutPlugin, setup_app};
 
 /// Loads persisted settings, builds the Bevy app and blocks until the window
 /// closes.
@@ -243,6 +243,17 @@ fn deferred_startup_warnings(
 /// * [`Self::MatchUpdate`] -> [`Self::HudDisplay`]: `update_shared_display`
 ///   reads `GameState` (for round-visibility text) as well as HUD and
 ///   binding state, so it needs this frame's Match state too.
+/// * [`Self::ScreenLayout`] -> [`Self::MatchDisplay`] and
+///   [`Self::ScreenLayout`] -> [`Self::HudDisplay`]: the Match screen's
+///   layout pass writes where its nodes stand, and the display passes
+///   write other parts of some of the same nodes - the HUD's which of four
+///   panels are shown, the Match's what its texts say and which of its
+///   hints and dot rows are drawn. Placing first means every display pass
+///   sees its nodes already where this frame's window puts them. It also
+///   means the layout pass need not keep to its own fields, since the
+///   display passes run after it and set theirs every frame; but the
+///   display passes must keep to theirs, since one that replaced a whole
+///   `Node` would undo the placement until the window's size next changed.
 ///
 /// Every other pair is deliberately left unordered - see
 /// [`configure_app_systems`]'s doc comment for why that is safe rather than
@@ -260,6 +271,10 @@ pub(crate) enum AppSystems {
     DeviceInput,
     /// Live match: clock, input-release gate, hold gestures, player actions.
     MatchUpdate,
+    /// Where each screen's furniture stands for the window's size, and the
+    /// main camera's framing of its world-space scene: the Match screen's
+    /// layout pass and Home's, each gated to its own screen.
+    ScreenLayout,
     /// HUD text and panel visibility shared by several screens.
     HudDisplay,
     /// Settings screen display refresh.
@@ -267,7 +282,10 @@ pub(crate) enum AppSystems {
     /// Match board, cursors, HUD text, the capture marks and their count
     /// lines, and the two bars below the board - hold progress while a
     /// gesture runs or a released end hold drains, and the round-time bar
-    /// otherwise.
+    /// otherwise. Where things stand in the window is
+    /// [`Self::ScreenLayout`]'s, which runs first; this stage still moves
+    /// the cursors over the board and decides which capture marks are
+    /// drawn.
     MatchDisplay,
 }
 
@@ -292,6 +310,7 @@ impl Plugin for AppPlugin {
         }
         app.add_plugins(engine_plugins(asset_path, platform_window))
             .init_state::<AppScreen>()
+            .add_plugins(WindowLayoutPlugin)
             .init_resource::<MotionPolicy>();
         configure_app_systems(app);
         app.add_systems(
@@ -357,19 +376,26 @@ fn engine_plugins(asset_path: String, platform_window: WindowPlatformConfig) -> 
 /// behind each one and `docs/ARCHITECTURE.md` for the full graph.
 /// [`AppSystems::HudInput`], [`AppSystems::HomeEasterEgg`],
 /// [`AppSystems::SettingsInput`], [`AppSystems::DeviceInput`],
-/// [`AppSystems::MatchUpdate`], [`AppSystems::SettingsDisplay`], and
-/// [`AppSystems::MatchDisplay`] are otherwise unordered relative to each
-/// other: several are gated to mutually exclusive screens
-/// ([`AppSystems::HomeEasterEgg`] to Home; [`AppSystems::SettingsInput`] and
-/// [`AppSystems::SettingsDisplay`] to Control Mapping;
-/// [`AppSystems::MatchUpdate`] and [`AppSystems::MatchDisplay`] to Match) and
-/// never do real work in the same frame, so no edge between them would
-/// express anything true. Two systems are registered without a screen gate
-/// and are harmless anyway: gameplay's input-release gate runs on every
-/// screen but touches only `InputGate`, [`crate::input::SemanticInput`] and
-/// `GameplayPause`, none of which any Settings system reads or writes, and
-/// the marimba's input handler checks the screen itself and only drains
-/// keyboard messages elsewhere. This crate does not enable Bevy's
+/// [`AppSystems::MatchUpdate`], [`AppSystems::ScreenLayout`],
+/// [`AppSystems::SettingsDisplay`], and [`AppSystems::MatchDisplay`] are
+/// otherwise unordered relative to each other: several are gated to
+/// mutually exclusive screens ([`AppSystems::HomeEasterEgg`] to Home;
+/// [`AppSystems::SettingsInput`] and [`AppSystems::SettingsDisplay`] to
+/// Control Mapping; [`AppSystems::MatchUpdate`] and
+/// [`AppSystems::MatchDisplay`] to Match; each layout pass in
+/// [`AppSystems::ScreenLayout`] to its own screen) and never do real work in
+/// the same frame, so no edge between them would express anything true.
+/// Within a screen, a layout pass shares nothing with that screen's update
+/// or input systems. It reads [`visuals::WindowSize`], which furniture is
+/// new, each placed node's placement and current value, and the round
+/// text's `UiRole`, and writes only nodes' places, that text's
+/// justification and the camera's [`visuals::WorldFraming`] - none of which
+/// gameplay, or the marimba's input and animation, writes. Two systems are
+/// registered without a screen gate and are harmless anyway: gameplay's
+/// input-release gate runs on every screen but touches only `InputGate`,
+/// [`crate::input::SemanticInput`] and `GameplayPause`, none of which any
+/// Settings system reads or writes, and the marimba's input handler checks
+/// the screen itself and only drains keyboard messages elsewhere. This crate does not enable Bevy's
 /// system-ordering-ambiguity diagnostic, so an unordered pair here is a
 /// deliberate "no dependency exists," not an oversight.
 ///
@@ -377,7 +403,10 @@ fn engine_plugins(asset_path: String, platform_window: WindowPlatformConfig) -> 
 /// read off a screen gate. Its one system, `ui::hud`'s
 /// `update_shared_display`, runs on every screen, so it is live alongside
 /// [`AppSystems::SettingsDisplay`] and [`AppSystems::MatchDisplay`] and
-/// ordered against neither. It shares two kinds of entity with them.
+/// ordered against neither. (The Match screen's layout pass also writes
+/// nodes it writes - the four HUD panels on that screen - which is why
+/// [`AppSystems::ScreenLayout`] runs before it.) It shares two kinds of
+/// entity with them.
 /// Text carrying a `UiRole`, which it and the Match display both query: the
 /// two divide the roles between them, each skipping the other's, so no text
 /// has two writers. And buttons carrying a `HudAction`, whose fill it sets
@@ -394,12 +423,19 @@ fn engine_plugins(asset_path: String, platform_window: WindowPlatformConfig) -> 
 /// The claims above cover only `Update`, because that is the only schedule
 /// this graph orders. Setting aside one-shots (`Startup` systems and the
 /// screens' `OnEnter`/`OnExit` chains), the crate's per-frame work outside
-/// `Update` is three things: `audio`'s playback chain in `PostUpdate`
-/// (spawning the one-shot audio entities the `Update` systems queued);
-/// `ui::hud`'s `HudState` reset in `StateTransition`, placed by
+/// `Update` is four things: `audio`'s playback chain in `PostUpdate`
+/// (spawning the one-shot audio entities the `Update` systems queued); the
+/// two resets in `StateTransition`, `ui::hud`'s of `HudState` and
+/// [`visuals`]' of the camera's `WorldFraming`
+/// (`reset_world_framing_on_screen_change`), each placed by
 /// `StateTransitionSystems` between the transition being applied and the
-/// exit and enter schedules, so a screen change closes every modal before
-/// either screen's chain runs; and `ui`'s button and focus modules. A
+/// exit and enter schedules, so a screen change closes every modal and
+/// puts the camera back before either screen's chain runs; [`visuals`]'
+/// window and camera pair, `track_window_size` in `PreUpdate`, so every
+/// `Update` layout pass reads this frame's window, and `frame_main_camera`
+/// in `PostUpdate`, before the camera's projection is recomputed and
+/// transforms are propagated, so a framing written in `Update` is drawn
+/// that frame; and `ui`'s button and focus modules. A
 /// pointer presses a button inside `bevy_picking`'s own `PreUpdate`
 /// systems, where its events are triggered, and `ui::button` activates it
 /// on the release just after them, reading picking's hover map. Two of the
@@ -457,6 +493,13 @@ pub(crate) fn configure_app_systems(app: &mut App) {
     .configure_sets(
         Update,
         (AppSystems::MatchUpdate, AppSystems::HudDisplay).chain(),
+    )
+    .configure_sets(
+        Update,
+        AppSystems::ScreenLayout
+            .before(AppSystems::MatchDisplay)
+            .before(AppSystems::HudDisplay)
+            .after(UiAudioSet),
     );
 }
 

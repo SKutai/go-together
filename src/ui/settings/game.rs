@@ -1224,7 +1224,7 @@ mod tests {
                 let mut mapping = ControlMappingState::new(None);
                 mapping.tab = MappingTab::Game;
                 mapping.game_error = Some((input, message.clone()));
-                let mut app = real_layout_app();
+                let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
                 app.insert_resource(settings)
                     .insert_resource(mapping)
                     .add_systems(Startup, spawn_control_mapping_screen)

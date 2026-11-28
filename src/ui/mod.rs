@@ -31,6 +31,8 @@
 //! * [`replay`] - the Replay Library and the Replay Viewer.
 //! * [`text_input`] - the caret-aware single-line editor behind the Replay
 //!   Library's search and rename fields and the Game tab's numeric fields.
+//! * [`text_metrics`] - how long and how tall a line of the game's text is
+//!   drawn, for a layout that has to know before `bevy_ui` lays it out.
 //!
 //! # Bevy lifecycle
 //!
@@ -56,6 +58,7 @@ pub(crate) mod match_screen;
 mod replay;
 pub(crate) mod settings;
 mod text_input;
+mod text_metrics;
 mod widgets;
 
 use bevy::ecs::system::SystemParam;

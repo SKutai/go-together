@@ -414,13 +414,32 @@ recorder-built fixture rather than a struct literal so it stays a `Replay` that
 could really exist in storage.
 
 `src/ui/focus.rs` carries `real_layout_app`, which runs the production UI
-headlessly against the game's 1040x900 window: `bevy_ui`'s own plugin -
-layout, its text systems and the font the game draws with, stacking and
-visibility - with `bevy_picking`, its UI backend and the crate's
-`ui::button` plugin, but no renderer. A `Text` node is sized by its glyphs
-and its glyphs are placed, so it answers where text is *drawn* as well as
-where its node is, which can differ - see the next section. Every screen's
-tests build on it.
+headlessly against a window of the size it is handed: `bevy_ui`'s own
+plugin - layout, its text systems and the font the game draws with,
+stacking and visibility - with `bevy_picking`, its UI backend and the
+crate's `ui::button` plugin, but no renderer. A `Text` node is sized by its
+glyphs and its glyphs are placed, so it answers where text is *drawn* as
+well as where its node is, which can differ - see the next section. Every
+screen's tests build on it.
+
+The size is the window's and the app's `WindowSize` alike, so a screen that
+lays itself out from the window's size is laid out for it. A test of a
+screen as it was first laid out passes the opening size,
+`WindowSize::OPENING.0`, 1040x900. A screen laid out for any size is
+tested at several:
+`app::visuals::NAMED_WINDOW_SIZES` names the ones that matter, from the
+1040x600 minimum and a 1280x720 laptop's maximised window up to 2560x1440,
+and the Match screen and Home run their real-layout tests at all of them -
+every button reached by the pointer, every text inside the window, and on
+the Match nothing drawn meeting anything else. Their layouts are pure
+functions of the size as well (`ui::match_screen::geometry`,
+`ui::home::geometry`), so their own tests run every size in
+`app::visuals::layout_sweep` - every 20 px from the minimum to 2560x1440,
+the named sizes, a few fractional ones and a few larger windows - and
+check the same things from the layout's own boxes. The two halves
+check different things: the sweep reaches every size, at the cost of
+trusting the layout's own idea of where each box is, and the real layout
+checks that idea against `bevy_ui` at the sizes it runs.
 
 It is also how a test presses a button. `ui::button` carries the helpers -
 `click`, `hover`, `mouse_button`, `queue_mouse_button` for a key in the same
@@ -444,10 +463,17 @@ drawn on such an app: its glyphs' inked box, and the nearest filled node
 under it. `measure_drawn_lines` reads the glyphs alone, line by line, for
 text drawn straight onto the window with no filled node beneath it; it is
 also the way to ask whether a line wrapped. The Match screen's
-`the_longest_end_reason_line_fits_on_one_line_inside_the_board_width` uses
-it with the font's real advance - 0.6 em, so 9.6 px a character at 16 px -
+`the_longest_end_reason_line_fits_on_one_line_clear_of_both_stacks` uses
+it with the font's real advance, 0.6 em or 9.6 px a character at 16 px,
 which is what makes a line's width predictable from its character count
-before a run.
+before a run. `ui::text_metrics` is that prediction, for a layout that has
+to know before `bevy_ui` runs whether a line fits, and its test holds it to
+what `bevy_ui` lays out. For a test that holds a whole screen inside the
+window or clear of itself, `drawn_texts` reads every text drawn at once,
+by its glyphs - the Match's overlap test uses it - and `laid_out_texts`
+every text by its node, which is how the Match's and Home's tests hold
+every text inside the window and the Match's readouts beside the heading
+centred on its line.
 
 The Settings Game tab's `the_game_tab_fits_its_panel_at_its_most_crowded`
 uses the same app on a panel that clips, and two things it learned are worth
@@ -514,6 +540,26 @@ docs carry the detail. Two things follow for anyone checking an overlay:
   `TextLayout::justify(Justify::Center)` already gives, so it does nothing
   and shows nothing. A scan that reads only the literal in each spawn
   misses the first two, whose `Node` arrives as a parameter and a variable.
+
+Two more came from laying the Match screen out for any window size, and
+follow for anyone placing a text inside a box of its own:
+
+- **A text whose line count varies centres only as a child.** The Match
+  screen's round panel, beside the heading in a wide window, is one line,
+  or two while Round Time runs. Placed by a `top` worked out for two lines,
+  its one-line form stood 10 px above the heading's line (2026-11-27). It
+  is now a plain node as tall as the title row, holding the `Text`, which
+  its `align_items: Center` centres whatever the line count, as the Match
+  timer's panel always did;
+  `the_readouts_beside_the_heading_stand_centred_on_its_line` holds it.
+- **A justification is not free either.** Right-justifying that same text,
+  one line in a node exactly its own width, moved its glyphs by a fraction
+  of a pixel: ImageMagick's `compare -metric AE` counted 75 differing pixels
+  in the 1040x900 capture at twice its size, all in the glyphs of
+  `Round 0` (2026-11-27). Wrapping it in the plain node changed none. So a
+  change meant to leave a screen pixel-identical keeps each text's
+  justification as it was, and the round panel is right-justified only
+  beside the heading.
 
 ## Temporary persistence roots
 
@@ -996,7 +1042,8 @@ Four things about it are not obvious, and each cost a failed capture to learn
 on 2026-09-30 with Bevy 0.19.1. All four were checked again on 2026-10-27
 with Bevy 0.20.0, where each still holds - the scaled target still saves
 solid black, and the blended pixel below is the same - and the probe below
-compiles and runs unchanged:
+compiles and runs unchanged. A fifth came with the layouts that adapt to
+the window, on 2026-11-27:
 
 - **Scale with the projection, not the target.** Rendering at twice the
   logical size is `OrthographicProjection { scale: 0.5, .. }` on an image twice
@@ -1013,6 +1060,17 @@ compiles and runs unchanged:
   world sprites alike. A 96%-opaque dark panel over the Home screen's orange
   diamond is sRGB (56, 34, 23), not the (23, 22, 22) that blending the encoded
   values would give. Anything that predicts a composite has to do the same.
+- **The main camera frames the world.** A screen that lays itself out for
+  the window's size places and scales its world-space scene through the
+  main camera's projection and translation (`WorldFraming` in
+  `app::visuals`), not by moving the scene. In the opening window that is a
+  scale of 1 over the origin, which is what the probe below assumes. A
+  capture of a screen laid out for any other size - by writing the probe's
+  size into `WindowSize` before the screens' layout passes run - needs its
+  own camera to take the main camera's projection scale, divided by the
+  capture's `SCALE`, and its translation, every frame, or the board is
+  drawn at its own size about the image's centre, wherever the layout
+  around it has made room for it.
 
 The probe below is the one that work used. Save it as
 `src/ui/replay/viewer/board_probe.rs` - it lives there because the Viewer's
@@ -1247,7 +1305,13 @@ the game then reads and writes its settings and Replays there, so every
 capture starts from the defaults and an empty Library, and a probe that edits
 `MatchSettings` in memory - as the text-size floor's did on 2026-10-07, to
 show the longest Match Time caption - cannot reach your real settings file
-through a stray key press while its window has focus.
+through a stray key press while its window has focus. Set that `HOME` for
+the game's own process alone, not for `cargo run`: cargo and rustup find
+their own homes through it as well, and with an empty one rustup sets
+about installing a fresh toolchain into the scratch directory (seen on
+2026-11-27). Build first and run `./target/debug/go-together` with the
+scratch `HOME`, or keep `CARGO_HOME` and `RUSTUP_HOME` pointing at the
+real ones.
 
 **Showing the Viewer something no fixture holds.** No Replay under
 `tests/fixtures/replays/` carries a Teleport Marker or a selection on a

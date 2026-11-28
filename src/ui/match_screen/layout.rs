@@ -1,15 +1,30 @@
 //! Spawns the match screen furniture: player cursors, HUD text, the
-//! countdown card, the end-gesture/hold-progress area and the return-home modal.
+//! countdown card, the end-gesture/hold-progress area and the return-home
+//! modal - and keeps it where the window's size puts it.
+//!
+//! # Where things stand
+//!
+//! [`super::geometry`] decides it, as a pure function of the window's size;
+//! this module spawns each piece there and moves it when the size changes.
+//! Every piece it places carries a [`MatchPlacement`] naming its place, and
+//! [`place`] is the one function that writes a place into a node, used both
+//! at spawn and by [`place_match_furniture`], so the two cannot disagree.
+//! That system also gives the main camera the board's framing, which is how
+//! the board, and everything drawn on it, is placed and scaled.
 //!
 //! The centre of the top edge is the heading and, under it, a column
 //! holding the line that says why a Match ended, the Match timer and the
 //! round panel, each laid out only while it is shown. The reason line is
 //! shown only once a Match has ended, so during play the column is exactly
-//! the timer and the round panel, where they have always stood. It is the
-//! one line there long enough to matter, and it is held to the board's
-//! width, which keeps it clear of the two corner stacks - a player's
-//! heading, the Home or Help button, and their capture count - that stand
-//! beyond the board on either side.
+//! the timer and the round panel, where they have always stood. In a wide
+//! window the timer and the round panel leave the column for the title row
+//! beside the heading, absolutely placed within the column, which then
+//! starts at that row and keeps it clear for them. The reason line is the
+//! one line there long enough to matter, and it is never wrapped: in tall it
+//! is held to the board's width, which keeps it clear of the two corner
+//! stacks - a player's heading, the Home or Help button, and their capture
+//! count - that stand beyond the board on either side, and in wide the
+//! stacks keep clear of it.
 //!
 //! Everything spawned here carries `DespawnOnExit(AppScreen::Match)` so it is
 //! despawned when the match screen is left. The Help modal is not
@@ -38,12 +53,13 @@
 use bevy::prelude::*;
 use bevy::ui_widgets::Button;
 
+use super::geometry::{MatchLayout, StackItem, TITLE_ROW_HEIGHT, match_layout};
 use super::{
     ControlHint, CursorVisual, HoldProgressFill, HoldProgressTrack, RoundTimeFill, RoundTimeTrack,
 };
 use crate::app::AppScreen;
 use crate::app::visuals::{
-    BOARD_CENTER_Y, CursorVisualStyle, GRID_EXTENT, GRID_SPACING, cursor_outline_layers,
+    CursorVisualStyle, GRID_EXTENT, GRID_SPACING, WindowSize, WorldFraming, cursor_outline_layers,
     cursor_visual_style, spawn_outline_segments,
 };
 use crate::audio::UiSound;
@@ -60,8 +76,10 @@ use crate::ui::widgets::spawn_child_button;
 // One geometry for both bars in the slot below the board, so swapping one for
 // the other moves nothing around it.
 const BAR_TRACK_WIDTH: f32 = 360.0;
-const BAR_TRACK_HEIGHT: f32 = 12.0;
+pub(super) const BAR_TRACK_HEIGHT: f32 = 12.0;
 const BAR_OUTLINE_WIDTH: f32 = 3.0;
+/// The gap between the end-gesture line and the bar under it.
+pub(super) const BOTTOM_OVERLAY_ROW_GAP: f32 = 7.0;
 pub(super) const HOLD_PROGRESS_FILL_COLOR: Color = ORANGE;
 pub(super) const HOLD_PROGRESS_OUTLINE_COLOR: Color = TEXT_HEADING;
 /// The round-time bar's fill is the cream the `Round MM:SS` readout and the
@@ -77,9 +95,10 @@ pub(super) const ROUND_TIME_FILL_COLOR: Color = TEXT_HEADING;
 /// has shrunk away from the ends.
 pub(super) const ROUND_TIME_OUTLINE_COLOR: Color = TEXT_SUBTLE;
 
-/// The board's wood, from edge to edge: the grid and the margin around it.
-/// The end-reason line under the heading is held to this width so that it
-/// never reaches the corners, which stand outside it.
+/// The board's wood, from edge to edge, at the board's own size: the grid
+/// and the margin around it. In the tall arrangement the end-reason line
+/// under the heading is held to this width, so that it never reaches the
+/// corners, which stand outside it.
 pub(super) const BOARD_OUTER_SIZE: f32 = GRID_EXTENT + 78.0;
 /// The line under an ended Match's result that says why it ended.
 ///
@@ -87,12 +106,21 @@ pub(super) const BOARD_OUTER_SIZE: f32 = GRID_EXTENT + 78.0;
 /// reasons that cross on the same round are all shown, so the worst case is
 /// every automatic limit at once - `Match Time Limit, Round Limit, No Board
 /// Change Limit, Point Target`, 66 characters - and at this size it still
-/// fits on one line within [`BOARD_OUTER_SIZE`].
-/// `the_longest_end_reason_line_fits_on_one_line_inside_the_board_width`
-/// measures it by its glyphs.
+/// fits on one line within [`BOARD_OUTER_SIZE`], and clear of both stacks
+/// in a wide window. `the_longest_end_reason_line_fits_on_one_line_clear_of_both_stacks`
+/// measures it by its glyphs, at every named window size.
 pub(super) const END_REASONS_SIZE: f32 = 16.0;
-const END_REASONS_GAP_BELOW: f32 = 6.0;
-pub(super) const PLAYER_HEADER_OFFSET: f32 = 28.0;
+pub(super) const END_REASONS_GAP_BELOW: f32 = 6.0;
+/// The gap between the lines of the column under the heading, and between
+/// the title row and the end reasons under it in a wide window.
+pub(super) const UNDER_HEADING_ROW_GAP: f32 = 4.0;
+/// The heading, `GO TOGETHER` or the result.
+pub(super) const HEADING_SIZE: f32 = 34.0;
+/// The Match timer and the round panel.
+pub(super) const TIMER_SIZE: f32 = 18.0;
+pub(super) const ROUND_PANEL_SIZE: f32 = 17.0;
+/// The end-gesture line under the board.
+pub(super) const GESTURE_SIZE: f32 = 16.0;
 /// The two players' headings are written in their accents, and at 24px,
 /// the size from which WCAG holds text to 3:1 rather than 4.5:1. Player
 /// One's red is 3.97:1 on the window background, so a smaller heading in
@@ -103,8 +131,144 @@ pub(super) const PLAYER_HEADER_OFFSET: f32 = 28.0;
 /// as text on the Settings columns too, where no red at any saturation
 /// reaches 4.5:1 (`docs/ideas/accessibility-findings.md` has the proof).
 pub(super) const PLAYER_HEADING_SIZE: f32 = 24.0;
-pub(super) const CONTROL_HINT_SIDE_OFFSET: f32 = 18.0;
 pub(super) const CONTROL_HINT_WIDTH: f32 = 156.0;
+/// A control-hint card's least height; a long key name can make it taller.
+pub(super) const CONTROL_HINT_MIN_HEIGHT: f32 = 142.0;
+/// The Home and Help buttons.
+pub(super) const HUD_BUTTON_SIZE: Vec2 = Vec2::new(84.0, 34.0);
+
+/// Where on the Match screen a piece of its furniture stands, for
+/// [`place`] to write and [`place_match_furniture`] to keep written. Only
+/// the nodes whose place depends on the window carry it.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum MatchPlacement {
+    Heading,
+    /// The column under the heading.
+    UnderHeading,
+    EndReasons,
+    Timer,
+    RoundPanel,
+    /// One item of a player's stack.
+    Stack(Player, StackItem),
+    Countdown,
+    /// The end-gesture line and the bars' slot under the board.
+    BottomOverlay,
+}
+
+/// Writes into `node` the fields that `placement` decides in `layout`, and
+/// leaves every other field alone: what a piece looks like, and whether it
+/// is shown, are its spawner's and its display pass's. Each arrangement
+/// sets every field it owns, so a node moved into wide and back is the node
+/// it was.
+pub(super) fn place(layout: &MatchLayout, placement: MatchPlacement, node: &mut Node) {
+    match placement {
+        MatchPlacement::Heading => node.top = px(layout.heading_top()),
+        MatchPlacement::UnderHeading => {
+            let (top, padding) = layout.column_top_and_padding();
+            node.top = px(top);
+            node.padding = UiRect::top(px(padding));
+        }
+        MatchPlacement::EndReasons => node.max_width = px(layout.end_reasons_max_width()),
+        // The timer and the round panel are each a node holding their text,
+        // which centres it down the title row however many lines it is.
+        MatchPlacement::Timer => {
+            if layout.has_title_row() {
+                let (_, timer_left) = layout.title_inner_edges();
+                node.position_type = PositionType::Absolute;
+                node.top = px(0);
+                node.left = px(timer_left);
+                node.width = px(layout.title_slot_width());
+                node.height = px(TITLE_ROW_HEIGHT);
+                node.justify_content = JustifyContent::FlexStart;
+            } else {
+                node.position_type = PositionType::Relative;
+                node.top = Val::Auto;
+                node.left = Val::Auto;
+                node.width = percent(100);
+                node.height = Val::Auto;
+                node.justify_content = JustifyContent::Center;
+            }
+        }
+        MatchPlacement::RoundPanel => {
+            if layout.has_title_row() {
+                let (round_right, _) = layout.title_inner_edges();
+                node.position_type = PositionType::Absolute;
+                node.top = px(0);
+                node.right = px(layout.window.x - round_right);
+                node.height = px(TITLE_ROW_HEIGHT);
+            } else {
+                node.position_type = PositionType::Relative;
+                node.top = Val::Auto;
+                node.right = Val::Auto;
+                node.height = Val::Auto;
+            }
+        }
+        MatchPlacement::Stack(player, item) => {
+            node.top = px(layout.stack_top(item));
+            let inset = px(layout.stack_inset(item));
+            match player {
+                Player::One => node.right = inset,
+                Player::Two => node.left = inset,
+            }
+        }
+        MatchPlacement::Countdown => node.top = px(match_countdown_top(layout)),
+        MatchPlacement::BottomOverlay => node.bottom = px(layout.overlay_bottom()),
+    }
+}
+
+/// How the round panel's text is justified. Beside the heading, where it
+/// can take two lines, against the heading on its right. Under the heading,
+/// as it has always been set: it is one line there, in a node its own
+/// width, and even so another justification moves its glyphs by a fraction
+/// of a pixel.
+fn round_panel_justify(layout: &MatchLayout) -> Justify {
+    if layout.has_title_row() {
+        Justify::Right
+    } else {
+        TextLayout::default().justify
+    }
+}
+
+/// Keeps the Match screen's furniture where [`super::geometry`] puts it for
+/// the window's size, and the main camera framing the board there.
+///
+/// The framing is written every frame, only where it differs, because a
+/// change of screen puts it back to the world's identity framing and this
+/// screen's first frame has to take it again. The nodes are moved only on a
+/// frame the window's size changed or new furniture appeared, which is the
+/// screen's first; their spawners place them already, through the same
+/// [`place`].
+///
+/// It runs in `AppSystems::ScreenLayout`, before the display passes, which
+/// write other parts of some of the same nodes: the HUD's shows and hides
+/// four of them, and this screen's write their text and which hints and
+/// dot rows are drawn.
+pub(super) fn place_match_furniture(
+    window: Res<WindowSize>,
+    added: Query<(), Added<MatchPlacement>>,
+    mut nodes: Query<(&MatchPlacement, &mut Node)>,
+    mut texts: Query<(&UiRole, &mut TextLayout)>,
+    mut framing: ResMut<WorldFraming>,
+) {
+    let layout = match_layout(window.layout());
+    framing.set_if_neq(layout.framing());
+    if !window.is_changed() && added.is_empty() {
+        return;
+    }
+    for (placement, mut node) in &mut nodes {
+        let mut placed = node.clone();
+        place(&layout, *placement, &mut placed);
+        if *node != placed {
+            *node = placed;
+        }
+    }
+    let justify = round_panel_justify(&layout);
+    for (role, mut text_layout) in &mut texts {
+        if matches!(role, UiRole::Round) && text_layout.justify != justify {
+            text_layout.justify = justify;
+        }
+    }
+}
 
 pub(super) fn spawn_cursor(commands: &mut Commands, player: Player, style: CursorVisualStyle) {
     commands
@@ -121,22 +285,36 @@ pub(super) fn spawn_cursor(commands: &mut Commands, player: Player, style: Curso
         });
 }
 
-pub(super) fn spawn_ui(commands: &mut Commands) {
+/// A node with its place in `layout` written into it, and the marker that
+/// keeps it there.
+fn placed(
+    layout: &MatchLayout,
+    placement: MatchPlacement,
+    mut node: Node,
+) -> (Node, MatchPlacement) {
+    place(layout, placement, &mut node);
+    (node, placement)
+}
+
+pub(super) fn spawn_ui(commands: &mut Commands, layout: &MatchLayout) {
     spawn_text(
         commands,
         UiRole::Heading,
-        FontSize::Px(34.0),
+        FontSize::Px(HEADING_SIZE),
         TEXT_HEADING,
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(14),
-            width: percent(100),
-            justify_content: JustifyContent::Center,
-            ..default()
-        },
+        placed(
+            layout,
+            MatchPlacement::Heading,
+            Node {
+                position_type: PositionType::Absolute,
+                width: percent(100),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        ),
     );
     commands
-        .spawn((under_heading_node(), DespawnOnExit(AppScreen::Match)))
+        .spawn((under_heading_node(layout), DespawnOnExit(AppScreen::Match)))
         .with_children(|parent| {
             parent.spawn((
                 Text::new(""),
@@ -146,92 +324,95 @@ pub(super) fn spawn_ui(commands: &mut Commands) {
                 },
                 TextColor(TEXT_MUTED),
                 TextLayout::justify(Justify::Center),
-                Node {
-                    max_width: px(BOARD_OUTER_SIZE),
-                    // A little more room below than above, so the line reads
-                    // with the result it explains rather than with the
-                    // clocks under it.
-                    margin: UiRect::bottom(px(END_REASONS_GAP_BELOW)),
-                    display: Display::None,
-                    ..default()
-                },
+                placed(
+                    layout,
+                    MatchPlacement::EndReasons,
+                    Node {
+                        // A little more room below than above, so the line
+                        // reads with the result it explains rather than with
+                        // the clocks under it.
+                        margin: UiRect::bottom(px(END_REASONS_GAP_BELOW)),
+                        display: Display::None,
+                        ..default()
+                    },
+                ),
                 UiRole::EndReasons,
                 HudPanel::EndReasons,
             ));
             parent
                 .spawn((
-                    Node {
-                        width: percent(100),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
+                    placed(
+                        layout,
+                        MatchPlacement::Timer,
+                        Node {
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                    ),
                     HudPanel::Timer,
                 ))
                 .with_children(|timer| {
                     timer.spawn((
                         Text::new(""),
                         TextFont {
-                            font_size: FontSize::Px(18.0),
+                            font_size: FontSize::Px(TIMER_SIZE),
                             ..default()
                         },
                         TextColor(TEXT_HEADING),
                         UiRole::Timer,
                     ));
                 });
-            parent.spawn((
-                Text::new(""),
-                TextFont {
-                    font_size: FontSize::Px(17.0),
-                    ..default()
-                },
-                TextColor(TEXT_HEADING),
-                UiRole::Round,
-                HudPanel::Round,
-            ));
+            parent
+                .spawn((
+                    placed(
+                        layout,
+                        MatchPlacement::RoundPanel,
+                        Node {
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                    ),
+                    HudPanel::Round,
+                ))
+                .with_children(|round| {
+                    round.spawn((
+                        Text::new(""),
+                        TextFont {
+                            font_size: FontSize::Px(ROUND_PANEL_SIZE),
+                            ..default()
+                        },
+                        TextColor(TEXT_HEADING),
+                        TextLayout::justify(round_panel_justify(layout)),
+                        UiRole::Round,
+                    ));
+                });
         });
-    spawn_countdown_overlay(commands);
+    spawn_countdown_overlay(commands, layout);
     spawn_hud_button(
         commands,
+        layout,
         HudAction::OpenReturnHome,
         "Home",
-        84.0,
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(94),
-            left: px(28),
-            ..default()
-        },
+        Player::Two,
     );
-    spawn_hud_button(
-        commands,
-        HudAction::OpenHelp,
-        "Help",
-        84.0,
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(94),
-            right: px(28),
-            ..default()
-        },
-    );
+    spawn_hud_button(commands, layout, HudAction::OpenHelp, "Help", Player::One);
     spawn_text(
         commands,
         UiRole::PlayerTwo,
         FontSize::Px(PLAYER_HEADING_SIZE),
         cursor_visual_style(Player::Two).color,
-        player_header_node(Player::Two),
+        player_header_node(Player::Two, layout),
     );
     spawn_text(
         commands,
         UiRole::PlayerOne,
         FontSize::Px(PLAYER_HEADING_SIZE),
         cursor_visual_style(Player::One).color,
-        player_header_node(Player::One),
+        player_header_node(Player::One, layout),
     );
-    spawn_control_hint(commands, Player::Two);
-    spawn_control_hint(commands, Player::One);
-    spawn_bottom_overlay(commands);
+    spawn_control_hint(commands, layout, Player::Two);
+    spawn_control_hint(commands, layout, Player::One);
+    spawn_bottom_overlay(commands, layout);
     spawn_return_home_modal(commands);
 }
 
@@ -242,10 +423,10 @@ pub(super) fn spawn_ui(commands: &mut Commands) {
 /// background 4.5:1, and Player One's red is 3.78:1 on the card, so the
 /// accent stays on the frame - a mark, which owes 3:1 - and both players'
 /// text is the same colour, so neither hint reads as the odd one out.
-fn spawn_control_hint(commands: &mut Commands, player: Player) {
+fn spawn_control_hint(commands: &mut Commands, layout: &MatchLayout, player: Player) {
     commands
         .spawn((
-            control_hint_node(player),
+            control_hint_node(player, layout),
             BackgroundColor(HINT_BACKGROUND),
             BorderColor::all(cursor_visual_style(player).color),
             Visibility::Visible,
@@ -264,48 +445,49 @@ fn spawn_control_hint(commands: &mut Commands, player: Player) {
         ));
 }
 
-pub(super) fn control_hint_node(player: Player) -> Node {
-    let mut node = Node {
-        position_type: PositionType::Absolute,
-        top: px(214),
-        width: px(CONTROL_HINT_WIDTH),
-        min_height: px(142),
-        padding: UiRect::all(px(10)),
-        border: UiRect::all(px(2)),
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::Center,
-        ..default()
-    };
-    match player {
-        Player::One => node.right = px(CONTROL_HINT_SIDE_OFFSET),
-        Player::Two => node.left = px(CONTROL_HINT_SIDE_OFFSET),
-    }
-    node
+pub(super) fn control_hint_node(player: Player, layout: &MatchLayout) -> (Node, MatchPlacement) {
+    placed(
+        layout,
+        MatchPlacement::Stack(player, StackItem::ControlHint),
+        Node {
+            position_type: PositionType::Absolute,
+            width: px(CONTROL_HINT_WIDTH),
+            min_height: px(CONTROL_HINT_MIN_HEIGHT),
+            padding: UiRect::all(px(10)),
+            border: UiRect::all(px(2)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+    )
 }
 
 /// The gesture text and, under it, the slot the hold-progress and round-time
 /// bars share. Both tracks are spawned hidden; `super::update_match_display`
 /// shows at most one per frame.
-fn spawn_bottom_overlay(commands: &mut Commands) {
+fn spawn_bottom_overlay(commands: &mut Commands, layout: &MatchLayout) {
     commands
         .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                bottom: px(18),
-                width: percent(100),
-                flex_direction: FlexDirection::Column,
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                row_gap: px(7),
-                ..default()
-            },
+            placed(
+                layout,
+                MatchPlacement::BottomOverlay,
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: percent(100),
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    row_gap: px(BOTTOM_OVERLAY_ROW_GAP),
+                    ..default()
+                },
+            ),
             DespawnOnExit(AppScreen::Match),
         ))
         .with_children(|overlay| {
             overlay.spawn((
                 Text::new(""),
                 TextFont {
-                    font_size: FontSize::Px(16.0),
+                    font_size: FontSize::Px(GESTURE_SIZE),
                     ..default()
                 },
                 TextColor(TEXT_MUTED),
@@ -385,34 +567,44 @@ pub(super) fn bar_fill_width(fraction: f32) -> Val {
 }
 
 /// The column under the heading: the end-reason line, the Match timer and
-/// the round panel, whichever of them are shown.
-pub(super) fn under_heading_node() -> Node {
-    Node {
-        position_type: PositionType::Absolute,
-        top: px(54),
-        width: percent(100),
-        flex_direction: FlexDirection::Column,
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::Center,
-        row_gap: px(4),
-        ..default()
-    }
+/// the round panel, whichever of them are shown and stand in it.
+pub(super) fn under_heading_node(layout: &MatchLayout) -> (Node, MatchPlacement) {
+    placed(
+        layout,
+        MatchPlacement::UnderHeading,
+        Node {
+            position_type: PositionType::Absolute,
+            width: percent(100),
+            flex_direction: FlexDirection::Column,
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            row_gap: px(UNDER_HEADING_ROW_GAP),
+            ..default()
+        },
+    )
 }
 
 /// The Round 0 countdown, built and placed by the rule the Replay Viewer's
 /// shares: see [`crate::ui::countdown_card`].
-const MATCH_COUNTDOWN_CARD: CountdownCard = CountdownCard {
-    board_center_y: BOARD_CENTER_Y,
+pub(super) const MATCH_COUNTDOWN_CARD: CountdownCard = CountdownCard {
     grid_spacing: GRID_SPACING,
     size: Vec2::new(180.0, 130.0),
     font_size: FontSize::Px(64.0),
     background: COUNTDOWN_BACKGROUND,
 };
 
-pub(super) fn spawn_countdown_overlay(commands: &mut Commands) {
+/// The countdown card's top: over the same rows of the board wherever,
+/// and at whatever zoom, `layout` draws it.
+pub(super) fn match_countdown_top(layout: &MatchLayout) -> f32 {
+    MATCH_COUNTDOWN_CARD.overlay_top(layout.board.center().y, layout.zoom())
+}
+
+pub(super) fn spawn_countdown_overlay(commands: &mut Commands, layout: &MatchLayout) {
+    let board = layout.board.center().y;
     commands
         .spawn((
-            MATCH_COUNTDOWN_CARD.overlay_node(),
+            MATCH_COUNTDOWN_CARD.overlay_node(board, layout.zoom()),
+            MatchPlacement::Countdown,
             GlobalZIndex(90),
             HudPanel::Countdown,
             DespawnOnExit(AppScreen::Match),
@@ -420,20 +612,24 @@ pub(super) fn spawn_countdown_overlay(commands: &mut Commands) {
         .with_children(|overlay| MATCH_COUNTDOWN_CARD.spawn(overlay, UiRole::Countdown));
 }
 
-pub(super) fn player_header_node(player: Player) -> Node {
-    let mut node = Node {
-        position_type: PositionType::Absolute,
-        top: px(58),
-        ..default()
-    };
-    match player {
-        Player::One => node.right = px(PLAYER_HEADER_OFFSET),
-        Player::Two => node.left = px(PLAYER_HEADER_OFFSET),
-    }
-    node
+pub(super) fn player_header_node(player: Player, layout: &MatchLayout) -> (Node, MatchPlacement) {
+    placed(
+        layout,
+        MatchPlacement::Stack(player, StackItem::Name),
+        Node {
+            position_type: PositionType::Absolute,
+            ..default()
+        },
+    )
 }
 
-fn spawn_text(commands: &mut Commands, role: UiRole, size: FontSize, color: Color, node: Node) {
+fn spawn_text(
+    commands: &mut Commands,
+    role: UiRole,
+    size: FontSize,
+    color: Color,
+    (node, placement): (Node, MatchPlacement),
+) {
     commands.spawn((
         Text::new(""),
         TextFont {
@@ -443,27 +639,38 @@ fn spawn_text(commands: &mut Commands, role: UiRole, size: FontSize, color: Colo
         TextColor(color),
         TextLayout::justify(Justify::Center),
         node,
+        placement,
         role,
         DespawnOnExit(AppScreen::Match),
     ));
 }
 
+/// Home on Player Two's side, Help on Player One's, each under the name.
 fn spawn_hud_button(
     commands: &mut Commands,
+    layout: &MatchLayout,
     action: HudAction,
     label: &'static str,
-    width: f32,
-    mut node: Node,
+    player: Player,
 ) {
-    node.width = px(width);
-    node.height = px(34);
-    node.justify_content = JustifyContent::Center;
-    node.align_items = AlignItems::Center;
+    let (node, placement) = placed(
+        layout,
+        MatchPlacement::Stack(player, StackItem::Button),
+        Node {
+            position_type: PositionType::Absolute,
+            width: px(HUD_BUTTON_SIZE.x),
+            height: px(HUD_BUTTON_SIZE.y),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+    );
     commands
         .spawn((
             Button,
             UiSound::new(hud_action_ui_cue(action)),
             node,
+            placement,
             BackgroundColor(BUTTON_BACKGROUND),
             BorderColor::all(BLUE_BORDER),
             action,

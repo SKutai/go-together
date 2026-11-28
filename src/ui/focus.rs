@@ -990,13 +990,20 @@ fn update_focus_indicator(
 ///
 /// No renderer runs, so the camera's render target is filled in by hand, as
 /// `bevy_ui`'s own layout tests do it, and the stores the renderer's
-/// plugins would make are added empty. The window is the game's, 1040 by
-/// 900 at a scale factor of 1, so a logical pixel is a physical one. Keys
-/// are not part of it: a test presses them by writing `ButtonInput<KeyCode>`
-/// directly, which `InputPlugin` would clear before the ring could read it.
+/// plugins would make are added empty. The window is `window` logical
+/// pixels at a scale factor of 1, so a logical pixel is a physical one,
+/// and the app's [`WindowSize`] says the same, so a screen that lays
+/// itself out from it is laid out for that window; a test of a screen as
+/// it was first laid out, for the opening window, passes the opening size,
+/// `WindowSize::OPENING.0`. `window` is in whole pixels, as a physical
+/// window is. Keys are not part of it: a test presses them by
+/// writing `ButtonInput<KeyCode>` directly, which `InputPlugin` would clear
+/// before the ring could read it.
+///
+/// [`WindowSize`]: crate::app::visuals::WindowSize
 #[cfg(test)]
-pub(crate) fn real_layout_app() -> App {
-    let mut app = engine_ui_app();
+pub(crate) fn real_layout_app(window: Vec2) -> App {
+    let mut app = engine_ui_app(window);
     app.add_plugins(super::button::UiButtonPlugin);
     app
 }
@@ -1005,7 +1012,7 @@ pub(crate) fn real_layout_app() -> App {
 /// picking alone, for the one test that needs Bevy's own button behaviour
 /// in its place.
 #[cfg(test)]
-pub(crate) fn engine_ui_app() -> App {
+pub(crate) fn engine_ui_app(window: Vec2) -> App {
     use bevy::app::TaskPoolPlugin;
     use bevy::asset::AssetPlugin;
     use bevy::camera::visibility::VisibilityPlugin;
@@ -1018,13 +1025,16 @@ pub(crate) fn engine_ui_app() -> App {
     use bevy::text::TextPlugin;
     use bevy::window::{ExitCondition, WindowEvent, WindowPlugin, WindowResolution};
 
+    assert_eq!(window, window.round(), "a window is whole pixels: {window}");
+    let physical_size = window.as_uvec2();
     let mut app = App::new();
     app.add_plugins((
         TaskPoolPlugin::default(),
         bevy::transform::TransformPlugin,
         WindowPlugin {
             primary_window: Some(Window {
-                resolution: WindowResolution::new(1040, 900).with_scale_factor_override(1.0),
+                resolution: WindowResolution::new(physical_size.x, physical_size.y)
+                    .with_scale_factor_override(1.0),
                 ..default()
             }),
             exit_condition: ExitCondition::DontExit,
@@ -1055,11 +1065,11 @@ pub(crate) fn engine_ui_app() -> App {
     .add_message::<TouchInput>()
     .init_resource::<ButtonInput<MouseButton>>()
     .init_resource::<bevy::input::touch::Touches>()
+    .insert_resource(crate::app::visuals::WindowSize(window))
     .add_systems(
         PreUpdate,
         (mouse_button_input_system, touch_screen_input_system).in_set(InputSystems),
     );
-    let physical_size = UVec2::new(1040, 900);
     app.world_mut().spawn((
         Camera2d,
         Camera {
@@ -1143,6 +1153,75 @@ pub(crate) fn measure_drawn_text(app: &mut App, content: &str) -> DrawnText {
             .unwrap_or_else(|| panic!("no node under {content:?} draws a fill"))
             .parent();
     }
+}
+
+/// Every text `app` shows, as `bevy_ui` last laid it out: what it reads and
+/// its node's box, in logical pixels from the window's top-left. A text
+/// that is hidden, or laid out at no size because it or an ancestor is not
+/// displayed, is left out. For a test that holds a screen's text inside
+/// the window, or clear of something.
+#[cfg(test)]
+pub(crate) fn laid_out_texts(app: &mut App) -> Vec<(String, Rect)> {
+    use bevy::ui::{ComputedNode, UiGlobalTransform};
+
+    let world = app.world_mut();
+    world
+        .query::<(
+            &Text,
+            &ComputedNode,
+            &UiGlobalTransform,
+            &InheritedVisibility,
+        )>()
+        .iter(world)
+        .filter(|(_, node, _, visibility)| visibility.get() && node.size() != Vec2::ZERO)
+        .map(|(text, node, transform, _)| {
+            let scale = node.inverse_scale_factor;
+            let rect = Rect::from_center_size(transform.translation * scale, node.size * scale);
+            (text.0.clone(), rect)
+        })
+        .collect()
+}
+
+/// Every text `app` draws that has glyphs, with the inked extent of all its
+/// lines, in logical pixels from the window's top-left: a hidden text, or
+/// one not displayed, draws none and is left out. For a test that holds
+/// what a screen draws clear of itself.
+#[cfg(test)]
+pub(crate) fn drawn_texts(app: &mut App) -> Vec<(Entity, String, Rect)> {
+    use bevy::text::TextLayoutInfo;
+    use bevy::ui::{ComputedNode, UiGlobalTransform};
+
+    let world = app.world_mut();
+    let mut texts = world.query::<(
+        Entity,
+        &Text,
+        &ComputedNode,
+        &UiGlobalTransform,
+        &TextLayoutInfo,
+        &InheritedVisibility,
+    )>();
+    texts
+        .iter(world)
+        .filter(|(_, _, node, _, layout, visibility)| {
+            visibility.get() && node.size() != Vec2::ZERO && !layout.glyphs.is_empty()
+        })
+        .map(|(entity, text, node, transform, layout, _)| {
+            let scale = node.inverse_scale_factor;
+            let origin = transform.translation + node.content_box().min;
+            let ink = layout
+                .glyphs
+                .iter()
+                .map(|glyph| {
+                    Rect::from_center_size(
+                        (origin + glyph.position) * scale,
+                        glyph.atlas_info.rect.size() * scale,
+                    )
+                })
+                .reduce(|all, glyph| all.union(glyph))
+                .expect("a text with glyphs");
+            (entity, text.0.clone(), ink)
+        })
+        .collect()
 }
 
 /// The inked extent of each line of the one `Text` reading `content`, top
@@ -1743,7 +1822,7 @@ mod tests {
     /// target, since no window exists headlessly.
     #[test]
     fn display_none_zeroes_a_hidden_buttons_computed_node_under_real_layout() {
-        let mut app = real_layout_app();
+        let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
         let (hidden, shown) = spawn_hidden_and_shown_buttons(app.world_mut());
         app.update();
 
@@ -1769,7 +1848,7 @@ mod tests {
     /// with the reverse flip dropping it again.
     #[test]
     fn hidden_buttons_leave_and_rejoin_the_ring_under_real_layout() {
-        let mut app = real_layout_app();
+        let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .init_state::<AppScreen>()
             .add_plugins(UiFocusPlugin)

@@ -253,6 +253,9 @@ flowchart TD
     DeviceInput --> MatchUpdate
     MatchUpdate --> MatchDisplay["MatchDisplay"]
     MatchUpdate --> HudDisplay["HudDisplay"]
+    Audio --> ScreenLayout["ScreenLayout"]
+    ScreenLayout --> MatchDisplay
+    ScreenLayout --> HudDisplay
 ```
 
 Each edge exists for a specific reason, documented in full on `AppSystems`
@@ -282,6 +285,18 @@ itself:
   `GameState` (for the Round and Countdown panels' visibility and the
   return-home modal's body text) in addition to HUD and binding state, so it
   needs this frame's Match state too.
+* `ScreenLayout -> MatchDisplay` and `ScreenLayout -> HudDisplay`: the
+  Match screen's layout pass writes where its nodes stand, and both display
+  passes write other parts of some of the same nodes - the HUD's which of
+  the timer, round, end-reason and countdown panels are shown, the Match's
+  what its texts say and which hints and dot rows are drawn. Placing first
+  means a display pass always sees its nodes where this frame's window puts
+  them. It also means the layout pass need not keep to its own fields,
+  since the display passes run after it and set theirs every frame; but
+  the display passes must keep to theirs, since one that replaced a whole
+  `Node` would undo the placement until the window's size next changed.
+  `ScreenLayout` holds Home's layout pass too, which shares nothing with
+  either.
 
 Every other pair of sets is deliberately left unordered. This project does
 not enable Bevy's system-order-ambiguity diagnostics, so two unordered
@@ -296,8 +311,10 @@ several screens.
 
 So for `HudDisplay` that safety has to be argued rather than read off a
 gate: its one system, `update_shared_display`, is live alongside
-`SettingsDisplay` and `MatchDisplay` and ordered against neither. It stays
-disjoint from them in two ways. The text it fills carries a `UiRole`, as the
+`SettingsDisplay` and `MatchDisplay` and ordered against neither. (The
+Match screen's layout pass writes the four HUD panels' nodes it shows and
+hides, and is ordered before it for that reason.) It stays disjoint from
+the two display stages in two ways. The text it fills carries a `UiRole`, as the
 Match screen's does, and the two passes divide the roles between them. And
 the buttons it styles are those carrying a `HudAction` - every frame it sets
 their fill from the pointer state and switches their click cue on, or draws
@@ -322,7 +339,7 @@ above: the only systems sharing mutable data with them, `handle_ui_buttons`
 on `NextState<AppScreen>` and the marimba's input handler on `AudioCueQueue`,
 find nothing to act on while a Replay screen is up.
 
-The seven edges above are the ordering *between* stages, not the whole
+The nine edges above are the ordering *between* stages, not the whole
 ordering story. Within a stage, a plugin that needs its own systems ordered
 (Settings input capture and display, the Match gameplay pipeline, the HUD's
 press-then-pause pair) still uses an explicit `.chain()` for that, and the
@@ -360,10 +377,15 @@ that.
 Help and the return-to-Home confirmation are modals, not separate
 states. Screen plugins use the same lifecycle:
 
-1. `OnEnter`: reset feature resources, then spawn entities. The one resource
-   no screen resets is `HudState`: the Help modal it governs belongs
+1. `OnEnter`: reset feature resources, then spawn entities. Two resources
+   no screen resets. `HudState`: the Help modal it governs belongs
    to no screen, so `ui::hud` resets it on the transition itself, for every
    screen change at once (see [entity ownership](#screen-modal-and-persistent-entity-ownership)).
+   And the camera's `WorldFraming`, which `app::visuals` puts back on the
+   transition in the same way, so that undoing one screen's zoom is no
+   other screen's entry to remember; a screen that frames its own scene
+   writes it after that reset, on entry or in `Update` (see
+   [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it)).
 2. `Update`: run only while the corresponding `AppScreen` is active - with two
    deliberate exceptions. Home's marimba input handler is registered ungated
    so it keeps draining `KeyboardInput` messages consistently, and checks the
@@ -409,7 +431,11 @@ Four ownership lifetimes exist:
   (resources, not entities, reused by every screen that draws a board). The
   camera and the handles exist because re-uploading the same mesh/materials
   on every screen transition would be pure waste; nothing about them is
-  screen-specific. The Help modal is here for a different reason,
+  screen-specific but the camera's framing, which a screen with a
+  world-space scene to place - the Match for its board, Home for its
+  diamond - sets and every change of screen puts back - see
+  [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it).
+  The Help modal is here for a different reason,
   and is the category's first *interactive* member: it is reachable from two
   screens, Home and the Match, so no screen's lifetime is its own - see the
   modal-scoped bullet below for the rule it amends. Its root is spawned
@@ -417,9 +443,11 @@ Four ownership lifetimes exist:
   `Display`, and it is closed on every screen change by
   `close_hud_modals_on_screen_change`, a screen-agnostic system in
   `StateTransition` that resets `HudState` whenever a screen's `OnEnter`
-  would run - the one resource reset on the transition itself rather than in
-  an entering screen's `OnEnter` chain, because the modal it governs belongs
-  to no screen.
+  would run - one of the two resources reset on the transition itself rather
+  than in an entering screen's `OnEnter` chain, because the modal it governs
+  belongs to no screen. The camera's `WorldFraming` is the other, reset
+  beside it for the same reason: no screen's entry is the right owner of
+  undoing another's zoom.
 - **Screen-scoped.** Everything else a screen spawns: the board, cursors, HUD
   text, opening-selection dots, the capture marks and their count lines,
   the hold-progress and round-time bars,
@@ -479,6 +507,92 @@ in place after a search, sort, rename, or delete, none of which change
 `AppScreen`, so the built-in on-exit despawn never fires for that rebuild.
 Every other screen relies on the automatic mechanism exclusively.
 
+## The window's size, and what answers to it
+
+The window opens at 1040x900 logical pixels, and every screen was first
+laid out for exactly that. The Match screen and Home are now laid out for
+any size from 1040x600 up; the window itself is still fixed at the opening
+size (`resizable: false`), and the Replay screens, Settings and the Help
+modal are still laid out for it alone.
+
+**One input.** `app::visuals::WindowSize` is the primary window's logical
+size, kept equal to it by `track_window_size` in `PreUpdate` and written
+only when the size really changes. A screen's layout is a pure function of
+`WindowSize::layout()`, which is that size raised to the 1040x600 minimum,
+so a window or a browser page smaller than the minimum is laid out as the
+minimum would be. `WINDOW_WIDTH` and `WINDOW_HEIGHT` are only the opening
+size; nothing adapted positions itself from them.
+
+**Text never changes size.** Interface nodes are laid out in the window's
+own pixels at their own sizes, so the 14px floor holds at every size. What
+grows and shrinks is the world-space scene - the Match board with every
+mark on it, and Home's diamond - and it is placed and scaled by the main
+camera, not by moving or resizing the scene. A screen writes
+`WorldFraming`, a zoom and the world point at the window's centre, and
+`frame_main_camera` gives the camera that projection scale and
+translation in `PostUpdate`, before the projection is recomputed.
+`bevy_ui` never sees the projection. So `board_position`, `GRID_SPACING`
+and the rest of the boards' geometry, and the tests of it, are the same at
+every size, and every stroke keeps its proportion to the cell. A screen
+with no world-space scene to place writes nothing:
+`reset_world_framing_on_screen_change`, in `StateTransition` beside the
+HUD's modal reset, puts the framing back to a scale of 1 over the origin
+on every change of screen, so Settings and the Replay Library never
+inherit a zoom. The Match writes its framing every frame and Home on entry
+and whenever the window's size changes, both after that reset. Text drawn in world space, as the
+Replay Viewer's score badges are, is scaled by the camera as well, and the
+14px floor's scan reads the sizes text is set at, not a camera's zoom; so
+on a screen that zooms, such text has to be counter-scaled or moved into
+`bevy_ui`.
+
+**The Match screen** (`ui::match_screen::geometry`) has two arrangements.
+*Tall* is the 1040x900 layout, which in that window is the screen exactly
+as it always was, pixel for pixel. *Wide* stands each player's stack
+beside the board from the title row down, puts the round panel to the
+heading's left and the Match timer to its right, and lets the board fill
+the height between the title row and the band under it. Either, in a
+window with more room than its board takes, stands centred down the
+window as one piece. The board ranges from 0.70 of its own size at the
+minimum to twice it. Below that cap, wide is chosen where it gives the
+board more than 4% more room than tall: so every window narrower than
+about 1.12 times its height is tall, and a wider one is tall until wide
+gains that much. The margins are fixed pixels, so that depends on the size
+as well as the shape - the opening shape stays tall up to about 1182x1023
+and is wide above it. Past the cap,
+the window's shape alone decides - the choice its shape gets where the
+larger room just reaches the cap - so a window keeps its arrangement
+however large it grows. Nothing but the board
+shrinks, so the smallest windows are made to fit by moving: the line of end
+reasons is never wrapped and the stacks stand further from the board when
+it needs the room, the round panel takes two lines beside the heading when
+one does not fit, and the band under the board holds two lines of text or
+one with a bar. The module's docs give the numbers. `ui::match_screen::layout`
+spawns each piece where the layout says, marks it with its
+`MatchPlacement`, and moves it when the window's size changes; the
+countdown card is placed over the same rows of the board at any zoom by the
+rule `ui::countdown_card` shares with the Replay Viewer, and the capture
+marks, being world-space, scale with the stones they stand on.
+
+**Home** (`ui::home::geometry`) stays centred at its own size. Its diamond
+keeps its own size down to a window about 709 px tall, and in a shorter
+one shrinks, through the camera, until its corners stay inside the window,
+but never below the panel's height. The hidden marimba stands under the
+panel where it always has beside the panel and the diamond, moving with
+them in a taller window, wherever its bars - measured where they are
+drawn, not by the instrument's node - stand at least 12 px above the
+window's bottom there, which is in windows at least 848 px tall; in a
+shorter one it stands upright beside the panel.
+
+**The tests** sweep every layout over `app::visuals::layout_sweep` - every
+20 px from the minimum to 2560x1440, the named sizes, a few fractional
+ones and a few larger windows - and hold that nothing overlaps, nothing
+leaves the window, the board never falls below the smallest window's zoom
+nor grows past twice its size, and at 1040x900 every position is the one
+the screen always had; the real-layout tests run the same screens at the
+sizes in `NAMED_WINDOW_SIZES`, through the game's own schedule where the
+order of the passes matters. See
+[Pure tests versus ECS tests](TESTING.md#pure-tests-versus-ecs-tests).
+
 ## Presentation: continuous vs change-driven display
 
 The live Match board is 81 intersections, each a stone entity and a ring
@@ -497,7 +611,7 @@ that includes the UI's render data: it is retained between frames and
 rebuilt only for a node whose layout, colours, text or visibility are marked
 changed, so a write of an equal `BackgroundColor` or `Text` now costs that
 node's re-extraction too, where 0.19 re-extracted every node every frame
-whatever was written. Two mechanisms keep that cost tied to real change
+whatever was written. Three mechanisms keep that cost tied to real change
 instead of frame count:
 
 * **Compare before writing.** `update_match_display`, `update_shared_display`
@@ -556,6 +670,15 @@ instead of frame count:
   caught by
   `a_new_replay_at_the_same_boundary_index_is_never_mistaken_for_a_cached_one`
   during development).
+* **Size-gated placement**, for where things stand. The Match screen's
+  `place_match_furniture` and Home's `place_home_furniture`, both in the
+  `ScreenLayout` stage, move their nodes only on a frame the window's size
+  changed - or, on the Match, the frame its furniture was spawned, which its
+  spawners have already placed - and then only the nodes that moved,
+  compared as above. The Match's camera framing
+  is the one placement compared every frame, because a change of screen
+  resets it and the screen's first frame has to take it back. See
+  [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it).
 
 What stays a true, unguarded per-frame write on purpose:
 
@@ -1042,7 +1165,8 @@ at the line and pushes the others along, so the rule "with three held, a
 new distinct selection removes the oldest" can be watched rather than told.
 Every length in the row is made from three that were already on screen - a
 dot's 13 px diameter, its 2 px border and the 10 px gap between dots - so
-the row scales with the window as one piece.
+the row keeps its proportions at whatever scale the interface is drawn; a
+window of another size moves it and leaves its size alone.
 
 **The static form is a mark on the line.** With three held, no end state
 can carry the difference: both outcomes finish with the same three dots in
@@ -2980,6 +3104,63 @@ documentation, and tidies the guard away.
    [App and plugin composition](#app-and-plugin-composition).
 8. Add a navigation/cleanup regression test - see [Screen, modal, and
    persistent entity ownership](#screen-modal-and-persistent-entity-ownership).
+
+### Lay a screen out for any window size
+
+The Match screen and Home are the worked examples; see
+[The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it)
+for why each step is the way it is.
+
+1. Read the size from `app::visuals::WindowSize`, through
+   `WindowSize::layout()`, which raises it to the 1040x600 minimum. Never
+   place anything from `WINDOW_WIDTH` and `WINDOW_HEIGHT`, which are only
+   the size the window opens at.
+2. Write the layout as a pure function of that size, in the screen's
+   `geometry.rs` beside its `layout.rs`, as `ui::match_screen::geometry` and
+   `ui::home::geometry` do. Keep every text at its size and find room by
+   moving things; where a line must fit, size its place for the longest text
+   it can hold, with `ui::text_metrics`, and add a test that holds each such
+   budget to the text the screen really writes there. Some texts have no
+   longest once a limit is switched off - a round count, a clock, a score -
+   so size such a place for an assumption stated in its docs, say what
+   happens past it, and test a digit past it.
+3. Test the function over `app::visuals::layout_sweep()`: every box at its
+   largest inside the window and clear of every other, and the opening
+   window's positions written out as numbers and equal to what the screen
+   had before, so the familiar layout stays pixel-identical.
+4. Mark every node whose place depends on the window with a placement
+   component, and write places through one function that both the spawner
+   and a placement pass call - the pass running when `WindowSize` changes,
+   and when the furniture first appears. Run it before every display pass
+   that writes the same nodes' `Node` - to show and hide them, say: in the
+   `ScreenLayout` stage, adding an edge from that stage to the screen's own
+   display stage alongside the pass, since the stage is ordered only before
+   `MatchDisplay` and `HudDisplay`; or, for a screen whose systems are in no
+   stage, first in its own chain. A display pass that writes only other
+   components of those nodes needs no edge: Home's marimba is shown and
+   hidden by its `Visibility`, in a stage of its own. Have each arrangement set every field it owns, so a node
+   moved into one arrangement and back is the node it was, and test that a
+   change of size moves every node to where a fresh entry at the new size
+   puts it.
+5. Place a world-space board through the main camera: write
+   `WorldFraming::placing(board_centre_in_world, board_centre_in_window,
+   size, zoom)` from the screen's first frame on, since every change of
+   screen puts the framing back, and never move the board's sprites to fit.
+   Test it through the game's own schedule, entering the screen from
+   another and coming back, in a window whose framing is not the identity.
+   Text drawn in world space is scaled by the camera too, so counter-scale
+   it or move it into `bevy_ui`. A Round 0 countdown card takes its board's
+   place in the window and its zoom (`CountdownCard::overlay_node`).
+6. Run the screen's real-layout tests at `app::visuals::NAMED_WINDOW_SIZES`
+   with `real_layout_app(size)`: every button reached by the pointer and
+   every text inside the window. Then look at the named sizes with the
+   capture probe in [docs/TESTING.md](TESTING.md#capturing-a-screen-to-a-file),
+   its camera given the main camera's framing; the opening window's capture
+   should match the one taken before the change, pixel for pixel. A capture
+   compared that way runs on a fixed time step
+   (`TimeUpdateStrategy::ManualDuration`), since in real time the clocks,
+   the bars that follow them and anything that fades move between any two
+   runs of the same build.
 
 ### Add an input action
 

@@ -67,9 +67,9 @@ use super::geometry::{
     VIEWER_CONTROL_BOTTOM, VIEWER_CONTROL_HEIGHT, VIEWER_GRID_EXTENT, VIEWER_GRID_SPACING,
     VIEWER_HEADER_BADGE_MIN_GAP, VIEWER_HEADER_BOARD_MAX_GAP, VIEWER_HEADER_TOP,
     VIEWER_RESULT_HEIGHT, VIEWER_RESULT_TOP, VIEWER_ROUND_TOP, VIEWER_SELECTION_STROKES,
-    VIEWER_TIMER_TOP, VIEWER_VERTICAL_BALANCE_TOLERANCE, viewer_board_controls_gap,
-    viewer_board_position, viewer_header_badge_gap, viewer_header_board_gap, viewer_marker_layout,
-    viewer_selection_radius,
+    VIEWER_TIMER_TOP, VIEWER_VERTICAL_BALANCE_TOLERANCE, viewer_board_center_from_window,
+    viewer_board_controls_gap, viewer_board_position, viewer_header_badge_gap,
+    viewer_header_board_gap, viewer_marker_layout, viewer_selection_radius,
 };
 use super::modals::{spawn_viewer_key_modal, spawn_viewer_match_settings_modal};
 use super::{
@@ -141,7 +141,6 @@ const VIEWER_SELECTION_RESOLUTION: u32 = 64;
 /// Smaller than the live card, and its fill a little more translucent so the
 /// recorded opening stays readable behind it.
 const VIEWER_COUNTDOWN_CARD: CountdownCard = CountdownCard {
-    board_center_y: VIEWER_BOARD_CENTER_Y,
     grid_spacing: VIEWER_GRID_SPACING,
     size: Vec2::new(150.0, 104.0),
     font_size: FontSize::Px(58.0),
@@ -521,7 +520,7 @@ fn spawn_viewer_ui(commands: &mut Commands, replay: &Replay) {
             root.spawn((
                 Node {
                     display: Display::None,
-                    ..VIEWER_COUNTDOWN_CARD.overlay_node()
+                    ..VIEWER_COUNTDOWN_CARD.overlay_node(viewer_board_center_from_window(), 1.0)
                 },
                 GlobalZIndex(90),
                 ViewerCountdown,

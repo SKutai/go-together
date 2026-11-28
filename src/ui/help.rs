@@ -99,8 +99,8 @@ pub(crate) const HELP_PAGE_COUNT: usize = 11;
 const HELP_PAGE_INDICATOR_WIDTH: f32 = 150.0;
 const HELP_PAGINATION_HEIGHT: f32 = 36.0;
 const HELP_PAGE_INDICATOR_TOP_PADDING: f32 = 4.0;
-const HELP_MODAL_WIDTH: f32 = 820.0;
-const HELP_MODAL_HEIGHT: f32 = 760.0;
+pub(crate) const HELP_MODAL_WIDTH: f32 = 820.0;
+pub(crate) const HELP_MODAL_HEIGHT: f32 = 760.0;
 
 fn help_pagination_side_node(justify_content: JustifyContent) -> Node {
     Node {
@@ -923,7 +923,7 @@ mod tests {
     /// Home, so the Home case has a ring underneath the overlay and the
     /// Match case has none. Starts on Home with one frame run.
     fn help_modal_app() -> App {
-        let mut app = real_layout_app();
+        let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
         app.add_plugins(StatesPlugin)
             .init_state::<AppScreen>()
             .add_plugins(UiFocusPlugin)
