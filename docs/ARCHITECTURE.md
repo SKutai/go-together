@@ -374,10 +374,15 @@ that.
 Help and the return-to-Home confirmation are modals, not separate
 states. Screen plugins use the same lifecycle:
 
-1. `OnEnter`: reset feature resources, then spawn entities. The one resource
-   no screen resets is `HudState`: the Help modal it governs belongs
+1. `OnEnter`: reset feature resources, then spawn entities. Two resources
+   no screen resets. `HudState`: the Help modal it governs belongs
    to no screen, so `ui::hud` resets it on the transition itself, for every
    screen change at once (see [entity ownership](#screen-modal-and-persistent-entity-ownership)).
+   And the camera's `WorldFraming`, which `app::visuals` puts back on the
+   transition in the same way, so that undoing one screen's zoom is no
+   other screen's entry to remember; a screen that frames its own scene
+   writes it after that reset, on entry or in `Update` (see
+   [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it)).
 2. `Update`: run only while the corresponding `AppScreen` is active - with two
    deliberate exceptions. Home's marimba input handler is registered ungated
    so it keeps draining `KeyboardInput` messages consistently, and checks the
@@ -423,8 +428,9 @@ Four ownership lifetimes exist:
   (resources, not entities, reused by every screen that draws a board). The
   camera and the handles exist because re-uploading the same mesh/materials
   on every screen transition would be pure waste; nothing about them is
-  screen-specific but the camera's framing, which a screen with a board
-  sets and every change of screen puts back - see
+  screen-specific but the camera's framing, which a screen with a
+  world-space scene to place - the Match for its board, Home for its
+  diamond - sets and every change of screen puts back - see
   [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it).
   The Help modal is here for a different reason,
   and is the category's first *interactive* member: it is reachable from two
@@ -525,10 +531,12 @@ translation in `PostUpdate`, before the projection is recomputed.
 `bevy_ui` never sees the projection. So `board_position`, `GRID_SPACING`
 and the rest of the boards' geometry, and the tests of it, are the same at
 every size, and every stroke keeps its proportion to the cell. A screen
-with no board writes nothing: `reset_world_framing_on_screen_change`, in
-`StateTransition` beside the HUD's modal reset, puts the framing back to a
-scale of 1 over the origin on every change of screen, so Settings and the
-Replay Library never inherit a zoom. Text drawn in world space, as the
+with no world-space scene to place writes nothing:
+`reset_world_framing_on_screen_change`, in `StateTransition` beside the
+HUD's modal reset, puts the framing back to a scale of 1 over the origin
+on every change of screen, so Settings and the Replay Library never
+inherit a zoom. The Match writes its framing every frame and Home on entry
+and whenever the window's size changes, both after that reset. Text drawn in world space, as the
 Replay Viewer's score badges are, is scaled by the camera as well, and the
 14px floor's scan reads the sizes text is set at, not a camera's zoom; so
 on a screen that zooms, such text has to be counter-scaled or moved into
@@ -567,11 +575,14 @@ bars - measured where they are drawn, not by the instrument's node - stay
 inside the window there, which is in windows at least 848 px tall; in a
 shorter one it stands upright beside the panel.
 
-**The tests** sweep every layout over `app::visuals::layout_sweep`, from the
-minimum to 2560x1440, and hold that nothing overlaps, nothing leaves the
-window, the board never falls below the smallest window's zoom, and at
-1040x900 every position is the one the screen always had; the real-layout
-tests run the same screens at the sizes in `NAMED_WINDOW_SIZES`. See
+**The tests** sweep every layout over `app::visuals::layout_sweep` - every
+20 px from the minimum to 2560x1440, the named sizes, a few fractional
+ones and a few larger windows - and hold that nothing overlaps, nothing
+leaves the window, the board never falls below the smallest window's zoom
+nor grows past twice its size, and at 1040x900 every position is the one
+the screen always had; the real-layout tests run the same screens at the
+sizes in `NAMED_WINDOW_SIZES`, through the game's own schedule where the
+order of the passes matters. See
 [Pure tests versus ECS tests](TESTING.md#pure-tests-versus-ecs-tests).
 
 ## Presentation: continuous vs change-driven display

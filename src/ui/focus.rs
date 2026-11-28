@@ -994,14 +994,13 @@ fn update_focus_indicator(
 /// pixels at a scale factor of 1, so a logical pixel is a physical one,
 /// and the app's [`WindowSize`] says the same, so a screen that lays
 /// itself out from it is laid out for that window; a test of a screen as
-/// it was first laid out, for the opening window, passes
-/// [`WindowSize::OPENING`]. `window` is in whole pixels, as
-/// a physical window is. Keys are not part of it: a test presses them by
+/// it was first laid out, for the opening window, passes the opening size,
+/// `WindowSize::OPENING.0`. `window` is in whole pixels, as a physical
+/// window is. Keys are not part of it: a test presses them by
 /// writing `ButtonInput<KeyCode>` directly, which `InputPlugin` would clear
 /// before the ring could read it.
 ///
 /// [`WindowSize`]: crate::app::visuals::WindowSize
-/// [`WindowSize::OPENING`]: crate::app::visuals::WindowSize::OPENING
 #[cfg(test)]
 pub(crate) fn real_layout_app(window: Vec2) -> App {
     let mut app = engine_ui_app(window);

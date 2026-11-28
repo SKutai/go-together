@@ -229,8 +229,10 @@ pub(super) enum HudPanel {
     Timer,
     Round,
     /// The line under the Match screen's heading that says why the Match
-    /// ended: laid out only once it has, so during play the timer and the
-    /// round panel below it stand exactly where they always have.
+    /// ended: laid out only once it has, so during play it takes no room.
+    /// In the tall arrangement the timer and the round panel below it then
+    /// stand exactly where they always have; in the wide one they stand
+    /// beside the heading, and nothing moves when the line appears.
     EndReasons,
     Countdown,
     HelpModal,

@@ -29,11 +29,12 @@
 //! centre, and [`frame_main_camera`] gives the camera that projection scale
 //! and translation. So the boards' own geometry - [`board_position`],
 //! [`GRID_SPACING`] and the rest - is the same at every size, and every
-//! mark on a board keeps its proportions to the cell. A screen that draws
-//! no board writes nothing, and the camera stays at a scale of 1 over the
-//! origin, as it always was: [`reset_world_framing_on_screen_change`] puts
-//! the framing back on every change of screen, so no screen inherits
-//! another's zoom.
+//! mark on a board keeps its proportions to the cell. A screen with no
+//! world-space scene to place writes nothing - so far only the Match and
+//! Home have one - and the camera stays at a scale of 1 over the origin,
+//! as it always was: [`reset_world_framing_on_screen_change`] puts the
+//! framing back on every change of screen, so no screen inherits another's
+//! zoom.
 //!
 //! # Key items
 //!
@@ -79,18 +80,23 @@ use crate::presentation::{
 };
 use crate::rules::{BOARD_SIZE, Cell, Player, Point};
 
-/// The window's size when the game opens, in logical pixels. A layout does
-/// not read these: it reads [`WindowSize`], which starts at this size.
+/// The window's size when the game opens, in logical pixels. An adapted
+/// layout does not read these: it reads [`WindowSize`], which starts at
+/// this size. The screens not yet adapted - the Replay screens, Settings
+/// and the Help modal - still place themselves from them.
 pub(crate) const WINDOW_WIDTH: u32 = 1040;
 pub(crate) const WINDOW_HEIGHT: u32 = 900;
 /// The smallest window the layouts are made for, in logical pixels. A
 /// layout handed a smaller size lays itself out at this one; see
 /// [`WindowSize::layout`].
 ///
-/// The height is what a maximised window keeps on the smallest common
-/// laptop screen, with room to spare: 1280x720 at Windows' 150% leaves
-/// about 641 under the taskbar and title bar, and a 1366x768 screen about
-/// 689. The width is the opening width, which the Settings binding columns
+/// The height is meant to sit below what a maximised window keeps on the
+/// smallest common laptop screens - a 1920x1080 screen at Windows' 150%,
+/// which is 1280x720 logical pixels, and a 1366x768 one - once Windows'
+/// default taskbar and the window's title bar are taken off, with room to
+/// spare for a taller taskbar or a Linux desktop's top bar. That was
+/// reasoned from those bars' usual sizes, not measured on either screen.
+/// The width is the opening width, which the Settings binding columns
 /// need without making text smaller.
 pub(crate) const MIN_WINDOW_WIDTH: u32 = 1040;
 pub(crate) const MIN_WINDOW_HEIGHT: u32 = 600;
@@ -367,11 +373,13 @@ pub(crate) struct MainCamera;
 /// world at, in logical pixels per world unit, and the world point it puts
 /// at the centre of the window.
 ///
-/// A screen whose layout places a board writes it on entry and whenever its
-/// layout changes; every other screen leaves it at [`Self::IDENTITY`], which
-/// [`reset_world_framing_on_screen_change`] restores on each change of
-/// screen. `bevy_ui` lays out in the window's own pixels whatever this
-/// says, so the framing moves and scales the world and nothing else.
+/// A screen whose layout places a world-space scene writes it - the Match
+/// every frame, for its board, and Home on entry and whenever the window's
+/// size changes, for its diamond; every other screen leaves it at
+/// [`Self::IDENTITY`], which [`reset_world_framing_on_screen_change`]
+/// restores on each change of screen. `bevy_ui` lays out in the window's
+/// own pixels whatever this says, so the framing moves and scales the world
+/// and nothing else.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub(crate) struct WorldFraming {
     /// Logical pixels per world unit: the main camera's projection scale is
@@ -385,7 +393,8 @@ pub(crate) struct WorldFraming {
 impl WorldFraming {
     /// One world unit to a logical pixel, with the world's origin at the
     /// centre of the window: how every board was drawn before the layouts
-    /// adapted, and still the framing of a screen that draws none.
+    /// adapted, and still the framing of a screen with no world-space scene
+    /// of its own to place.
     pub(crate) const IDENTITY: Self = Self {
         zoom: 1.0,
         center: Vec2::ZERO,
@@ -541,10 +550,14 @@ pub(crate) fn format_elapsed_time(elapsed_seconds: f64) -> String {
 }
 
 /// The window sizes that matter by name: the opening window and the smallest,
-/// then the maximised and fullscreen windows of a 1280x720 laptop, a
-/// 1366x768 screen and a 1440x900 Mac, a 1920x1080 screen and a large one.
-/// Every layout's tests run at these, and a real-layout test that cannot
-/// afford the whole [`layout_sweep`] runs at some of them.
+/// then the maximised and fullscreen windows of a 1920x1080 screen at
+/// Windows' 150% (1280x720 logical pixels), a 1366x768 screen and a
+/// 1440x900 Mac, a 1920x1080 screen and a large one. The maximised sizes
+/// are estimates, not measurements: the screen less Windows' default
+/// taskbar and a title bar for 1280x641 and 1366x689, and less the Mac's
+/// menu bar for 1440x875. Every layout's tests run at these, and a
+/// real-layout test that cannot afford the whole [`layout_sweep`] runs at
+/// some of them.
 #[cfg(test)]
 pub(crate) const NAMED_WINDOW_SIZES: [Vec2; 9] = [
     Vec2::new(1040.0, 900.0),
