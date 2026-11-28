@@ -8,14 +8,17 @@
 //!
 //! # The board redraws on event boundaries, not every frame
 //!
-//! The board, its stone rings, cursors, markers, selections and score badges
-//! are entirely determined by which recorded event is currently in effect -
-//! they never change value between two events, only `round_elapsed_seconds`
-//! does.
-//! [`update_viewer_display`] caches the last-drawn `(replay_id, boundary key)`
-//! and only calls [`update_viewer_board_visuals`] when that pair changes,
-//! redrawing immediately (no one-frame lag) on any crossing, including a
-//! silent seek. See
+//! The board, its stone rings, cursors, markers and selections are entirely
+//! determined by which recorded event is currently in effect - they never
+//! change value between two events, only `round_elapsed_seconds` does. The
+//! score badges are too, and by the window's size as well: they are drawn
+//! at their own size whatever the board's zoom and placed in window pixels
+//! off their cursors, so where they stand in the world moves with the
+//! board's framing. [`update_viewer_display`] caches the last-drawn
+//! `(replay_id, boundary key, window size)` and only calls
+//! [`update_viewer_board_visuals`] when that changes, redrawing immediately
+//! (no one-frame lag) on any crossing, including a silent seek, and on any
+//! change of the window's size. See
 //! [Presentation: continuous vs change-driven display](../../../../docs/ARCHITECTURE.md#presentation-continuous-vs-change-driven-display)
 //! for the full reasoning, including why `replay_id` has to be part of the
 //! cache key.
@@ -25,7 +28,8 @@ use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
 
 use super::geometry::{
-    score_badge_position, viewer_board_position, viewer_cursor_position, viewer_selection_position,
+    TallLabelRoom, ViewerLayout, score_badge_position, score_badge_scale, viewer_board_position,
+    viewer_cursor_position, viewer_layout, viewer_selection_position,
 };
 use super::layout::speed_label;
 use super::{
@@ -34,7 +38,7 @@ use super::{
     ViewerScoreBadge, ViewerSelection, ViewerStoneRing, ViewerText, format_setting_duration,
     player_index, player_score, viewer_action_disabled,
 };
-use crate::app::visuals::{StonePalette, format_elapsed_time, stone_geometry};
+use crate::app::visuals::{StonePalette, WindowSize, format_elapsed_time, stone_geometry};
 use crate::audio::UiSound;
 use crate::match_settings::MatchSettingField;
 use crate::presentation::{
@@ -215,11 +219,13 @@ pub(super) struct ViewerOverlay<'w, 's> {
 /// The board, cursors, markers, selections and score badges only ever change
 /// value at a recorded event boundary (see [`Replay::playback_boundary_key`]),
 /// never while playback merely interpolates `round_elapsed_seconds` between
-/// two events. Caching the last-drawn boundary here lets
-/// [`update_viewer_display`] skip re-touching all of those entities on every
-/// one of the many frames that fall between two boundaries, while still
-/// redrawing immediately, with no one-frame lag, the instant playback
-/// actually crosses one, including on a silent seek.
+/// two events - or, for the score badges, when the window's size changes,
+/// since they are placed in its pixels. Caching the last-drawn boundary and
+/// size here lets [`update_viewer_display`] skip re-touching all of those
+/// entities on every one of the many frames that fall between two
+/// boundaries, while still redrawing immediately, with no one-frame lag, the
+/// instant playback actually crosses one, including on a silent seek, or
+/// the window changes size.
 ///
 /// The cached key includes `replay_id`, not just the event index: the Viewer
 /// only runs while `AppScreen::ReplayViewer` is active, so leaving the screen
@@ -236,11 +242,12 @@ pub(super) struct ViewerOverlay<'w, 's> {
 /// compare-guarded inside [`update_viewer_board_visuals`], so paying two
 /// `String` allocations per frame to reach it would have been at best a wash.
 #[derive(Default)]
-pub(super) struct ViewerBoardBoundary(Option<(Option<String>, Option<usize>)>);
+pub(super) struct ViewerBoardBoundary(Option<(Option<String>, Option<usize>, Vec2)>);
 
 pub(super) fn update_viewer_display(
     mut commands: Commands,
     viewer: Res<ReplayViewerState>,
+    window: Res<WindowSize>,
     palette: Res<StonePalette>,
     mut board: ViewerBoard,
     mut overlay: ViewerOverlay,
@@ -253,12 +260,17 @@ pub(super) fn update_viewer_display(
     let position = viewer.controller.position_seconds;
     let frame = replay.playback_frame_at(position);
     let boundary = replay.playback_boundary_key(position);
-    let unchanged = last_boundary.0.as_ref().is_some_and(|(id, index)| {
-        id.as_deref() == viewer.replay_id.as_deref() && *index == boundary
-    });
+    let size = window.layout();
+    let unchanged = last_boundary
+        .0
+        .as_ref()
+        .is_some_and(|(id, index, drawn_at)| {
+            id.as_deref() == viewer.replay_id.as_deref() && *index == boundary && *drawn_at == size
+        });
     if !unchanged {
-        last_boundary.0 = Some((viewer.replay_id.clone(), boundary));
-        update_viewer_board_visuals(replay, &frame, &palette, &mut board);
+        last_boundary.0 = Some((viewer.replay_id.clone(), boundary, size));
+        let layout = viewer_layout(size, TallLabelRoom::for_label(&replay.label));
+        update_viewer_board_visuals(replay, &frame, &palette, &layout, &mut board);
     }
     for (role, mut text) in &mut overlay.texts {
         let value = match role {
@@ -401,12 +413,14 @@ fn viewer_button_colors(
 }
 
 /// The discrete board visuals: stones, cursors, score badges, teleport
-/// markers and hidden selections. Called only when
-/// [`Replay::playback_boundary_key`] changes - see [`ViewerBoardBoundary`].
+/// markers and hidden selections, the badges placed and scaled for
+/// `layout`. Called only when [`Replay::playback_boundary_key`] or the
+/// window's size changes - see [`ViewerBoardBoundary`].
 fn update_viewer_board_visuals(
     replay: &Replay,
     frame: &ReplayFrame,
     palette: &StonePalette,
+    layout: &ViewerLayout,
     board: &mut ViewerBoard,
 ) {
     for (intersection, mut material, mut transform) in &mut board.intersections {
@@ -446,12 +460,16 @@ fn update_viewer_board_visuals(
     }
     let cursors_overlap = frame.cursors[0] == frame.cursors[1];
     let score = frame.current_score(&replay.match_settings);
+    let badge_scale = score_badge_scale(layout);
     for (badge, mut transform, children) in &mut board.score_badges {
         let cursor_position = viewer_cursor_position(frame, badge.0);
-        let position = score_badge_position(cursor_position, badge.0, cursors_overlap);
+        let position = score_badge_position(cursor_position, badge.0, cursors_overlap, layout);
         if transform.translation.x != position.x || transform.translation.y != position.y {
             transform.translation.x = position.x;
             transform.translation.y = position.y;
+        }
+        if transform.scale != badge_scale {
+            transform.scale = badge_scale;
         }
         let value = player_score(score, badge.0).to_string();
         for child in children.iter() {
@@ -823,6 +841,7 @@ mod tests {
         };
         app.insert_resource(palette)
             .insert_resource(stone_mesh)
+            .init_resource::<WindowSize>()
             .insert_resource(ReplayViewerState {
                 replay_id: Some(replay.id.clone()),
                 replay: Some(replay),

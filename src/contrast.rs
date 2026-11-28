@@ -1106,8 +1106,8 @@ fn exemptions() -> Vec<Exemption> {
             Excuse::SecondChannel(
                 "position: side by side, Player One's badge is always the left one, the order \
                  the Viewer's result line names the players in, Black then White, and \
-                 `replay_score_badges_clamp_to_viewport_and_separate_overlap` holds it on every \
-                 point of the board; the Key's row for the badges says so in words, and \
+                 `the_badges_keep_their_gaps_and_order_in_window_pixels_at_every_size` holds it \
+                 on every point of the board; the Key's row for the badges says so in words, and \
                  `the_keys_badge_row_names_the_order_the_board_draws` holds that row to the board",
             ),
         ),
