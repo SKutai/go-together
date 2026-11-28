@@ -311,8 +311,9 @@ impl SettingsLayout {
     /// The error line's width, and the lines the frame has room for: in the
     /// sidebar the instruction's place beside the title, two lines; on top
     /// the panel's width, one line under the instruction, which every tab
-    /// has room for as it always has. A longer message is cut to them (see
-    /// `super::display`).
+    /// has room for as it always has. A message that does not fit them is
+    /// set in lines of the game's own, and cut to them where those are more
+    /// (see `super::display`).
     pub(super) fn error_line(&self) -> (f32, usize) {
         if self.sidebar() {
             (self.sidebar_notes_rect().width(), 2)

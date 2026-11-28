@@ -37,7 +37,7 @@
 //!   drawn, for a layout that has to know before `bevy_ui` lays it out.
 //! * [`line_breaks`] - where `bevy_ui` breaks the lines of the game's text,
 //!   followed exactly, for a layout that has to know how many lines a text
-//!   takes.
+//!   takes or whether it fits its box.
 //!
 //! # Bevy lifecycle
 //!

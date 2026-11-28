@@ -53,7 +53,8 @@ use crate::presentation::{
 use crate::settings::{GamePreferences, VolumeLevel};
 use crate::ui::ControlBindings;
 use crate::ui::button::PointerHighlight;
-use crate::ui::text_metrics::{CUT_MARK, line_width, wrap_lines};
+use crate::ui::line_breaks;
+use crate::ui::text_metrics::{CUT_MARK, wrap_lines};
 use crate::ui::widgets::selected_label;
 
 /// The Keyboard tab's binding rows plus the screen-wide instruction and error
@@ -387,19 +388,27 @@ pub(super) struct MappingButtons<'w, 's> {
 }
 
 /// The error line's text as it is drawn. A message that fits the lines the
-/// frame has room for ([`SettingsLayout::error_line`]) - as many or fewer
-/// when wrapped at its spaces, at the characters a line holds a pixel short
-/// of its place, and no word longer than a line - is drawn as it is, wrapped
-/// by `bevy_ui`, as it always was. A longer one is cut: the game wraps it
-/// itself at those characters, a word longer than a line split, keeps the
-/// lines there is room for and ends the last with [`CUT_MARK`]. Nothing but
-/// the message that startup could not load the settings file is that long,
-/// since that one quotes what the file holds and the path it was read from;
-/// the whole of it stays in the screen's state, and in the log, which has
-/// it from startup.
+/// frame has room for ([`SettingsLayout::error_line`]) - that `bevy_ui`
+/// sets on as many or fewer, at the characters a line holds a pixel short
+/// of its place, breaking them where it breaks them and running past the
+/// end of none, as [`line_breaks::fits`] follows it - is drawn as it is,
+/// wrapped by `bevy_ui`, as it always was. Any other is set in lines of the
+/// game's own, each short enough that `bevy_ui` never breaks it again: the
+/// game wraps it at its spaces at those characters, a word longer than a
+/// line split, and where that makes more lines than there is room for,
+/// keeps those there is room for and ends the last with [`CUT_MARK`]. So a
+/// message that `bevy_ui` would set on a line too many, where a space
+/// stands before `!` or a closing bracket and no line may break, can still
+/// be drawn whole. `line_breaks` follows printable ASCII alone, so a
+/// message with anything else in it, which a path or a quotation of the
+/// file can put there, fits only on one line. Nothing but the message that
+/// startup could not load the settings file is that long, since that one
+/// quotes what the file holds and the path it was read from; the whole of
+/// it stays in the screen's state, and in the log, which has it from
+/// startup.
 pub(super) fn shown_error(error: &str, layout: &SettingsLayout) -> String {
     let (width, room) = layout.error_line();
-    let chars = ((width - 1.0) / line_width(1, ERROR_SIZE)).floor() as usize;
+    let chars = line_breaks::chars_per_line(width - 1.0, ERROR_SIZE);
     // Enough of the message for a line more than there is room for: each
     // line takes at most a line's characters and the space after them, so
     // where the message has no run of spaces the rest cannot change the
@@ -407,9 +416,7 @@ pub(super) fn shown_error(error: &str, layout: &SettingsLayout) -> String {
     // as long as a settings file is never wrapped whole on every frame.
     let enough: String = error.chars().take((room + 1) * (chars + 1)).collect();
     let whole = enough.len() == error.len();
-    let fits = whole
-        && wrap_lines(error, chars).len() <= room
-        && error.split(' ').all(|word| word.chars().count() <= chars);
+    let fits = whole && line_breaks::fits(error, chars, room);
     if fits {
         return error.to_owned();
     }
