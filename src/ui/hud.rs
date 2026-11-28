@@ -34,14 +34,18 @@
 //! bindings: the help modal's pages, through [`help_page`], and the
 //! return-home confirmation's body, through [`return_home_body`]. Both name
 //! whatever keys the player has actually bound, so remapping a control updates
-//! them the same frame. Neither is bindings-driven throughout - both also
+//! them the same frame. A page's text is also where the Help modal's two
+//! columns are set, in a window too small for its one: this pass wraps the
+//! page and divides it between them as it generates it ([`page_columns`]),
+//! so each column's text has this one writer. Neither is bindings-driven throughout - both also
 //! spell out the fixed three-second hold, and the confirmation's "starting in
 //! Round 1" qualifier is a rule rather than a binding - so the generated part
 //! is the key names, not the whole sentence. Both are generated only while
 //! their modal is open: the Help modal now exists on every screen,
 //! and its copy is the better part of a kilobyte of formatted text per frame
 //! that nobody could see. The frame a modal opens fills its text before
-//! layout, so a remap made while it was closed is shown on its first frame.
+//! layout, so a remap made while it was closed is shown on its first frame,
+//! and the Help page shown on that frame is already in its columns.
 //!
 //! # Data flow
 //!
@@ -61,14 +65,18 @@
 //! [`ScreenStyled`] and styles it itself. The marker is what lets this pass
 //! stay unordered against the screens' own display stages.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::state::state::{StateTransitionEvent, StateTransitionSystems};
 
 use super::button::{Activated, PointerHighlight, UiButtonPlugin};
+use super::help::geometry::{help_layout, page_columns};
 use super::help::{
-    HELP_PAGE_COUNT, help_navigation_unavailable, help_page, help_page_indicator, spawn_help_modal,
+    HELP_PAGE_COUNT, help_navigation_unavailable, help_page, help_page_indicator, place_help_modal,
+    spawn_help_modal,
 };
 use super::match_screen::end_gesture_keys;
+use crate::app::visuals::WindowSize;
 use crate::app::{AppScreen, AppSystems};
 use crate::audio::{UiCue, UiSound};
 use crate::gameplay::{GameState, GameplayPause, InputGate, MatchPhase};
@@ -85,7 +93,12 @@ pub(super) struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         UiButtonPlugin::require(app);
+        // The Help modal is laid out for the window's size from the frame
+        // it is spawned. `WindowLayoutPlugin` keeps the size; initialising it
+        // here too keeps this plugin usable on a headless `App`, and
+        // `init_resource` never overwrites the production copy.
         app.init_resource::<HudState>()
+            .init_resource::<WindowSize>()
             .add_systems(Startup, spawn_help_modal)
             // After the transition has been applied and its message written,
             // and before the exit and enter schedules run, all in the same
@@ -107,6 +120,16 @@ impl Plugin for HudPlugin {
                         .chain()
                         .in_set(AppSystems::HudInput),
                     update_shared_display.in_set(AppSystems::HudDisplay),
+                    // On every screen: the modal belongs to none, and where
+                    // its one column stands depends on the screen under it.
+                    // Both conditions read every frame, so neither keeps a
+                    // change the other's frame consumed.
+                    place_help_modal
+                        .run_if(
+                            resource_changed::<WindowSize>
+                                .or_eager(bevy::state::condition::state_changed::<AppScreen>),
+                        )
+                        .in_set(AppSystems::ScreenLayout),
                 ),
             );
     }
@@ -145,7 +168,10 @@ pub(super) enum UiRole {
     Countdown,
     ControlHint(Player),
     HelpTitle,
+    /// The Help page, or in two columns its first.
     HelpBody,
+    /// The Help page's second column, empty in one column.
+    HelpBodyContinued,
     HelpPage,
     ReturnHomeBody,
 }
@@ -381,53 +407,71 @@ type SharedButtons<'w, 's> = Query<
     Without<ScreenStyled>,
 >;
 
+/// What the shared display reads of the Match: its state, for the panels
+/// shown on its frames and the return-home modal's copy, and the player's
+/// preferences for whether the timer and round panels show at all.
+#[derive(SystemParam)]
+pub(super) struct MatchView<'w> {
+    game: Res<'w, GameState>,
+    preferences: Res<'w, GamePreferences>,
+}
+
 pub(super) fn update_shared_display(
-    game: Res<GameState>,
+    match_view: MatchView,
     hud: Res<HudState>,
-    preferences: Res<GamePreferences>,
     controls: ControlBindings,
+    window: Res<WindowSize>,
     mut texts: Query<(&UiRole, &mut Text)>,
     mut panels: Query<(&HudPanel, &mut Node)>,
     mut buttons: SharedButtons,
 ) {
-    let (timer_visible, round_visible) = match_hud_visibility(&preferences);
+    let (game, preferences) = (&match_view.game, &match_view.preferences);
+    let (timer_visible, round_visible) = match_hud_visibility(preferences);
+    // A closed modal's copy is not generated at all - see the module docs.
+    // It is filled on the frame the modal opens, before layout: the page's
+    // title, and its text in the one column or the two the window's size
+    // gives it.
+    let help = hud.help_open.then(|| {
+        let (title, body) = help_page(
+            hud.help_page,
+            &controls.keyboard,
+            &controls.controller,
+            &controls.assignments,
+        );
+        let layout = help_layout(window.layout());
+        let columns = if layout.two_columns() {
+            page_columns(&body, &layout)
+        } else {
+            [body, String::new()]
+        };
+        (title, columns)
+    });
     for (role, mut text) in &mut texts {
-        // A closed modal's copy is not generated at all - see the module
-        // docs. It is filled on the frame the modal opens, before layout.
-        let value = match role {
-            UiRole::HelpTitle | UiRole::HelpBody | UiRole::HelpPage if !hud.help_open => {
+        let value = match (role, &help) {
+            (
+                UiRole::HelpTitle | UiRole::HelpBody | UiRole::HelpBodyContinued | UiRole::HelpPage,
+                None,
+            ) => {
                 continue;
             }
-            UiRole::ReturnHomeBody if !hud.return_home_open => continue,
-            UiRole::HelpTitle => {
-                help_page(
-                    hud.help_page,
-                    &controls.keyboard,
-                    &controls.controller,
-                    &controls.assignments,
-                )
-                .0
-            }
-            UiRole::HelpBody => {
-                help_page(
-                    hud.help_page,
-                    &controls.keyboard,
-                    &controls.controller,
-                    &controls.assignments,
-                )
-                .1
-            }
-            UiRole::HelpPage => help_page_indicator(hud.help_page),
-            UiRole::ReturnHomeBody => return_home_body(game.phase, &controls.keyboard),
-            UiRole::Heading
-            | UiRole::EndReasons
-            | UiRole::PlayerOne
-            | UiRole::PlayerTwo
-            | UiRole::Gesture
-            | UiRole::Timer
-            | UiRole::Round
-            | UiRole::Countdown
-            | UiRole::ControlHint(_) => continue,
+            (UiRole::HelpTitle, Some((title, _))) => title.clone(),
+            (UiRole::HelpBody, Some((_, [first, _]))) => first.clone(),
+            (UiRole::HelpBodyContinued, Some((_, [_, second]))) => second.clone(),
+            (UiRole::HelpPage, Some(_)) => help_page_indicator(hud.help_page),
+            (UiRole::ReturnHomeBody, _) if !hud.return_home_open => continue,
+            (UiRole::ReturnHomeBody, _) => return_home_body(game.phase, &controls.keyboard),
+            (
+                UiRole::Heading
+                | UiRole::EndReasons
+                | UiRole::PlayerOne
+                | UiRole::PlayerTwo
+                | UiRole::Gesture
+                | UiRole::Timer
+                | UiRole::Round
+                | UiRole::Countdown
+                | UiRole::ControlHint(_),
+                _,
+            ) => continue,
         };
         if **text != value {
             **text = value;
@@ -439,9 +483,7 @@ pub(super) fn update_shared_display(
             HudPanel::Timer if timer_visible => Display::Flex,
             HudPanel::Round if round_visible => Display::Flex,
             HudPanel::EndReasons if game.phase == MatchPhase::Ended => Display::Flex,
-            HudPanel::Countdown if crate::gameplay::countdown_text(&game).is_some() => {
-                Display::Flex
-            }
+            HudPanel::Countdown if crate::gameplay::countdown_text(game).is_some() => Display::Flex,
             HudPanel::HelpModal if hud.help_open => Display::Flex,
             HudPanel::ReturnHomeModal if hud.return_home_open => Display::Flex,
             HudPanel::Timer

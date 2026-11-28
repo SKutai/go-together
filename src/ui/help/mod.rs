@@ -29,6 +29,23 @@
 //! both halves: that every defined word has its entry, and that no page
 //! before the terms pages uses one.
 //!
+//! # Any window size
+//!
+//! The modal is laid out by [`geometry`]: as it always was, 820x760 with its
+//! page in one column, in every window with room for that, and otherwise
+//! across the window with its page set in two columns, which the game wraps
+//! and divides itself because a column must hold a known number of lines.
+//! It is one tree in either arrangement: every node whose place depends on
+//! the window carries a [`HelpPlacement`], [`place`] writes what each
+//! arrangement owns of it, and [`place_help_modal`] places them again when
+//! the window's size or the screen under the modal changes - the one
+//! column stands differently over the Match, whose heading and board it
+//! keeps clear of or covers. That pass runs on every screen, since the
+//! modal belongs to none. The page's text is `ui::hud`'s to write, as it
+//! always was: it splits the page into the two columns where it generates
+//! it, so each column's text has that one writer and is already set on the
+//! frame the modal opens.
+//!
 //! # The ring
 //!
 //! The two page arrows and Close are in the keyboard and controller focus
@@ -62,11 +79,16 @@
 //! and Replay Viewer back keys are read by those screens' own modules, beside
 //! the input each already handled.
 
+pub(crate) mod geometry;
+
 use bevy::prelude::*;
 
 use super::focus::{FocusGroup, Focusable};
 use super::hud::{HudAction, HudPanel, UiRole};
+use super::match_screen::heading_and_board;
 use super::widgets::spawn_child_button;
+use crate::app::AppScreen;
+use crate::app::visuals::WindowSize;
 use crate::input::GameAction;
 use crate::input::controller::{
     ControllerAssignments, ControllerBindings, ControllerSlotStatus, ProfileAction,
@@ -76,6 +98,10 @@ use crate::presentation::{
     ORANGE, OVERLAY_BACKGROUND, PANEL_BACKGROUND, TEXT_HEADING, TEXT_MUTED, TEXT_PRIMARY,
 };
 use crate::rules::Player;
+use geometry::{
+    BODY_SIZE, BORDER, CLOSE_HEIGHT, COLUMN_GAP, HELP_TITLE_SIZE, HelpLayout, PAGINATION_HEIGHT,
+    TWO_COLUMN_PADDING, help_layout,
+};
 
 const KEYBOARD_CONTROLS_PAGE: usize = 0;
 const BOARD_TERMS_PAGE: usize = 1;
@@ -99,8 +125,6 @@ pub(crate) const HELP_PAGE_COUNT: usize = 11;
 const HELP_PAGE_INDICATOR_WIDTH: f32 = 150.0;
 const HELP_PAGINATION_HEIGHT: f32 = 36.0;
 const HELP_PAGE_INDICATOR_TOP_PADDING: f32 = 4.0;
-pub(crate) const HELP_MODAL_WIDTH: f32 = 820.0;
-pub(crate) const HELP_MODAL_HEIGHT: f32 = 760.0;
 
 fn help_pagination_side_node(justify_content: JustifyContent) -> Node {
     Node {
@@ -146,10 +170,136 @@ const fn help_modal_focusable(order: u32) -> Focusable {
     }
 }
 
+/// A node of the Help modal whose place depends on the window; see the
+/// module docs. [`place`] says what each arrangement owns of it.
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HelpPlacement {
+    /// The modal itself: its size, padding, gaps, and where it stands down
+    /// the window.
+    Modal,
+    /// The row the page's one or two columns stand in.
+    Columns,
+    /// The page, or its first column.
+    FirstColumn,
+    /// The page's second column, shown in two columns only.
+    SecondColumn,
+    /// Close: under the pagination row in one column, at that row's right
+    /// end in two.
+    Close,
+}
+
+/// Writes into `node` what `layout`'s arrangement owns of it as
+/// `placement`, with the modal `offset` px down from the middle of the
+/// window: every field either arrangement sets, in both.
+pub(crate) fn place(layout: &HelpLayout, offset: f32, placement: HelpPlacement, node: &mut Node) {
+    let two = layout.two_columns();
+    let (padding, gap) = layout.padding_and_gap();
+    match placement {
+        HelpPlacement::Modal => {
+            node.width = px(layout.modal_size.x);
+            node.height = px(layout.modal_size.y);
+            node.padding = UiRect::all(px(padding));
+            node.row_gap = px(gap);
+            node.top = px(offset);
+        }
+        HelpPlacement::Columns => node.column_gap = px(if two { COLUMN_GAP } else { 0.0 }),
+        HelpPlacement::FirstColumn => {
+            node.width = if two {
+                px(layout.column_width)
+            } else {
+                percent(100)
+            };
+        }
+        HelpPlacement::SecondColumn => {
+            node.width = px(layout.column_width);
+            node.display = if two { Display::Flex } else { Display::None };
+        }
+        HelpPlacement::Close => {
+            if two {
+                // On the pagination row, the modal's last row, at its right
+                // end and centred down it.
+                node.position_type = PositionType::Absolute;
+                node.width = Val::Auto;
+                node.right = px(TWO_COLUMN_PADDING);
+                node.bottom = px(TWO_COLUMN_PADDING + (PAGINATION_HEIGHT - CLOSE_HEIGHT) / 2.0);
+            } else {
+                node.position_type = PositionType::Relative;
+                node.width = percent(100);
+                node.right = Val::Auto;
+                node.bottom = Val::Auto;
+            }
+        }
+    }
+}
+
+/// How the page's columns break their lines: `bevy_ui` wraps the one
+/// column at its width, and two columns are wrapped by the game, which
+/// `bevy_ui` must not wrap again.
+fn column_linebreak(layout: &HelpLayout) -> LineBreak {
+    if layout.two_columns() {
+        LineBreak::NoWrap
+    } else {
+        LineBreak::WordBoundary
+    }
+}
+
+/// What the modal stands over on `screen`, for the one column to keep
+/// clear of: the Match's heading line and board, on the Match.
+fn over_match(screen: AppScreen, window: Vec2) -> Option<(Rect, Rect)> {
+    (screen == AppScreen::Match).then(|| heading_and_board(window))
+}
+
+/// Keeps the Help modal where [`geometry`] puts it for the window's size
+/// and the screen under it: every placed node, and its columns' line
+/// breaking. Runs on a frame the window's size or the screen changes, on
+/// every screen; the spawner places every node already, through the same
+/// [`place`].
+pub(crate) fn place_help_modal(
+    window: Res<WindowSize>,
+    screen: Res<State<AppScreen>>,
+    mut nodes: Query<(&HelpPlacement, &mut Node)>,
+    mut texts: Query<(&HelpPlacement, &mut TextLayout)>,
+) {
+    let layout = help_layout(window.layout());
+    let offset = layout.modal_offset(over_match(*screen.get(), layout.window));
+    for (placement, mut node) in &mut nodes {
+        let mut placed = node.clone();
+        place(&layout, offset, *placement, &mut placed);
+        if *node != placed {
+            *node = placed;
+        }
+    }
+    let linebreak = column_linebreak(&layout);
+    for (_, mut text_layout) in &mut texts {
+        if text_layout.linebreak != linebreak {
+            text_layout.linebreak = linebreak;
+        }
+    }
+}
+
 /// Spawns the one Help modal, hidden, with no screen tag: it is
 /// shown from Home and from the Match, so it belongs to neither and lives
-/// for the whole application. A `Startup` system of [`super::hud::HudPlugin`].
-pub(super) fn spawn_help_modal(mut commands: Commands) {
+/// for the whole application. A `Startup` system of [`super::hud::HudPlugin`],
+/// laid out for the window's size then; [`place_help_modal`] keeps it there.
+pub(super) fn spawn_help_modal(mut commands: Commands, window: Res<WindowSize>) {
+    let layout = help_layout(window.layout());
+    let placed = |placement: HelpPlacement, mut node: Node| {
+        place(&layout, 0.0, placement, &mut node);
+        (node, placement)
+    };
+    let column = |role: UiRole, placement: HelpPlacement| {
+        (
+            Text::new(""),
+            TextFont {
+                font_size: FontSize::Px(BODY_SIZE),
+                ..default()
+            },
+            TextColor(TEXT_PRIMARY),
+            TextLayout::new(Justify::Left, column_linebreak(&layout)),
+            placed(placement, Node::default()),
+            role,
+        )
+    };
     commands
         .spawn((
             // A plain node: picking stops at it, so it blocks every click
@@ -170,15 +320,14 @@ pub(super) fn spawn_help_modal(mut commands: Commands) {
         .with_children(|overlay| {
             overlay
                 .spawn((
-                    Node {
-                        width: px(HELP_MODAL_WIDTH),
-                        height: px(HELP_MODAL_HEIGHT),
-                        padding: UiRect::all(px(32)),
-                        border: UiRect::all(px(2)),
-                        flex_direction: FlexDirection::Column,
-                        row_gap: px(18),
-                        ..default()
-                    },
+                    placed(
+                        HelpPlacement::Modal,
+                        Node {
+                            border: UiRect::all(px(BORDER)),
+                            flex_direction: FlexDirection::Column,
+                            ..default()
+                        },
+                    ),
                     BackgroundColor(PANEL_BACKGROUND),
                     BorderColor::all(ORANGE),
                 ))
@@ -186,7 +335,7 @@ pub(super) fn spawn_help_modal(mut commands: Commands) {
                     modal.spawn((
                         Text::new(""),
                         TextFont {
-                            font_size: FontSize::Px(30.0),
+                            font_size: FontSize::Px(HELP_TITLE_SIZE),
                             ..default()
                         },
                         TextColor(TEXT_HEADING),
@@ -197,25 +346,26 @@ pub(super) fn spawn_help_modal(mut commands: Commands) {
                         },
                         UiRole::HelpTitle,
                     ));
-                    modal.spawn((
-                        Text::new(""),
-                        TextFont {
-                            font_size: FontSize::Px(18.0),
-                            ..default()
-                        },
-                        TextColor(TEXT_PRIMARY),
-                        TextLayout::justify(Justify::Left),
-                        Node {
-                            width: percent(100),
-                            flex_grow: 1.0,
-                            ..default()
-                        },
-                        UiRole::HelpBody,
-                    ));
+                    modal
+                        .spawn(placed(
+                            HelpPlacement::Columns,
+                            Node {
+                                width: percent(100),
+                                flex_grow: 1.0,
+                                ..default()
+                            },
+                        ))
+                        .with_children(|columns| {
+                            columns.spawn(column(UiRole::HelpBody, HelpPlacement::FirstColumn));
+                            columns.spawn(column(
+                                UiRole::HelpBodyContinued,
+                                HelpPlacement::SecondColumn,
+                            ));
+                        });
                     modal
                         .spawn(Node {
                             width: percent(100),
-                            height: px(42),
+                            height: px(PAGINATION_HEIGHT),
                             justify_content: JustifyContent::Center,
                             align_items: AlignItems::Center,
                             column_gap: px(16),
@@ -256,11 +406,13 @@ pub(super) fn spawn_help_modal(mut commands: Commands) {
                                 });
                         });
                     modal
-                        .spawn(Node {
-                            width: percent(100),
-                            justify_content: JustifyContent::Center,
-                            ..default()
-                        })
+                        .spawn(placed(
+                            HelpPlacement::Close,
+                            Node {
+                                justify_content: JustifyContent::Center,
+                                ..default()
+                            },
+                        ))
                         .with_children(|footer| {
                             spawn_child_button(
                                 footer,
@@ -643,12 +795,6 @@ mod tests {
         assert_eq!(indicator.height, px(HELP_PAGINATION_HEIGHT));
         assert_eq!(indicator.padding.top, px(HELP_PAGE_INDICATOR_TOP_PADDING));
         assert_eq!(indicator.align_items, AlignItems::Center);
-    }
-
-    #[test]
-    fn help_modal_fits_the_fixed_window() {
-        assert!(HELP_MODAL_WIDTH < crate::app::visuals::WINDOW_WIDTH as f32);
-        assert!(HELP_MODAL_HEIGHT < crate::app::visuals::WINDOW_HEIGHT as f32);
     }
 
     #[test]
@@ -1568,5 +1714,372 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// One page's count: its lines, the first column's, the second's, and
+    /// whether the break falls between paragraphs.
+    type IndependentSplit = (usize, usize, usize, bool);
+
+    /// Every page with the default bindings, as Python's `textwrap` sets it
+    /// (`break_on_hyphens=False`) and as the rule in `geometry::split_page`
+    /// divides it, worked out apart from the game's own wrap and split: the
+    /// page's lines at the window's characters a line, then the first
+    /// column's lines, the second's, and whether the break falls between
+    /// paragraphs. At 1040x600 a column holds 43 characters and 19 lines;
+    /// at 1280x641, 54 and 21.
+    const INDEPENDENT_SPLITS: [(&str, [IndependentSplit; HELP_PAGE_COUNT]); 2] = [
+        (
+            "1040x600",
+            [
+                (29, 12, 16, true),
+                (35, 17, 17, true),
+                (37, 19, 18, false),
+                (34, 15, 18, true),
+                (36, 19, 16, true),
+                (35, 18, 17, false),
+                (25, 11, 13, true),
+                (29, 13, 15, true),
+                (10, 6, 3, true),
+                (10, 6, 3, true),
+                (30, 15, 14, true),
+            ],
+        ),
+        (
+            "1280x641",
+            [
+                (26, 11, 14, true),
+                (29, 14, 14, true),
+                (31, 18, 12, true),
+                (28, 13, 14, true),
+                (30, 15, 14, true),
+                (29, 12, 16, true),
+                (21, 9, 11, true),
+                (24, 11, 12, true),
+                (10, 6, 3, true),
+                (10, 6, 3, true),
+                (27, 14, 12, true),
+            ],
+        ),
+    ];
+
+    /// Every page fits the two columns of the smallest window, and of a
+    /// 1280x720 laptop's maximised one, with the game's own wrap and split
+    /// agreeing line for line with a count worked out apart from them
+    /// ([`INDEPENDENT_SPLITS`]). At the minimum the two densest pages fill
+    /// all 19 lines - Terms: Gray, Suicide, Ko & Territory, and Round 1+:
+    /// Hidden Moves & Timing - two run a paragraph on into the second
+    /// column, and every other leaves a line or more; at 1280x641 every page
+    /// breaks between paragraphs with three lines or more to spare.
+    #[test]
+    fn every_page_fits_two_columns_at_the_minimum() {
+        use geometry::{split_page, wrap_lines};
+
+        for (name, pages) in INDEPENDENT_SPLITS {
+            let (w, h) = name.split_once('x').unwrap();
+            let window = Vec2::new(w.parse().unwrap(), h.parse().unwrap());
+            let layout = help_layout(window);
+            assert!(layout.two_columns(), "{name}");
+            for (page, expected) in pages.into_iter().enumerate() {
+                let (title, body) = help_page(
+                    page,
+                    &KeyboardBindings::default(),
+                    &ControllerBindings::default(),
+                    &ControllerAssignments::default(),
+                );
+                let lines = wrap_lines(&body, layout.column_chars);
+                assert!(lines.iter().all(|line| line.len() <= layout.column_chars));
+                let (first, second) = split_page(&lines, layout.column_lines);
+                let between = first.len() + second.len() + 1 == lines.len();
+                assert_eq!(
+                    (lines.len(), first.len(), second.len(), between),
+                    expected,
+                    "{name}: {title}"
+                );
+                assert!(
+                    first.len() <= layout.column_lines && second.len() <= layout.column_lines,
+                    "{name}: {title} does not fit"
+                );
+                if name == "1280x641" {
+                    assert!(between, "{title}");
+                    assert!(
+                        first.len().max(second.len()) + 3 <= layout.column_lines,
+                        "{title}"
+                    );
+                }
+            }
+        }
+        let full: Vec<usize> = INDEPENDENT_SPLITS[0]
+            .1
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, first, second, _))| (*first).max(*second) == 19)
+            .map(|(page, _)| page)
+            .collect();
+        assert_eq!(full, [GAME_TERMS_PAGE, HIDDEN_MOVES_PAGE]);
+    }
+
+    /// The Help modal over a screen, laid out by `bevy_ui` in a window of
+    /// `window` logical pixels, through the HUD's own plugin.
+    fn help_over(screen: AppScreen, window: Vec2) -> App {
+        let mut app = real_layout_app(window);
+        app.add_plugins(StatesPlugin)
+            .insert_state(screen)
+            .add_plugins(UiFocusPlugin)
+            .add_plugins(HudPlugin)
+            .insert_resource(InputGate::default())
+            .insert_resource(GameplayPause::default())
+            .insert_resource(GameState::default())
+            .insert_resource(GamePreferences::default())
+            .insert_resource(KeyboardBindings::default())
+            .insert_resource(ControllerBindings::default())
+            .insert_resource(ControllerAssignments::default())
+            .insert_resource(AudioCueQueue::default())
+            .init_resource::<ButtonInput<KeyCode>>();
+        configure_app_systems(&mut app);
+        app.update();
+        app
+    }
+
+    fn rect_of(app: &App, entity: Entity) -> Rect {
+        use bevy::ui::{ComputedNode, UiGlobalTransform};
+
+        let node = app.world().get::<ComputedNode>(entity).unwrap();
+        let transform = app.world().get::<UiGlobalTransform>(entity).unwrap();
+        let scale = node.inverse_scale_factor;
+        Rect::from_center_size(transform.translation * scale, node.size * scale)
+    }
+
+    fn placed_entity(app: &mut App, placement: HelpPlacement) -> Entity {
+        let world = app.world_mut();
+        let found: Vec<Entity> = world
+            .query::<(Entity, &HelpPlacement)>()
+            .iter(world)
+            .filter(|(_, found)| **found == placement)
+            .map(|(entity, _)| entity)
+            .collect();
+        assert_eq!(found.len(), 1, "one {placement:?}");
+        found[0]
+    }
+
+    /// The Help modal as one list: every placed node's placement and whole
+    /// `Node`, and the page's title and columns as set, with how each
+    /// column breaks its lines.
+    fn help_frame(app: &mut App) -> Vec<String> {
+        let world = app.world_mut();
+        let mut out: Vec<String> = world
+            .query::<(&HelpPlacement, &Node, Option<&TextLayout>)>()
+            .iter(world)
+            .map(|(placement, node, text_layout)| format!("{placement:?} {node:?} {text_layout:?}"))
+            .collect();
+        out.extend(
+            world
+                .query::<(&UiRole, &Text)>()
+                .iter(world)
+                .filter_map(|(role, text)| {
+                    let name = match role {
+                        UiRole::HelpTitle => "title",
+                        UiRole::HelpBody => "first column",
+                        UiRole::HelpBodyContinued => "second column",
+                        _ => return None,
+                    };
+                    Some(format!("{name} {:?}", text.0))
+                }),
+        );
+        out.sort();
+        out
+    }
+
+    /// When the window's size changes while the modal is open, over Home or
+    /// over the Match, the modal becomes exactly what opening it at the new
+    /// size makes - every node's place, the columns' line breaking and the
+    /// page as divided between them - into two columns, back to one, and
+    /// back in the opening window to the modal first spawned there. With
+    /// the window's size written as the game's tracker writes it; a pass
+    /// that ran only on a change of screen would leave the modal as it was.
+    #[test]
+    fn a_change_of_window_size_replaces_the_open_modal_as_a_fresh_open_would() {
+        use crate::app::visuals::WindowSize;
+
+        let open = |app: &mut App| {
+            let mut hud = app.world_mut().resource_mut::<HudState>();
+            hud.help_open = true;
+            hud.help_page = 2;
+            app.update();
+            app.update();
+        };
+        for screen in [AppScreen::Home, AppScreen::Match] {
+            let mut app = help_over(screen, WindowSize::OPENING.0);
+            open(&mut app);
+            let opening = help_frame(&mut app);
+            for size in [
+                WindowSize::MINIMUM.0,
+                Vec2::new(1440.0, 848.0),
+                Vec2::new(1280.0, 641.0),
+                Vec2::new(1920.0, 1080.0),
+            ] {
+                app.insert_resource(WindowSize(size));
+                app.update();
+                let moved = help_frame(&mut app);
+                let mut fresh = help_over(screen, size);
+                open(&mut fresh);
+                assert_eq!(moved, help_frame(&mut fresh), "{size} over {screen:?}");
+                if help_layout(size).two_columns() {
+                    assert_ne!(moved, opening, "{size}: two columns are another modal");
+                }
+            }
+            app.insert_resource(WindowSize::OPENING);
+            app.update();
+            assert_eq!(help_frame(&mut app), opening, "{screen:?}");
+        }
+    }
+
+    /// Every page, over Home and over the Match, at every named size, under
+    /// real layout and real picking, in whichever arrangement the window
+    /// gives the modal: the modal stands where `geometry` says; every text
+    /// in it stands inside it and the page's text ends above the pagination
+    /// row; in two columns each column is drawn on exactly the lines the
+    /// game set, side by side from the same top, and Close stands on the
+    /// pagination row clear of Right; and the pointer reaches the three
+    /// buttons at their centres.
+    #[test]
+    fn every_page_stands_inside_its_modal_at_every_size() {
+        use crate::app::visuals::NAMED_WINDOW_SIZES;
+        use crate::ui::button::{covered_at_their_centres, reachable_buttons};
+        use crate::ui::focus::drawn_texts;
+        use bevy::text::TextLayoutInfo;
+
+        for window in NAMED_WINDOW_SIZES {
+            let layout = help_layout(window);
+            for screen in [AppScreen::Home, AppScreen::Match] {
+                let mut app = help_over(screen, window);
+                let over = (screen == AppScreen::Match).then(|| heading_and_board(window));
+                for page in 0..HELP_PAGE_COUNT {
+                    let context = format!("{window} over {screen:?}, page {page}");
+                    {
+                        let mut hud = app.world_mut().resource_mut::<HudState>();
+                        hud.help_open = true;
+                        hud.help_page = page;
+                    }
+                    app.update();
+                    app.update();
+                    let modal = placed_entity(&mut app, HelpPlacement::Modal);
+                    let modal = rect_of(&app, modal);
+                    let expected = layout.modal_rect(over);
+                    assert!(
+                        (modal.min - expected.min).abs().max_element() <= 1.0
+                            && (modal.max - expected.max).abs().max_element() <= 1.0,
+                        "{context}: {modal:?}, laid out for {expected:?}"
+                    );
+                    let inside = modal.inflate(-1.0);
+                    let texts = drawn_texts(&mut app);
+                    assert!(texts.len() >= 6, "{context}: {texts:?}");
+                    for (_, text, ink) in &texts {
+                        assert!(
+                            inside.contains(ink.min) && inside.contains(ink.max),
+                            "{context}: {text:?} at {ink:?} leaves {modal:?}"
+                        );
+                    }
+                    let indicator = app
+                        .world_mut()
+                        .query::<(&UiRole, &ChildOf)>()
+                        .iter(app.world())
+                        .find(|(role, _)| matches!(role, UiRole::HelpPage))
+                        .map(|(_, child_of)| child_of.parent())
+                        .unwrap();
+                    let row = app.world().get::<ChildOf>(indicator).unwrap().parent();
+                    let row = rect_of(&app, row);
+                    let columns = [HelpPlacement::FirstColumn, HelpPlacement::SecondColumn]
+                        .map(|placement| placed_entity(&mut app, placement));
+                    let shown: Vec<(Rect, usize)> = columns
+                        .iter()
+                        .filter_map(|column| {
+                            let rect = rect_of(&app, *column);
+                            let layout = app.world().get::<TextLayoutInfo>(*column).unwrap();
+                            (rect.size() != Vec2::ZERO).then(|| {
+                                let lines = layout
+                                    .glyphs
+                                    .iter()
+                                    .map(|glyph| glyph.line_index as usize + 1)
+                                    .max()
+                                    .unwrap_or(0);
+                                // The text's own height, in physical pixels,
+                                // as Bevy 0.20 gives it.
+                                let scale = app
+                                    .world()
+                                    .get::<bevy::ui::ComputedNode>(*column)
+                                    .unwrap()
+                                    .inverse_scale_factor;
+                                let height = layout.size.y * scale;
+                                assert!(
+                                    rect.min.y + height <= row.min.y,
+                                    "{context}: the page runs to {} over a row at {}",
+                                    rect.min.y + height,
+                                    row.min.y
+                                );
+                                (rect, lines)
+                            })
+                        })
+                        .collect();
+                    if layout.two_columns() {
+                        assert_eq!(shown.len(), 2, "{context}");
+                        let (_, body) = help_page(
+                            page,
+                            &KeyboardBindings::default(),
+                            &ControllerBindings::default(),
+                            &ControllerAssignments::default(),
+                        );
+                        let set = geometry::page_columns(&body, &layout)
+                            .map(|column| column.lines().count());
+                        assert_eq!([shown[0].1, shown[1].1], set, "{context}");
+                        assert_eq!(shown[0].0.min.y, shown[1].0.min.y, "{context}");
+                        assert!(shown[1].0.min.x - shown[0].0.max.x >= 31.0, "{context}");
+                        let close = button(&mut app, HudAction::CloseHelp);
+                        let close = rect_of(&app, close);
+                        let right = button(&mut app, HudAction::NextHelpPage);
+                        let right = rect_of(&app, right);
+                        assert!(
+                            (close.center().y - row.center().y).abs() <= 1.0,
+                            "{context}"
+                        );
+                        assert!(close.min.x > right.max.x, "{context}");
+                    } else {
+                        assert_eq!(shown.len(), 1, "{context}");
+                    }
+                    let buttons = reachable_buttons(&mut app);
+                    let in_modal: Vec<Entity> = buttons
+                        .into_iter()
+                        .filter(|entity| {
+                            matches!(
+                                app.world().get::<HudAction>(*entity),
+                                Some(
+                                    HudAction::PreviousHelpPage
+                                        | HudAction::NextHelpPage
+                                        | HudAction::CloseHelp
+                                )
+                            )
+                        })
+                        .collect();
+                    assert_eq!(in_modal.len(), 3, "{context}");
+                    assert_eq!(
+                        covered_at_their_centres(&mut app, &in_modal),
+                        [],
+                        "{context}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The one button carrying `action`.
+    fn button(app: &mut App, action: HudAction) -> Entity {
+        let world = app.world_mut();
+        let found: Vec<Entity> = world
+            .query::<(Entity, &HudAction)>()
+            .iter(world)
+            .filter(|(_, found)| **found == action)
+            .map(|(entity, _)| entity)
+            .collect();
+        assert_eq!(found.len(), 1, "one {action:?}");
+        found[0]
     }
 }

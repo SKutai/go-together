@@ -216,7 +216,7 @@ list grew past the review's four because reading the rules pages as a
 stranger to Go found more: "intersection" and "adjacent" are what "liberty"
 is defined with, "territory" and "area score" were used two pages before the
 Ending page explains the fill, and nothing anywhere said what a Teleport
-Marker is. `src/ui/help.rs`'s module docs say why the pages are a primer at
+Marker is. `src/ui/help/mod.rs`'s module docs say why the pages are a primer at
 the front rather than a glossary at the back, and two tests pin the entries
 and their placement. What is deliberately not done: the Replay Viewer's Key
 still says "provide no liberties" in its Gray row, which is its own legend
@@ -373,7 +373,7 @@ larger - and only the first is closed.
   left confused for the sake of a shorter help; see "The help defines its
   own words" above. The count here was right as a count of what a player
   reads: "liberty" appeared seven times in the help's copy, all on the rules
-  pages. A grep over `src/ui/help.rs` finds eleven, because four are test
+  pages. A grep over `src/ui/help/mod.rs` finds eleven, because four are test
   assertions pinning that copy.
 - ~~**The end-of-match banner is terse**, reading like `Player 1 wins! - Manual`,
   and mixes "Player 1" with "BLACK" in one line. The end-reason labels

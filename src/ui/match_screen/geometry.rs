@@ -399,6 +399,13 @@ impl MatchLayout {
         )
     }
 
+    /// The heading's line, across the window: the title row in wide, where
+    /// the round panel and the Match timer stand beside the heading.
+    pub(super) fn heading_line(&self) -> Rect {
+        let top = self.heading_top();
+        Rect::new(0.0, top, self.window.x, top + TITLE_ROW_HEIGHT)
+    }
+
     /// The heading's top: in wide, the top of the title row.
     pub(super) fn heading_top(&self) -> f32 {
         self.drop
