@@ -862,11 +862,12 @@ fn handle_help_modal_keys(
 /// unbindable in exactly the way `KeyCode::Escape`, `KeyCode::F1` and
 /// `KeyCode::F11` are (the three reserved keys) - the same property that
 /// makes Escape safe here, F1 safe as the Help key and F11 as the
-/// fullscreen key, and the reason Start can be back everywhere else too. Enter and South *are* bindable,
-/// but they are read only while the confirmation is open, when the input
-/// gate is armed and gameplay is paused, so neither can reach the board;
-/// and when back and confirm land in the same frame, back wins, because the
-/// destructive read of the pair should lose ties.
+/// fullscreen key, and the reason Start can be back everywhere else too.
+/// Enter and South *are* bindable, but they are read only while the
+/// confirmation is open, when the input gate is armed and gameplay is
+/// paused, so neither can reach the board; and when back and confirm land
+/// in the same frame, back wins, because the destructive read of the pair
+/// should lose ties.
 ///
 /// Escape stays live during a Match on purpose - it is how a keyboard
 /// player leaves at all - and nothing else about the gameplay keys
@@ -1387,13 +1388,14 @@ pub(crate) fn drawn_world_point(app: &mut App, world_point: Vec2) -> Vec2 {
     let Projection::Orthographic(projection) = projection else {
         panic!("the main camera is orthographic");
     };
-    let viewport = camera.viewport.as_ref().map_or(
-        Rect::from_corners(Vec2::ZERO, size),
-        |viewport| {
-            let min = viewport.physical_position.as_vec2() / scale_factor;
-            Rect::from_corners(min, min + viewport.physical_size.as_vec2() / scale_factor)
-        },
-    );
+    let viewport =
+        camera
+            .viewport
+            .as_ref()
+            .map_or(Rect::from_corners(Vec2::ZERO, size), |viewport| {
+                let min = viewport.physical_position.as_vec2() / scale_factor;
+                Rect::from_corners(min, min + viewport.physical_size.as_vec2() / scale_factor)
+            });
     let offset = (world_point - transform.translation().truncate()) / projection.scale;
     viewport.center() + Vec2::new(offset.x, -offset.y)
 }
@@ -1429,7 +1431,10 @@ pub(crate) fn assert_drawn_as_the_minimum_scaled_down(
     let scale = 800.0 / 1040.0;
     let drawn = Rect::new(0.0, 19.0, 800.0, 481.0);
     assert_eq!(below.world().resource::<WindowSize>().0, BELOW_THE_MINIMUM);
-    assert_eq!(minimum.world().resource::<WindowSize>().0, WindowSize::MINIMUM.0);
+    assert_eq!(
+        minimum.world().resource::<WindowSize>().0,
+        WindowSize::MINIMUM.0
+    );
     {
         let world = below.world_mut();
         let camera = world
@@ -1459,7 +1464,12 @@ pub(crate) fn assert_drawn_as_the_minimum_scaled_down(
             .collect();
         roots.sort();
         let nodes: Vec<(Entity, Rect)> = world
-            .query::<(Entity, &ComputedNode, &UiGlobalTransform, &InheritedVisibility)>()
+            .query::<(
+                Entity,
+                &ComputedNode,
+                &UiGlobalTransform,
+                &InheritedVisibility,
+            )>()
             .iter(world)
             .filter(|(_, node, _, visible)| visible.get() && node.size() != Vec2::ZERO)
             .map(|(entity, node, transform, _)| {
@@ -1479,7 +1489,9 @@ pub(crate) fn assert_drawn_as_the_minimum_scaled_down(
                 let mut place = Vec::new();
                 let mut current = entity;
                 while let Some(parent) = world.get::<ChildOf>(current).map(ChildOf::parent) {
-                    let siblings = world.get::<Children>(parent).expect("a parent has children");
+                    let siblings = world
+                        .get::<Children>(parent)
+                        .expect("a parent has children");
                     place.push(siblings.iter().position(|child| child == current).unwrap());
                     current = parent;
                 }
@@ -1496,7 +1508,9 @@ pub(crate) fn assert_drawn_as_the_minimum_scaled_down(
         minimum_nodes.keys().collect::<Vec<_>>(),
         "{screen}: the same nodes are shown"
     );
-    for ((entity, below_rect), (_, minimum_rect)) in below_nodes.values().zip(minimum_nodes.values()) {
+    for ((entity, below_rect), (_, minimum_rect)) in
+        below_nodes.values().zip(minimum_nodes.values())
+    {
         let apart = (below_rect.min - minimum_rect.min)
             .abs()
             .max((below_rect.max - minimum_rect.max).abs())
@@ -1513,7 +1527,11 @@ pub(crate) fn assert_drawn_as_the_minimum_scaled_down(
     }
 
     let reachable = reachable_buttons(below);
-    assert_eq!(reachable.len(), reachable_buttons(minimum).len(), "{screen}");
+    assert_eq!(
+        reachable.len(),
+        reachable_buttons(minimum).len(),
+        "{screen}"
+    );
     assert!(!reachable.is_empty(), "{screen} has buttons");
     let covered = covered_at_their_centres(below, &reachable);
     let reachable_at_the_minimum = reachable_buttons(minimum);
@@ -1531,7 +1549,8 @@ pub(crate) fn assert_drawn_as_the_minimum_scaled_down(
         .iter()
         .map(|button| (*button, layout_centre(below, *button)))
         .max_by(|(a, a_point), (b, b_point)| {
-            let gap = |button: Entity, point: Vec2| drawn_rect(below, button).center().distance(point);
+            let gap =
+                |button: Entity, point: Vec2| drawn_rect(below, button).center().distance(point);
             gap(*a, *a_point).total_cmp(&gap(*b, *b_point))
         })
         .unwrap();

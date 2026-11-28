@@ -79,7 +79,9 @@ use bevy::window::{
     WindowResizeConstraints, WindowResolution,
 };
 
-use super::visuals::{MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, WindowSize};
+use super::visuals::{
+    MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, WindowSize,
+};
 use crate::platform::WindowPlatformConfig;
 
 /// How much more than the opening window a monitor needs, in logical
@@ -227,8 +229,10 @@ pub(crate) fn place_the_opening_window(
     match *opening {
         WindowOpening::Unplaced => {
             let monitor = monitors.single().ok().map(|monitor| {
-                Vec2::new(monitor.physical_width as f32, monitor.physical_height as f32)
-                    / monitor.scale_factor as f32
+                Vec2::new(
+                    monitor.physical_width as f32,
+                    monitor.physical_height as f32,
+                ) / monitor.scale_factor as f32
             });
             match monitor.map(opening_for) {
                 Some(Opening::Centred) => {
@@ -372,7 +376,11 @@ mod tests {
             assert_eq!(window.resize_constraints.min_width, 1040.0, "{host}");
             assert_eq!(window.resize_constraints.min_height, 600.0, "{host}");
             assert_eq!(window.resize_constraints.max_width, f32::INFINITY, "{host}");
-            assert_eq!(window.resize_constraints.max_height, f32::INFINITY, "{host}");
+            assert_eq!(
+                window.resize_constraints.max_height,
+                f32::INFINITY,
+                "{host}"
+            );
             assert_eq!(window.title, "Go Together", "{host}");
             assert_eq!(window.mode, WindowMode::Windowed, "{host}");
         }
@@ -485,7 +493,10 @@ mod tests {
         );
         assert_eq!(shown.size(), Vec2::new(1040.0, 900.0));
         assert_eq!(shown.internal.take_maximize_request(), None);
-        assert_eq!(*app.world().resource::<WindowOpening>(), WindowOpening::Shown);
+        assert_eq!(
+            *app.world().resource::<WindowOpening>(),
+            WindowOpening::Shown
+        );
 
         // 3840x2160 at a scale factor of 3 is 1280x720: no room.
         let mut app = opening_app(&native, Some((UVec2::new(3840, 2160), 3.0)));
@@ -510,7 +521,10 @@ mod tests {
 
         let mut app = opening_app(&native, small);
         app.update();
-        assert_eq!(window(&mut app).internal.take_maximize_request(), Some(true));
+        assert_eq!(
+            window(&mut app).internal.take_maximize_request(),
+            Some(true)
+        );
         app.update();
         assert!(!window(&mut app).visible, "nothing has arrived yet");
         // The platform maximises it: 1366x689 under a taskbar and a title
@@ -520,7 +534,10 @@ mod tests {
         let mut arrived = window(&mut app);
         assert!(arrived.visible);
         assert_eq!(arrived.internal.take_maximize_request(), None);
-        assert_eq!(*app.world().resource::<WindowOpening>(), WindowOpening::Shown);
+        assert_eq!(
+            *app.world().resource::<WindowOpening>(),
+            WindowOpening::Shown
+        );
 
         let mut app = opening_app(&native, small);
         app.update();
@@ -758,11 +775,7 @@ mod tests {
             let mut app = fullscreen_app(&platform);
             press(&mut app, KeyCode::F11);
             app.update();
-            assert_eq!(
-                mode(&mut app) != WindowMode::Windowed,
-                switches,
-                "{host}"
-            );
+            assert_eq!(mode(&mut app) != WindowMode::Windowed, switches, "{host}");
             assert_eq!(
                 app.world().contains_resource::<SystemFullscreen>(),
                 switches,

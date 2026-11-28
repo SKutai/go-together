@@ -1444,7 +1444,8 @@ pub(super) mod tests {
                 draw_as_the_game_does(&mut app);
                 app
             };
-            let (mut below, mut minimum) = (laid_out(BELOW_THE_MINIMUM), laid_out(WindowSize::MINIMUM.0));
+            let (mut below, mut minimum) =
+                (laid_out(BELOW_THE_MINIMUM), laid_out(WindowSize::MINIMUM.0));
             assert_drawn_as_the_minimum_scaled_down(&mut below, &mut minimum, &format!("{tab:?}"));
         }
     }

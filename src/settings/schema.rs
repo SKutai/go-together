@@ -11,9 +11,10 @@
 //! interface reserved the key for itself - `f1`, when F1 became the Help
 //! key, and `f11`, when F11 became the fullscreen key. No version could
 //! have expressed either: a key no version may bind is not a schema, so a
-//! file naming one loses its keyboard section to defaults with a warning. A file naming `escape` has always failed to parse, since that
-//! key never had a name; until the keyboard section was made recoverable,
-//! that failure cost the whole file.
+//! file naming one loses its keyboard section to defaults with a warning.
+//! A file naming `escape` has always failed to parse, since that key never
+//! had a name; until the keyboard section was made recoverable, that
+//! failure cost the whole file.
 //!
 //! This module describes shapes only. Turning any of those shapes into a live
 //! [`super::ControlsConfig`] - which sections a given version has, and what a

@@ -902,7 +902,10 @@ mod tests {
                 .set(size.x, size.y);
             app.update();
         }
-        assert_eq!(app.world().resource::<WindowSize>().0, Vec2::new(1280.0, 641.0));
+        assert_eq!(
+            app.world().resource::<WindowSize>().0,
+            Vec2::new(1280.0, 641.0)
+        );
         app.world_mut()
             .get_mut::<Window>(window)
             .unwrap()
@@ -1044,10 +1047,25 @@ mod tests {
         );
         for (window, scale_factor, position, size) in [
             // 800x500 at 1 and at 2: 461.54 and 923.08 rounded up.
-            (UVec2::new(800, 500), 1.0, UVec2::new(0, 19), UVec2::new(800, 462)),
-            (UVec2::new(1600, 1000), 2.0, UVec2::new(0, 38), UVec2::new(1600, 924)),
+            (
+                UVec2::new(800, 500),
+                1.0,
+                UVec2::new(0, 19),
+                UVec2::new(800, 462),
+            ),
+            (
+                UVec2::new(1600, 1000),
+                2.0,
+                UVec2::new(0, 38),
+                UVec2::new(1600, 924),
+            ),
             // 1600x480 at 1.25: 2000x600 physical, drawn 1600x600 of it.
-            (UVec2::new(2000, 600), 1.25, UVec2::new(200, 0), UVec2::new(1600, 600)),
+            (
+                UVec2::new(2000, 600),
+                1.25,
+                UVec2::new(200, 0),
+                UVec2::new(1600, 600),
+            ),
         ] {
             let logical = window.as_vec2() / scale_factor;
             let letterbox = Letterbox::for_window(logical);
