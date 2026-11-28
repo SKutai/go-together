@@ -1007,10 +1007,10 @@ fn update_focus_indicator(
 /// the text systems and the font the game draws with, stacking and
 /// visibility), `bevy_picking` with its UI backend, and `ui::button`'s
 /// plugin, so a screen's tests run over the layout and the hit-testing the
-/// player gets. Shared with every screen's tests. A test presses a button the way a
-/// player does with `ui::button`'s `click` and the helpers beside it, which
-/// write the window events winit would; nothing writes button state by
-/// hand.
+/// player gets. Shared with every screen's tests. A test presses a button
+/// the way a player does with `ui::button`'s `click` and the helpers beside
+/// it, which write the window events winit would; nothing writes button
+/// state by hand.
 ///
 /// No renderer runs, so the camera's render target is filled in by hand, as
 /// `bevy_ui`'s own layout tests do it, and the stores the renderer's
@@ -1018,12 +1018,11 @@ fn update_focus_indicator(
 /// own, so it draws the whole window, as the game's main camera does in
 /// any window at least the minimum; a test that marks it the main camera
 /// and adds the game's window layout gets the game's viewport for a
-/// smaller one. The window is `window` logical
-/// pixels at a scale factor of 1, so a logical pixel is a physical one,
-/// and the app's [`WindowSize`] says the same, so a screen that lays
-/// itself out from it is laid out for that window; a test of a screen as
-/// it was first laid out, for the opening window, passes the opening size,
-/// `WindowSize::OPENING.0`. `window` is in whole pixels, as a physical
+/// smaller one. The window is `window` logical pixels at a scale factor of
+/// 1, so a logical pixel is a physical one, and the app's [`WindowSize`]
+/// says the same, so a screen that lays itself out from it is laid out for
+/// that window; a test of a screen as it was first laid out, for the
+/// opening window, passes the opening size, `WindowSize::OPENING.0`. `window` is in whole pixels, as a physical
 /// window is. A test that resizes the primary window is laid out at the
 /// new size from that frame on, since the camera follows the window as the
 /// renderer's camera system would keep it; [`WindowSize`] follows only
@@ -1414,9 +1413,10 @@ pub(crate) fn drawn_world_point(app: &mut App, world_point: Vec2) -> Vec2 {
 ///   be a pixel off for each, and text is measured at the smaller size;
 ///   the viewport's 462 pixels add 0.6 of one to the layout's 600. A
 ///   layout made for the window itself would be hundreds of pixels off;
-/// - the pointer reaches every button picking can reach where it is drawn,
-///   as many as at the minimum, and misses the one drawn farthest from
-///   where the layout alone would put it, at that place.
+/// - the buttons picking can reach are the minimum's, by their places in
+///   the tree, and the pointer at each one's drawn centre reaches the same
+///   ones the minimum's reaches at its centre, and misses the one drawn
+///   farthest from where the layout alone would put it, at that place.
 #[cfg(test)]
 pub(crate) fn assert_drawn_as_the_minimum_scaled_down(
     below: &mut App,
@@ -1526,19 +1526,37 @@ pub(crate) fn assert_drawn_as_the_minimum_scaled_down(
         );
     }
 
+    // Buttons compared by their places in the tree, which the two apps
+    // share, so that the same buttons are held to, not as many.
+    let places = |nodes: &std::collections::BTreeMap<Vec<usize>, (Entity, Rect)>,
+                  buttons: &[Entity]| {
+        buttons
+            .iter()
+            .map(|button| {
+                nodes
+                    .iter()
+                    .find(|(_, (entity, _))| entity == button)
+                    .map(|(place, _)| place.clone())
+                    .expect("a reachable button is laid out")
+            })
+            .collect::<std::collections::BTreeSet<Vec<usize>>>()
+    };
     let reachable = reachable_buttons(below);
-    assert_eq!(
-        reachable.len(),
-        reachable_buttons(minimum).len(),
-        "{screen}"
-    );
-    assert!(!reachable.is_empty(), "{screen} has buttons");
-    let covered = covered_at_their_centres(below, &reachable);
     let reachable_at_the_minimum = reachable_buttons(minimum);
+    assert!(!reachable.is_empty(), "{screen} has buttons");
     assert_eq!(
-        covered.len(),
-        covered_at_their_centres(minimum, &reachable_at_the_minimum).len(),
-        "{screen}: the pointer reaches each button where it is drawn"
+        places(&below_nodes, &reachable),
+        places(&minimum_nodes, &reachable_at_the_minimum),
+        "{screen}: the same buttons can be reached"
+    );
+    let covered = covered_at_their_centres(below, &reachable);
+    assert_eq!(
+        places(&below_nodes, &covered),
+        places(
+            &minimum_nodes,
+            &covered_at_their_centres(minimum, &reachable_at_the_minimum)
+        ),
+        "{screen}: the pointer reaches the same buttons where they are drawn"
     );
     let layout_centre = |app: &App, entity: Entity| {
         let node = app.world().get::<ComputedNode>(entity).unwrap();
