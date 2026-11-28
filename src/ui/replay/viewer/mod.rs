@@ -1002,6 +1002,32 @@ mod tests {
         assert_frames_its_board(&mut app, "back at the opening size");
     }
 
+    /// The game draws a window smaller than the minimum as the minimum's,
+    /// scaled down and centred, with the pointer landing where things are
+    /// drawn: the Viewer laid out as at the minimum and drawn inside the
+    /// window, and its board, which the main camera draws, scaled with it.
+    #[test]
+    fn a_window_below_the_minimum_draws_the_minimums_viewer_scaled_down() {
+        use crate::app::visuals::WindowSize;
+        use crate::ui::focus::{
+            BELOW_THE_MINIMUM, assert_drawn_as_the_minimum_scaled_down,
+            assert_scene_drawn_as_the_minimum_scaled_down, draw_as_the_game_does,
+        };
+
+        let mut below = viewer_app(BELOW_THE_MINIMUM, round_zero_fixture());
+        draw_as_the_game_does(&mut below);
+        let mut minimum = viewer_app(WindowSize::MINIMUM.0, round_zero_fixture());
+        draw_as_the_game_does(&mut minimum);
+        assert_drawn_as_the_minimum_scaled_down(&mut below, &mut minimum, "the Viewer");
+        let corner = geometry::viewer_board_position(Point::new(0, 0));
+        assert_scene_drawn_as_the_minimum_scaled_down(
+            &mut below,
+            &mut minimum,
+            &[Vec2::new(0.0, geometry::VIEWER_BOARD_CENTER_Y), corner],
+            "the Viewer",
+        );
+    }
+
     /// Where `entity`, drawn in world space, is drawn in the window by the
     /// main camera, worked out from the camera's own projection and place
     /// rather than from the layout: its centre in window pixels, and how

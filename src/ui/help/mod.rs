@@ -460,11 +460,12 @@ pub(super) fn help_page(
                  Starting in Round 1, hold {} together for 3 seconds to end the match. \
                  During play or after scoring, hold {} for 3 seconds to restart.\n\n\
                  MENU KEYS\n\
-                 Tab or the arrow keys highlight a button on every screen but the match \
-                 itself, and in this window even mid-match; Enter or Space presses it. \
-                 F1 opens and closes this window, mid-match too. Escape closes windows \
-                 like this one, steps back from Settings, Replays and an open replay, and \
-                 during a match asks before returning; Enter confirms.",
+                 Tab or the arrow keys highlight a button on every screen but the match, \
+                 and in this window even mid-match; Enter or Space presses it. F1 opens \
+                 and closes this window, mid-match too. Escape closes windows like this \
+                 one, steps back from Settings, Replays and an open replay, and during a \
+                 match asks before returning; Enter confirms. F11, or Control-Command-F \
+                 on a Mac, switches the game to fullscreen and back.",
                 bindings.key(GameAction::PlayerOneUp).display_name(),
                 bindings.key(GameAction::PlayerOneLeft).display_name(),
                 bindings.key(GameAction::PlayerOneDown).display_name(),
@@ -989,7 +990,9 @@ mod tests {
     /// destructive; the shared page carves out the binding capture, where
     /// East must bind rather than go back and Start is the pad's way to
     /// cancel, and names East as closing this window during a match, the
-    /// one thing East does there.
+    /// one thing East does there. The keyboard block ends on F11, the one
+    /// key that changes the window rather than anything in it, which a
+    /// player otherwise has no way to learn of.
     #[test]
     fn menu_and_back_keys_are_documented_with_their_scopes() {
         let bindings = KeyboardBindings::default();
@@ -1005,10 +1008,11 @@ mod tests {
         .1;
         assert!(keyboard.ends_with(
             "MENU KEYS\nTab or the arrow keys highlight a button on every screen but the \
-             match itself, and in this window even mid-match; Enter or Space presses it. \
-             F1 opens and closes this window, mid-match too. Escape closes windows like \
+             match, and in this window even mid-match; Enter or Space presses it. F1 \
+             opens and closes this window, mid-match too. Escape closes windows like \
              this one, steps back from Settings, Replays and an open replay, and during \
-             a match asks before returning; Enter confirms."
+             a match asks before returning; Enter confirms. F11, or Control-Command-F on \
+             a Mac, switches the game to fullscreen and back."
         ));
 
         let shared = help_page(
@@ -1737,7 +1741,7 @@ mod tests {
         (
             "1040x600",
             [
-                (29, 12, 16, true),
+                (31, 18, 12, true),
                 (35, 17, 17, true),
                 (37, 19, 18, false),
                 (34, 15, 18, true),
@@ -1753,7 +1757,7 @@ mod tests {
         (
             "1280x641",
             [
-                (25, 11, 13, true),
+                (27, 11, 15, true),
                 (29, 14, 14, true),
                 (31, 18, 12, true),
                 (28, 13, 14, true),
@@ -1830,8 +1834,8 @@ mod tests {
         // with `textwrap` too.
         let (keyboard, controller) = longest_bindings();
         for (name, longest_keyboard_controls) in [
-            ("1040x600", (31, 13, 17, true)),
-            ("1280x641", (27, 12, 14, true)),
+            ("1040x600", (33, 13, 19, true)),
+            ("1280x641", (29, 12, 16, true)),
         ] {
             let (w, h) = name.split_once('x').unwrap();
             let layout = help_layout(Vec2::new(w.parse().unwrap(), h.parse().unwrap()));
@@ -1962,7 +1966,7 @@ mod tests {
             let opening = help_frame(&mut app);
             for size in [
                 WindowSize::MINIMUM.0,
-                Vec2::new(1440.0, 848.0),
+                Vec2::new(1440.0, 844.0),
                 Vec2::new(1280.0, 641.0),
                 Vec2::new(1920.0, 1080.0),
             ] {
@@ -1990,10 +1994,12 @@ mod tests {
         app.update();
     }
 
-    /// A window smaller than the minimum - a browser's page can be - gets
-    /// the modal the minimum gets: at 800x400 the modal's own reading of the
-    /// window raises it to 1040x600, over Home and over the Match, so every
-    /// placed node and the page's two columns are what they are at 1040x600.
+    /// A window smaller than the minimum - fullscreen on a smaller screen, a
+    /// window manager that ignores the minimum, or a program that sets the
+    /// size - gets the modal the minimum gets: at 800x400 the modal's own
+    /// reading of the window raises it to 1040x600, over Home and over the
+    /// Match, so every placed node and the page's two columns are what they are
+    /// at 1040x600.
     #[test]
     fn a_window_below_the_minimum_gets_the_minimums_modal() {
         use crate::app::visuals::WindowSize;
@@ -2011,17 +2017,45 @@ mod tests {
         }
     }
 
+    /// The game draws that window as the minimum's, scaled down and
+    /// centred, with the pointer landing where things are drawn: the
+    /// modal's two columns over Home and over the Match, laid out as at
+    /// the minimum, drawn inside the window, the arrows and Close reached
+    /// where they are drawn. Through the HUD's own plugin and the game's
+    /// window layout.
+    #[test]
+    fn a_window_below_the_minimum_draws_the_minimums_modal_scaled_down() {
+        use crate::app::visuals::WindowSize;
+        use crate::ui::focus::{
+            BELOW_THE_MINIMUM, assert_drawn_as_the_minimum_scaled_down, draw_as_the_game_does,
+        };
+
+        for screen in [AppScreen::Home, AppScreen::Match] {
+            let mut below = help_over(screen, BELOW_THE_MINIMUM);
+            open_on_page(&mut below, 0);
+            draw_as_the_game_does(&mut below);
+            let mut minimum = help_over(screen, WindowSize::MINIMUM.0);
+            open_on_page(&mut minimum, 0);
+            draw_as_the_game_does(&mut minimum);
+            assert_drawn_as_the_minimum_scaled_down(
+                &mut below,
+                &mut minimum,
+                &format!("Help over {screen:?}"),
+            );
+        }
+    }
+
     /// A change of screen moves the open modal to where the new screen puts
     /// it, through real transitions, with the HUD's own plugin and the game's
     /// window tracking, the window never resized: from Home to the Match and
-    /// back, at 1440x848 and 1920x1080, where the two places differ - the
-    /// modal's top at 44 over Home and at 67.8 over the Match, and at 160 and
-    /// 172.8 - so a modal left where the last screen put it fails here. Each
-    /// time it is what opening it fresh over that screen makes, and stands
-    /// where `geometry` says.
+    /// back, at 1440x844 and 1920x1080, where the two places differ - the
+    /// modal's top at 42 over Home, centred, and at 67.8 over the Match,
+    /// under its heading, and at 160 and 172.8 - so a modal left where the
+    /// last screen put it fails here. Each time it is what opening it fresh
+    /// over that screen makes, and stands where `geometry` says.
     #[test]
     fn a_change_of_screen_moves_the_modal_to_the_new_screens_place() {
-        for size in [Vec2::new(1440.0, 848.0), Vec2::new(1920.0, 1080.0)] {
+        for size in [Vec2::new(1440.0, 844.0), Vec2::new(1920.0, 1080.0)] {
             let layout = help_layout(size);
             assert!(
                 (layout.modal_rect(None).min.y

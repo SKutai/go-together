@@ -6,14 +6,15 @@
 //! changing a version constant, or tightening a `deny_unknown_fields` here
 //! silently invalidates settings files that already exist on players'
 //! machines. `docs/ARCHITECTURE.md`'s "Change a persisted schema" recipe is
-//! the standing rule: add a version, never reinterpret one. The one
-//! exception ever taken is a key name withdrawn because the interface
-//! reserved the key for itself - `f1`, when F1 became the Help key.
-//! No version could have expressed that: a key no version may bind is not a
-//! schema, so a file naming it loses its keyboard section to defaults with a
-//! warning. A file naming `escape` has always failed to parse, since that
-//! key never had a name; until the keyboard section was made recoverable,
-//! that failure cost the whole file.
+//! the standing rule: add a version, never reinterpret one. The one kind
+//! of exception ever taken, twice, is a key name withdrawn because the
+//! interface reserved the key for itself - `f1`, when F1 became the Help
+//! key, and `f11`, when F11 became the fullscreen key. No version could
+//! have expressed either: a key no version may bind is not a schema, so a
+//! file naming one loses its keyboard section to defaults with a warning.
+//! A file naming `escape` has always failed to parse, since that key never
+//! had a name; until the keyboard section was made recoverable, that
+//! failure cost the whole file.
 //!
 //! This module describes shapes only. Turning any of those shapes into a live
 //! [`super::ControlsConfig`] - which sections a given version has, and what a
@@ -104,11 +105,12 @@ impl fmt::Display for BindingConfigError {
 ///
 /// This shape has never changed across schema v1-v6; only the field it lives
 /// under has - `bindings` in v1, `keyboard` from v2 on. The set of accepted
-/// key names has changed once: `f1` was a valid name in every version until
-/// F1 became the Help key and left [`KeyboardKey`], so a file that
-/// still names it fails to parse here and its keyboard section falls back
-/// to defaults with a warning - the outcome a file naming `escape`, which
-/// never had a name, now shares, where it once cost the whole document.
+/// key names has changed twice: `f1` was a valid name in every version
+/// until F1 became the Help key, and `f11` until F11 became the fullscreen
+/// key, and each left [`KeyboardKey`] then. A file that still names either
+/// fails to parse here and its keyboard section falls back to defaults with
+/// a warning - the outcome a file naming `escape`, which never had a name,
+/// now shares, where it once cost the whole document.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct BindingRecord {

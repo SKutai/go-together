@@ -123,19 +123,20 @@
 //! the ring on the same place of the screen as the list scrolls under it.
 //! A change of size changes how many cards a page holds, not which card is
 //! first, so for every card still shown its place, and the ring's, stays the
-//! same - with two exceptions. Where a larger page would run past the end of
-//! the list, the first card moves back; and in two columns a page starts at
-//! a row's first card, so where one column at an odd place becomes two, the
-//! first card moves back one place although the list has room after it.
-//! Either way every card on the page moves down by as many places, and the
-//! screen moves the ring's remembered place down with them
-//! ([`follow_cards_down_the_page`]), so the ring stays on the Replay it was
-//! on rather than on the place it had - on a change of size, and on entry
-//! for a size changed while another screen was shown. The focus core offers
-//! that move for this screen alone; see its module docs. A card that a
-//! smaller page has no room for leaves the ring with it, and the ring falls
-//! to the last card still shown - its Delete, the nearest lower order, as
-//! after a confirmed delete below.
+//! same - with three exceptions. Where a larger page would run past the end
+//! of the list, the first card moves back; and in two columns a page starts
+//! at a row's first card, so where one column at an odd place becomes two,
+//! the first card moves back one place although the list has room after it.
+//! And where the ring is on a card a smaller page would leave off its end,
+//! the first card moves on just far enough to keep that card shown, the
+//! page's last - its row the page's last, in two columns. In each case every
+//! card on the page moves by as many places, and the screen moves the ring's
+//! remembered place with them ([`follow_the_cards`]), so the ring stays on
+//! the Replay it was on, on the same button, rather than on the place it
+//! had - on a change of size, and on entry for a size changed while another
+//! screen was shown. With the ring on the toolbar or the paging row nothing
+//! moves for it. The focus core offers that move for this screen alone; see
+//! its module docs.
 //!
 //! # Two residuals, accepted
 //!
@@ -192,19 +193,31 @@ pub(super) const fn card_focus_order(place: usize) -> u32 {
     CARDS_FOCUS_ORDER + CARD_FOCUS_STRIDE * place as u32
 }
 
-/// Moves the ring's remembered place on this screen `places` cards further
-/// down the page, when it is on a card: what the screen does when the
-/// window's size moves every card on the page down by as many places, on a
-/// change of size or on entry, so that the ring stays on the Replay it was
-/// on. See the module docs.
-pub(super) fn follow_cards_down_the_page(focus: &mut UiFocusState, places: usize) {
+/// The place on the page of the card the ring is remembered on, on this
+/// screen, if it is on a card at all.
+pub(super) fn remembered_card(focus: &UiFocusState) -> Option<usize> {
+    let order = focus.remembered(crate::app::AppScreen::ReplayLibrary, FocusGroup::Screen)?;
+    (order >= CARDS_FOCUS_ORDER).then(|| ((order - CARDS_FOCUS_ORDER) / CARD_FOCUS_STRIDE) as usize)
+}
+
+/// Moves the ring's remembered place on this screen with the cards, when
+/// it is on one, as the page's first card moves from place `from` in the
+/// list to place `to`: every card on the page moves by as many places, down
+/// when the first card moves back and up when it moves on, and the ring
+/// keeps the same button of the same Replay. What the screen does when the
+/// window's size moves the page, on a change of size or on entry. See the
+/// module docs.
+pub(super) fn follow_the_cards(focus: &mut UiFocusState, from: usize, to: usize) {
     let screen = crate::app::AppScreen::ReplayLibrary;
     let Some(order) = focus.remembered(screen, FocusGroup::Screen) else {
         return;
     };
-    if order >= CARDS_FOCUS_ORDER {
-        let moved = order + CARD_FOCUS_STRIDE * places as u32;
-        focus.move_remembered(screen, FocusGroup::Screen, moved);
+    let Some(place) = remembered_card(focus) else {
+        return;
+    };
+    let button = (order - CARDS_FOCUS_ORDER) % CARD_FOCUS_STRIDE;
+    if let Some(moved) = (place + from).checked_sub(to) {
+        focus.move_remembered(screen, FocusGroup::Screen, card_focus_order(moved) + button);
     }
 }
 
@@ -1122,6 +1135,206 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// F11 switches fullscreen while the search field or the rename dialog
+    /// takes the keys, and is nothing else there: it types nothing, leaves
+    /// the field focused and the dialog open, and moves no ring. Through
+    /// the screen's own plugin and the game's window plugin, each press
+    /// asking for the other of what the system shows, which the test sets
+    /// as the system would.
+    #[test]
+    fn f11_switches_fullscreen_while_a_field_takes_the_keys_and_types_nothing() {
+        use crate::app::window::{GameWindowPlugin, SystemFullscreen};
+        use crate::platform::{WindowPlatformConfig, window_platform_config};
+        use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
+
+        let (mut app, root) = library_app(3);
+        // The hold a Mac puts on fullscreen has tests of its own in
+        // `app::window`; off here, the test reads the same on every host.
+        app.add_plugins(GameWindowPlugin::new(&WindowPlatformConfig {
+            fullscreen_animates: false,
+            ..window_platform_config()
+        }));
+        app.update();
+        let mode = |app: &mut App| {
+            let world = app.world_mut();
+            world
+                .query_filtered::<&Window, With<PrimaryWindow>>()
+                .single(world)
+                .unwrap()
+                .mode
+        };
+        let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+        let shows = |app: &mut App, fullscreen: bool| {
+            app.world_mut()
+                .resource_mut::<SystemFullscreen>()
+                .set_if_neq(SystemFullscreen(fullscreen));
+            app.update();
+        };
+        let editor_text = |app: &App| match &ui(app).dialog {
+            Some(LibraryDialog::Rename { editor, .. }) => Some(editor.text.clone()),
+            _ => None,
+        };
+
+        // The search field.
+        let search = control_at(&mut app, (FocusGroup::Screen, TOOLBAR_FOCUS_ORDER));
+        tab_to(&mut app, search);
+        enter(&mut app);
+        type_text(&mut app, "3");
+        assert!(ui(&app).search_focused && yielded(&app));
+        assert_eq!(mode(&mut app), WindowMode::Windowed);
+        type_key(&mut app, KeyCode::F11, Key::F11);
+        assert_eq!(mode(&mut app), fullscreen, "F11 asks for fullscreen");
+        assert_eq!(ui(&app).search.text, "3", "and types nothing");
+        assert!(ui(&app).search_focused, "the field keeps the keys");
+        assert_eq!(
+            key_of(&app, focused(&app).unwrap()),
+            (FocusGroup::Screen, TOOLBAR_FOCUS_ORDER),
+            "the ring stays on Search"
+        );
+        shows(&mut app, true);
+        type_key(&mut app, KeyCode::F11, Key::F11);
+        assert_eq!(mode(&mut app), WindowMode::Windowed, "and back");
+        assert_eq!(ui(&app).search.text, "3");
+        shows(&mut app, false);
+        enter(&mut app);
+
+        // The rename dialog.
+        let target = control_at(&mut app, (FocusGroup::Screen, card_focus_order(0) + 1));
+        tab_to(&mut app, target);
+        enter(&mut app);
+        let before = editor_text(&app).expect("the rename dialog is open");
+        type_key(&mut app, KeyCode::F11, Key::F11);
+        assert_eq!(mode(&mut app), fullscreen);
+        assert_eq!(editor_text(&app), Some(before.clone()), "nothing typed");
+        assert!(yielded(&app), "the dialog keeps the keys");
+        shows(&mut app, true);
+        type_key(&mut app, KeyCode::F11, Key::F11);
+        assert_eq!(mode(&mut app), WindowMode::Windowed);
+        assert_eq!(editor_text(&app), Some(before));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// On a Mac, Control-Command-F switches fullscreen while a field takes
+    /// the keys, as F11 does, and types nothing into it - the search field
+    /// or the rename dialog's - where an F alone types an f.
+    #[test]
+    fn the_fullscreen_chord_switches_while_a_field_takes_the_keys_and_types_nothing() {
+        use crate::app::window::{GameWindowPlugin, SystemFullscreen};
+        use crate::platform::{WindowPlatformConfig, window_platform_config};
+        use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
+
+        let (mut app, root) = library_app(3);
+        app.add_plugins(GameWindowPlugin::new(&WindowPlatformConfig {
+            fullscreen_chord: true,
+            fullscreen_animates: false,
+            ..window_platform_config()
+        }));
+        app.update();
+        let mode = |app: &mut App| {
+            let world = app.world_mut();
+            world
+                .query_filtered::<&Window, With<PrimaryWindow>>()
+                .single(world)
+                .unwrap()
+                .mode
+        };
+        let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+        let f = || Key::Character("f".into());
+        // Control, Command and F down, then F let go, as the keyboard
+        // delivers the chord; `tap` lets go of the rest.
+        let chord = |app: &mut App| {
+            {
+                let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+                keys.press(KeyCode::ControlLeft);
+                keys.press(KeyCode::SuperLeft);
+            }
+            type_key(app, KeyCode::KeyF, f());
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::KeyF,
+                logical_key: f(),
+                state: ButtonState::Released,
+                text: None,
+                repeat: false,
+                window: Entity::PLACEHOLDER,
+            });
+            app.update();
+        };
+        let shows = |app: &mut App, fullscreen: bool| {
+            app.world_mut()
+                .resource_mut::<SystemFullscreen>()
+                .set_if_neq(SystemFullscreen(fullscreen));
+            app.update();
+        };
+        let editor_text = |app: &App| match &ui(app).dialog {
+            Some(LibraryDialog::Rename { editor, .. }) => Some(editor.text.clone()),
+            _ => None,
+        };
+
+        // The search field.
+        let search = control_at(&mut app, (FocusGroup::Screen, TOOLBAR_FOCUS_ORDER));
+        tab_to(&mut app, search);
+        enter(&mut app);
+        type_text(&mut app, "3");
+        chord(&mut app);
+        assert_eq!(mode(&mut app), fullscreen, "the chord asks for fullscreen");
+        assert_eq!(ui(&app).search.text, "3", "and types nothing");
+        assert!(ui(&app).search_focused, "the field keeps the keys");
+        shows(&mut app, true);
+        type_key(&mut app, KeyCode::KeyF, f());
+        assert_eq!(ui(&app).search.text, "3f", "an F alone types");
+        assert_eq!(mode(&mut app), fullscreen, "and switches nothing");
+        type_key(&mut app, KeyCode::Backspace, Key::Backspace);
+        assert_eq!(ui(&app).search.text, "3");
+
+        // Control and Command let go before F: F's repeats are still the
+        // chord's, and type nothing either.
+        let f_message = |app: &mut App, state: ButtonState, repeat: bool| {
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::KeyF,
+                logical_key: f(),
+                state,
+                text: None,
+                repeat,
+                window: Entity::PLACEHOLDER,
+            });
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            match state {
+                ButtonState::Pressed => keys.press(KeyCode::KeyF),
+                ButtonState::Released => keys.release(KeyCode::KeyF),
+            }
+            app.update();
+        };
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.press(KeyCode::ControlLeft);
+            keys.press(KeyCode::SuperLeft);
+        }
+        f_message(&mut app, ButtonState::Pressed, false);
+        assert_eq!(mode(&mut app), WindowMode::Windowed, "the chord again");
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.release(KeyCode::ControlLeft);
+            keys.release(KeyCode::SuperLeft);
+        }
+        for _ in 0..3 {
+            f_message(&mut app, ButtonState::Pressed, true);
+        }
+        assert_eq!(ui(&app).search.text, "3", "nor do its repeats");
+        f_message(&mut app, ButtonState::Released, false);
+        shows(&mut app, false);
+        enter(&mut app);
+
+        // The rename dialog.
+        let target = control_at(&mut app, (FocusGroup::Screen, card_focus_order(0) + 1));
+        tab_to(&mut app, target);
+        enter(&mut app);
+        let before = editor_text(&app).expect("the rename dialog is open");
+        chord(&mut app);
+        assert_eq!(mode(&mut app), fullscreen, "the chord asks again");
+        assert_eq!(editor_text(&app), Some(before), "nothing typed");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// While the rename dialog is open its editor owns the keys: the ring is
     /// drawn on Save Label as a legend and does not move on Tab; Space and
     /// characters land in the field rather than pressing; every keystroke's
@@ -1558,6 +1771,156 @@ mod tests {
             key_of(&app, now),
             (FocusGroup::Screen, card_focus_order(2) + 1)
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Where a smaller page would leave the ring's card off its end, the
+    /// page's first card moves on just far enough to keep it, the page's
+    /// last, and the ring stays on the same Replay's same button. At
+    /// 1040x900, a page of four, the ring on the fourth card's Delete; the
+    /// window becomes 1040x775, a page of three, and then 1040x625, a page
+    /// of two: each time that Replay's Delete is the page's last. Through
+    /// the screen's own plugin, the focus core and the game's own window
+    /// tracking, the window itself resized.
+    #[test]
+    fn the_ring_keeps_its_replay_where_a_smaller_page_would_leave_it_off() {
+        use super::super::geometry::library_layout;
+        use crate::app::visuals::WindowSize;
+
+        let (mut app, root) = library_app(20);
+        assert_eq!(library_layout(WindowSize::OPENING.0, 0).cards_per_page(), 4);
+        let target = control_at(&mut app, (FocusGroup::Screen, card_focus_order(3) + 2));
+        let replay = card_id(&app, target);
+        tab_to(&mut app, target);
+        assert_eq!(ui(&app).scroll_offset, 0);
+
+        for (size, cards) in [(Vec2::new(1040.0, 775.0), 3), (Vec2::new(1040.0, 625.0), 2)] {
+            assert_eq!(library_layout(size, 0).cards_per_page(), cards, "{size}");
+            resize(&mut app, size);
+            assert_eq!(ui(&app).scroll_offset, 4 - cards, "{size}");
+            let now = focused(&app).expect("the ring is drawn");
+            assert_eq!(card_id(&app, now), replay, "{size}");
+            assert!(
+                matches!(
+                    app.world().get::<LibraryAction>(now),
+                    Some(LibraryAction::OpenDelete(_))
+                ),
+                "{size}"
+            );
+            assert_eq!(
+                key_of(&app, now),
+                (FocusGroup::Screen, card_focus_order(cards - 1) + 2),
+                "{size}"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The same in two columns, a row at a time: at 1920x1080, twelve cards in
+    /// six rows of two, the ring on the twelfth card's Change Label, in the
+    /// right column, or on the eleventh's, in the left; in a window too short
+    /// for six rows the first card moves on by whole rows until that card's row
+    /// is the page's last - the same page for both, where only the twelfth is
+    /// the page's last card - and the ring stays on that Replay's Change Label.
+    #[test]
+    fn in_two_columns_the_ring_keeps_its_replay_a_row_at_a_time() {
+        use super::super::geometry::library_layout;
+
+        let larger = Vec2::new(1920.0, 1080.0);
+        let shorter = Vec2::new(1920.0, 760.0);
+        let (before, after) = (library_layout(larger, 0), library_layout(shorter, 0));
+        assert_eq!((before.columns, after.columns), (2, 2));
+        assert_eq!(before.cards_per_page(), 12);
+        let cards = after.cards_per_page();
+        assert!(cards < 12 && cards % 2 == 0, "{cards}");
+
+        for place in [11, 10] {
+            let (mut app, root) = library_app(30);
+            resize(&mut app, larger);
+            let target = control_at(&mut app, (FocusGroup::Screen, card_focus_order(place) + 1));
+            let replay = card_id(&app, target);
+            tab_to(&mut app, target);
+            resize(&mut app, shorter);
+            // The row of the eleventh and twelfth cards is the page's last.
+            assert_eq!(ui(&app).scroll_offset, 12 - cards, "card {place}");
+            let now = focused(&app).expect("the ring is drawn");
+            assert_eq!(card_id(&app, now), replay, "card {place}");
+            assert!(matches!(
+                app.world().get::<LibraryAction>(now),
+                Some(LibraryAction::OpenRename(_))
+            ));
+            assert_eq!(
+                key_of(&app, now),
+                (
+                    FocusGroup::Screen,
+                    card_focus_order(place - (12 - cards)) + 1
+                ),
+                "card {place}"
+            );
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    /// With the ring on the toolbar, a smaller page moves nothing for it:
+    /// scrolled four cards down at 1040x900 and the ring on the sort field,
+    /// the window becomes 1040x625, and the page still starts at the fifth
+    /// card, with the ring on the sort field.
+    #[test]
+    fn with_the_ring_on_the_toolbar_a_smaller_page_scrolls_nothing() {
+        let (mut app, root) = library_app(20);
+        for _ in 0..4 {
+            wheel_down(&mut app);
+        }
+        app.update();
+        assert_eq!(ui(&app).scroll_offset, 4);
+        let sort = control_at(&mut app, (FocusGroup::Screen, TOOLBAR_FOCUS_ORDER + 2));
+        tab_to(&mut app, sort);
+        resize(&mut app, Vec2::new(1040.0, 625.0));
+        assert_eq!(ui(&app).scroll_offset, 4);
+        let now = focused(&app).expect("the ring is drawn");
+        assert_eq!(
+            key_of(&app, now),
+            (FocusGroup::Screen, TOOLBAR_FOCUS_ORDER + 2)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A window made smaller while another screen is shown is met the same
+    /// way on entry: the ring on the fourth card's View Replay at 1040x900,
+    /// the player opens that Replay, the window becomes 1040x625 in the
+    /// Viewer, a page of two, and back in the Library that Replay's View
+    /// Replay is the page's last, with the ring on it.
+    #[test]
+    fn the_ring_keeps_its_replay_when_the_window_shrinks_on_another_screen() {
+        use super::super::geometry::library_layout;
+
+        let (mut app, root) = library_app(20);
+        let smaller = Vec2::new(1040.0, 625.0);
+        assert_eq!(library_layout(smaller, 0).cards_per_page(), 2);
+        let target = control_at(&mut app, (FocusGroup::Screen, card_focus_order(3)));
+        let replay = card_id(&app, target);
+        tab_to(&mut app, target);
+        enter(&mut app);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<State<AppScreen>>().get(),
+            AppScreen::ReplayViewer
+        );
+
+        resize(&mut app, smaller);
+        app.world_mut()
+            .resource_mut::<NextState<AppScreen>>()
+            .set(AppScreen::ReplayLibrary);
+        app.update();
+        app.update();
+        assert_eq!(ui(&app).scroll_offset, 2);
+        let now = focused(&app).expect("the ring is drawn");
+        assert_eq!(card_id(&app, now), replay);
+        assert!(matches!(
+            app.world().get::<LibraryAction>(now),
+            Some(LibraryAction::Play(_))
+        ));
+        assert_eq!(key_of(&app, now), (FocusGroup::Screen, card_focus_order(1)));
         std::fs::remove_dir_all(root).unwrap();
     }
 

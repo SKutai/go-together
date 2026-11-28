@@ -33,15 +33,15 @@
 //! is a reason to replace the section, not to discard the controller,
 //! preferences and game sections beside it. It used to be fatal, and became
 //! recoverable when F1 was reserved for the Help modal and a file binding
-//! it had to stop loading: such a file, like one naming `escape`, now costs
-//! its keyboard bindings and nothing else. For this section "corrupt" covers
-//! a missing or `null` field, a value that is not an array of
-//! `{action, key}` records, a record with an unknown field, an unknown key
-//! name (which is how a reserved key is refused, since neither has one), an
-//! action bound twice or not at all, and a key bound twice. Every one of
-//! them is a warning naming the section and the cause - without serde's
-//! list of every accepted name, which for a keyboard key runs longer than
-//! the Settings screen's error line.
+//! it had to stop loading: such a file, like one naming `escape` and, since
+//! F11 became the fullscreen key, one naming `f11`, now costs its keyboard
+//! bindings and nothing else. For this section "corrupt" covers a missing
+//! or `null` field, a value that is not an array of `{action, key}`
+//! records, a record with an unknown field, an unknown key name (which is
+//! how a reserved key is refused, since none has one), an action bound twice or
+//! not at all, and a key bound twice. Every one of them is a warning naming the
+//! section and the cause - without serde's list of every accepted name, which
+//! for a keyboard key runs longer than the Settings screen's error line.
 //!
 //! [`load_preferences`] applies the same idea one level down: a single bad
 //! *field* costs only that field, because the preferences object is read key
@@ -511,11 +511,13 @@ mod tests {
 
     /// A document of any version whose keyboard section carries a key the
     /// interface reserves for itself keeps everything but that section.
-    /// Both names take the same path, because neither has a `KeyboardKey`:
-    /// `escape` never did, and `f1` stopped having one when F1 became the
-    /// Help key, which is the one reason a key name has ever been
-    /// withdrawn from the format. The warning carries the name and not
-    /// serde's list of every accepted one.
+    /// All three names take the same path, because none has a
+    /// `KeyboardKey`: `escape` never did, `f1` stopped having one when F1
+    /// became the Help key, and `f11` when F11 became the fullscreen key -
+    /// the one reason a key name has ever been withdrawn from the format,
+    /// taken twice. The warning carries the name and not serde's list of
+    /// every accepted one. The same document naming the function keys
+    /// beside them, F10 and F12, loads whole and binds that key.
     #[test]
     fn a_reserved_key_in_any_schema_version_costs_only_the_keyboard_section() {
         let mut config = ControlsConfig::default();
@@ -534,7 +536,13 @@ mod tests {
             .set_enabled(MatchSettingField::RoundLimit, true);
 
         for version in CONFIG_VERSION..=SETTINGS_SCHEMA_VERSION {
-            for name in ["escape", "f1"] {
+            for (name, reserved) in [
+                ("escape", true),
+                ("f1", true),
+                ("f11", true),
+                ("f10", false),
+                ("f12", false),
+            ] {
                 let mut file: serde_json::Value =
                     serde_json::from_str(&config.to_json().unwrap()).unwrap();
                 file["version"] = version.into();
@@ -564,9 +572,21 @@ mod tests {
                 } else {
                     "keyboard"
                 };
+                assert_eq!(file[field][0]["action"], "player_one_up");
                 file[field][0]["key"] = name.into();
 
                 let (loaded, warning) = ControlsConfig::from_json(&file.to_string()).unwrap();
+                if !reserved {
+                    assert_eq!(warning, None, "schema v{version}, {name}");
+                    let key: KeyboardKey = serde_json::from_value(name.into()).unwrap();
+                    assert_eq!(loaded.keyboard.key(GameAction::PlayerOneUp), key);
+                    assert_eq!(
+                        loaded.keyboard.key(GameAction::PlayerOneSelect),
+                        KeyboardKey::F8,
+                        "v{version}"
+                    );
+                    continue;
+                }
                 assert_eq!(
                     warning.as_deref(),
                     Some(

@@ -100,39 +100,49 @@ and device expose the standard mapping expected by the Web Gamepad API.
 ### Menus without a pointer
 
 Every menu works without a mouse: **Tab** or the arrow keys highlight a button
-and **Enter** or **Space** presses it, while a controller's D-pad and South
-face button do the same - on every screen outside a match, dialogs included,
-and inside the Help modal wherever it is open, mid-match included.
-**F1** opens the Help modal on the title screen and during a match, as the
-**Help** button on either does, and closes it again; once open, its page
-arrows and Close work from the keyboard or a controller, and **Escape** or a
-controller's back button closes it from anywhere, which is what its Close
-button does. No controller button opens it during a match yet - Start is
-already the pad's back button there, and none of the other buttons a binding
-cannot claim has been given the job. A pad cannot press the Help button either,
-since the Match screen carries no focus ring during play, so opening it there
-takes F1 or a pointer. In
-Settings that includes rebinding: highlight a binding and press it, and the
+and **Enter** or **Space** presses it, while a controller's D-pad and South face
+button do the same - on every screen outside a match, dialogs included, and
+inside the Help modal wherever it is open, mid-match included. **F1** opens the
+Help modal on the title screen and during a match, as the **Help** button on
+either does, and closes it again; once open, its page arrows and Close work from
+the keyboard or a controller, and **Escape** or a controller's back button
+closes it from anywhere, which is what its Close button does. No controller
+button opens it during a match yet - Start is already the pad's back button
+there, and none of the other buttons a binding cannot claim has been given the
+job. A pad cannot press the Help button either, since the Match screen carries
+no focus ring during play, so opening it there takes F1 or a pointer. Rebinding
+needs no pointer either: highlight a binding in Settings and press it, and the
 next key or controller input becomes the binding; a number field takes typed
-digits once pressed and **Enter** commits them. In the Replay Library the
-search field is typed once pressed, and **Enter** or **Escape** leaves it; a
-rename dialog opens already taking text, where **Enter** saves the new label
-and **Escape** discards it. While a binding, a number or a text field is
-waiting for input, those keys go to it and the highlight stays put
-until it is done or cancelled (a controller can open a number or text field
-and back out of it, but only a keyboard can type into it). Every screen can
-also be left without a mouse: **Escape** steps back from every screen below
-the title screen - closing whatever is open first, the Help modal included -
-and a controller goes back with **Start** on every screen, and with the East
-face button as well on the menu screens. East also closes the Help modal during a
-match - the one *menu* use it has there, since East is otherwise Teleport to
-Marker and is read as back only while that modal is open. During a match, **Escape** or
-**Start** asks for confirmation before returning to the title screen
-(**Enter** or South confirms), because leaving abandons the match. The one
-carve-out: while Settings is capturing a controller binding, East is an
-input to bind rather than back, and Start is the controller's way to cancel
-the capture. These menu inputs are fixed rather than remappable and belong to
-neither player.
+digits once pressed and **Enter** commits them. In the Replay Library the search
+field is typed once pressed, and **Enter** or **Escape** leaves it; a rename
+dialog opens already taking text, where **Enter** saves the new label and
+**Escape** discards it. While a binding, a number or a text field is waiting for
+input, those keys go to it and the highlight stays put until it is done or
+cancelled (a controller can open a number or text field and back out of it, but
+only a keyboard can type into it). Every screen can also be left without a
+mouse: **Escape** steps back from every screen below the title screen - closing
+whatever is open first, the Help modal included - and a controller goes back
+with **Start** on every screen, and with the East face button as well on the
+menu screens. East also closes the Help modal during a match - the one *menu*
+use it has there, since East is otherwise Teleport to Marker and is read as back
+only while that modal is open. During a match, **Escape** or **Start** asks for
+confirmation before returning to the title screen (**Enter** or South confirms),
+because leaving abandons the match. The one carve-out: while Settings is
+capturing a controller binding, East is an input to bind rather than back, and
+Start is the controller's way to cancel the capture. These menu inputs are fixed
+rather than remappable and belong to neither player.
+
+**F11** switches the game to fullscreen and back, on every screen, wherever the
+system lets the key through to it, as Windows 11 does. A Mac with its default
+settings does not: the key alone turns the volume down, and with fn it is Show
+Desktop's shortcut, which takes it first. So on a Mac **Control-Command-F**,
+macOS's own fullscreen shortcut, does the same, and the window's green button
+works too; while a binding is waiting for a key, though, the chord's Control
+would become the binding, so use the green button there. On a Mac a press within
+a second of the last switch waits until that second is up, while macOS finishes
+animating the switch. A browser keeps F11, and on a Mac the chord, for its own
+fullscreen. Neither F1 nor F11 can be bound, which is what keeps them working
+during a match, and the chord's F never moves a player or types a letter.
 
 ## Build and run locally
 
@@ -259,7 +269,8 @@ The code demonstrates:
 - keeping platform storage and asset-location differences behind adapters;
 - keeping domain rules independent from Bevy for fast unit tests;
 - modeling Round 0 selection/reveal rules as a pure serialized domain type;
-- building fixed-window Bevy UI with reusable, role-based components;
+- building Bevy UI that lays itself out for any window size, with reusable,
+  role-based components;
 - queuing semantic audio cues instead of playing sounds from gameplay logic;
 - writing versioned JSON atomically and migrating older settings;
 - reconstructing deterministic Replays from timestamped frame snapshots; and
@@ -311,10 +322,11 @@ Replay is one `replays/<match-uuid>.json` file.
 
 Settings schemas v1-v6 and Replay schemas v1-v6 remain loadable. Treat serde
 field names, enum names, schema versions, Replay IDs, and filenames as a public
-compatibility contract. The one name ever withdrawn is the keyboard key `f1`,
-when F1 was reserved for the Help modal: a settings file that still names
-it keeps everything but its keyboard section, which falls back to defaults
-with a warning. Back up local data before experimenting with schema changes.
+compatibility contract. The two names ever withdrawn are the keyboard keys
+`f1`, when F1 was reserved for the Help modal, and `f11`, when F11 was
+reserved for fullscreen: a settings file that still names either keeps
+everything but its keyboard section, which falls back to defaults with a
+warning. Back up local data before experimenting with schema changes.
 
 Settings v5 adds the Game tab. Optional numeric rules use bounded whole values:
 round and no-board-change limits are 1-1000, point targets are 1-81, and

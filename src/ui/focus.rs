@@ -63,23 +63,22 @@
 //! transition - an entity-keyed focus would die there on every search
 //! keystroke. That is demonstrated rather than anticipated:
 //! `ui::replay::library::ring`'s
-//! `focus_holds_its_place_on_every_frame_of_a_dirty_rebuild` runs four
-//! rebuilds under real layout and the production graph with the ring
-//! drawn on the same key throughout. Per screen, because the memory
-//! outlives a screen transition on purpose - it is what puts Home's ring
-//! back where it was after a Match or a visit to Settings - and a second
-//! screen with a ring must neither inherit that position nor overwrite it.
-//! One screen moves its own memory: the Replay Library, whose cards are
-//! keyed by their place on the page, moves the remembered place with them
-//! when a change of the window's size moves every card down the page, so
-//! that the ring stays on the Replay it was on (`ui::replay::library::ring`
-//! says when). [`UiFocusState::remembered`] and
-//! [`UiFocusState::move_remembered`] are how.
-//! [`refresh_focus_candidates`] re-reads the marked buttons
-//! after [`UiSystems::Layout`] each frame (so it sees the layout the player
-//! sees), drops anything whose [`ComputedNode`] size is zero - a
-//! `Display::None` subtree zeroes its nodes recursively, which two tests
-//! below check against real `bevy_ui` layout - and re-resolves the memory.
+//! `focus_holds_its_place_on_every_frame_of_a_dirty_rebuild` runs four rebuilds
+//! under real layout and the production graph with the ring drawn on the same
+//! key throughout. Per screen, because the memory outlives a screen transition
+//! on purpose - it is what puts Home's ring back where it was after a Match or
+//! a visit to Settings - and a second screen with a ring must neither inherit
+//! that position nor overwrite it. One screen moves its own memory: the Replay
+//! Library, whose cards are keyed by their place on the page, moves the
+//! remembered place with them when a change of the window's size moves every
+//! card down the page or up it, so that the ring stays on the Replay it was on
+//! (`ui::replay::library::ring` says when). [`UiFocusState::remembered`] and
+//! [`UiFocusState::move_remembered`] are how. [`refresh_focus_candidates`]
+//! re-reads the marked buttons after [`UiSystems::Layout`] each frame (so it
+//! sees the layout the player sees), drops anything whose [`ComputedNode`] size
+//! is zero - a `Display::None` subtree zeroes its nodes recursively, which two
+//! tests below check against real `bevy_ui` layout - and re-resolves the
+//! memory.
 //!
 //! # Groups and dialogs
 //!
@@ -187,10 +186,13 @@
 //! so the default Teleport on East cannot fire on the way out either. F1 is
 //! the one fixed key that opens something rather than closing it: the
 //! Help modal, on the two screens that have a button for it, by the
-//! same reservation that makes Escape safe during live play
-//! (`crate::input::keyboard` says why neither can be bound). Home
-//! itself is the root - there is nowhere back to go, and Escape there only
-//! closes the Help modal. The Settings, Replay Library and Replay
+//! same reservation that makes Escape safe during live play. F11 is the
+//! third reserved key, and the one that changes the window rather than
+//! anything in it: `crate::app::window` reads it on every screen and
+//! switches fullscreen, and nothing here reads it at all
+//! (`crate::input::keyboard` says why none of the three can be bound).
+//! Home itself is the root - there is nowhere back to go, and Escape there
+//! only closes the Help modal. The Settings, Replay Library and Replay
 //! Viewer exits live in those screens' own modules beside the input they
 //! already read; the Match exit lives here because the Match reads no menu
 //! input of its own.
@@ -766,7 +768,7 @@ fn help_key_screen(screen: AppScreen) -> bool {
 /// closing re-arms the input gate until the button is physically released,
 /// so the teleport cannot fire on the release either. Start is the pad's
 /// back on every screen and Escape is the keyboard's; both are structurally
-/// unbindable, as F1 is (`crate::input::keyboard` says how), see
+/// unbindable, as F1 and F11 are (`crate::input::keyboard` says how), see
 /// [`handle_match_return`].
 ///
 /// F1 does nothing while the Return Home confirmation is open, alone or
@@ -856,14 +858,15 @@ fn handle_help_modal_keys(
 /// the Help modal here, in [`handle_help_modal_keys`], which reads
 /// it only while that modal already blocks gameplay.) Start is absent from
 /// `ControllerInput`'s twenty variants, which makes it structurally
-/// unbindable in exactly the way `KeyCode::Escape` and `KeyCode::F1` are
-/// (the two reserved keys) - the same property that makes Escape safe here,
-/// F1 safe as the Help key, and the reason
-/// Start can be back everywhere else too. Enter and South *are* bindable,
-/// but they are read only while the confirmation is open, when the input
-/// gate is armed and gameplay is paused, so neither can reach the board;
-/// and when back and confirm land in the same frame, back wins, because the
-/// destructive read of the pair should lose ties.
+/// unbindable in exactly the way `KeyCode::Escape`, `KeyCode::F1` and
+/// `KeyCode::F11` are (the three reserved keys) - the same property that
+/// makes Escape safe here, F1 safe as the Help key and F11 as the
+/// fullscreen key, and the reason Start can be back everywhere else too.
+/// Enter and South *are* bindable, but they are read only while the
+/// confirmation is open, when the input gate is armed and gameplay is
+/// paused, so neither can reach the board; and when back and confirm land
+/// in the same frame, back wins, because the destructive read of the pair
+/// should lose ties.
 ///
 /// Escape stays live during a Match on purpose - it is how a keyboard
 /// player leaves at all - and nothing else about the gameplay keys
@@ -1003,26 +1006,28 @@ fn update_focus_indicator(
 /// the text systems and the font the game draws with, stacking and
 /// visibility), `bevy_picking` with its UI backend, and `ui::button`'s
 /// plugin, so a screen's tests run over the layout and the hit-testing the
-/// player gets. Shared with every screen's tests. A test presses a button the way a
-/// player does with `ui::button`'s `click` and the helpers beside it, which
-/// write the window events winit would; nothing writes button state by
-/// hand.
+/// player gets. Shared with every screen's tests. A test presses a button
+/// the way a player does with `ui::button`'s `click` and the helpers beside
+/// it, which write the window events winit would; nothing writes button
+/// state by hand.
 ///
 /// No renderer runs, so the camera's render target is filled in by hand, as
-/// `bevy_ui`'s own layout tests do it, and the stores the renderer's
-/// plugins would make are added empty. The window is `window` logical
-/// pixels at a scale factor of 1, so a logical pixel is a physical one,
-/// and the app's [`WindowSize`] says the same, so a screen that lays
-/// itself out from it is laid out for that window; a test of a screen as
+/// `bevy_ui`'s own layout tests do it, and the stores the renderer's plugins
+/// would make are added empty. The camera has no viewport of its own, so it
+/// draws the whole window, as the game's main camera does in any window at
+/// least the minimum; a test that marks it the main camera and adds the game's
+/// window layout gets the game's viewport for a smaller one. The window is
+/// `window` logical pixels at a scale factor of 1, so a logical pixel is a
+/// physical one, and the app's [`WindowSize`] says the same, so a screen that
+/// lays itself out from it is laid out for that window; a test of a screen as
 /// it was first laid out, for the opening window, passes the opening size,
-/// `WindowSize::OPENING.0`. `window` is in whole pixels, as a physical
-/// window is. A test that resizes the primary window is laid out at the
-/// new size from that frame on, since the camera follows the window as the
-/// renderer's camera system would keep it; [`WindowSize`] follows only
-/// where the test adds the game's own window tracking
-/// (`app::visuals::WindowLayoutPlugin`). Keys are not part of it: a test
-/// presses them by writing `ButtonInput<KeyCode>` directly, which
-/// `InputPlugin` would clear before the ring could read it.
+/// `WindowSize::OPENING.0`. `window` is in whole pixels, as a physical window
+/// is. A test that resizes the primary window is laid out at the new size from
+/// that frame on, since the camera follows the window as the renderer's camera
+/// system would keep it; [`WindowSize`] follows only where the test adds the
+/// game's own window tracking (`app::visuals::WindowLayoutPlugin`). Keys are
+/// not part of it: a test presses them by writing `ButtonInput<KeyCode>`
+/// directly, which `InputPlugin` would clear before the ring could read it.
 ///
 /// [`WindowSize`]: crate::app::visuals::WindowSize
 #[cfg(test)]
@@ -1040,7 +1045,7 @@ pub(crate) fn engine_ui_app(window: Vec2) -> App {
     use bevy::app::TaskPoolPlugin;
     use bevy::asset::AssetPlugin;
     use bevy::camera::visibility::VisibilityPlugin;
-    use bevy::camera::{Camera, Camera2d, ComputedCameraValues, RenderTargetInfo, Viewport};
+    use bevy::camera::{Camera, Camera2d, ComputedCameraValues, RenderTargetInfo};
     use bevy::input::keyboard::KeyboardInput;
     use bevy::input::mouse::{MouseButtonInput, mouse_button_input_system};
     use bevy::input::touch::{TouchInput, touch_screen_input_system};
@@ -1105,21 +1110,18 @@ pub(crate) fn engine_ui_app(window: Vec2) -> App {
                 }),
                 ..Default::default()
             },
-            viewport: Some(Viewport {
-                physical_size,
-                ..Default::default()
-            }),
             ..Default::default()
         },
     ));
     app
 }
 
-/// Keeps the camera of [`engine_ui_app`] the size and scale factor of the
-/// primary window, render target and viewport, as the renderer's camera
-/// system keeps a real one: without it, a test that resized the window
-/// would have `bevy_ui` lay out, and picking hit-test, at the size the app
-/// was made with.
+/// Keeps the render target of [`engine_ui_app`]'s camera the size and
+/// scale factor of the primary window, as the renderer's camera system
+/// keeps a real one's: without it, a test that resized the window would
+/// have `bevy_ui` lay out, and picking hit-test, at the size the app was
+/// made with. The camera's viewport is not the window's to set; for the
+/// main camera it is the game's (`app::visuals`).
 #[cfg(test)]
 fn follow_the_primary_window(
     windows: Query<&Window, (With<bevy::window::PrimaryWindow>, Changed<Window>)>,
@@ -1133,9 +1135,6 @@ fn follow_the_primary_window(
         if let Some(target) = camera.computed.target_info.as_mut() {
             target.physical_size = physical_size;
             target.scale_factor = window.scale_factor();
-        }
-        if let Some(viewport) = camera.viewport.as_mut() {
-            viewport.physical_size = physical_size;
         }
     }
 }
@@ -1328,6 +1327,281 @@ fn drawn_glyph_lines(app: &mut App, content: &str) -> (Entity, Vec<Rect>) {
         "the text reading {content:?} has no glyphs"
     );
     (entity, lines)
+}
+
+/// The 800x500 window the tests below the minimum are drawn in, at a scale
+/// factor of 1: narrower than the minimum by more than it is shorter, so
+/// its width binds.
+#[cfg(test)]
+pub(crate) const BELOW_THE_MINIMUM: Vec2 = Vec2::new(800.0, 500.0);
+
+/// Draws `app`'s one camera as the game draws its main camera: marks it
+/// [`MainCamera`](crate::app::visuals::MainCamera) and adds the game's own
+/// window layout, with the screen state it needs, where the app has not
+/// added them already, then runs a frame. A window smaller than the
+/// minimum is then drawn letterboxed (`app::visuals`).
+#[cfg(test)]
+pub(crate) fn draw_as_the_game_does(app: &mut App) {
+    use crate::app::AppScreen;
+    use crate::app::visuals::{MainCamera, WindowLayoutPlugin};
+
+    if !app.is_plugin_added::<bevy::state::app::StatesPlugin>() {
+        app.add_plugins(bevy::state::app::StatesPlugin);
+    }
+    if !app.world().contains_resource::<State<AppScreen>>() {
+        app.init_state::<AppScreen>();
+    }
+    if !app.is_plugin_added::<WindowLayoutPlugin>() {
+        app.add_plugins(WindowLayoutPlugin);
+    }
+    let world = app.world_mut();
+    let camera = world
+        .query_filtered::<Entity, With<Camera2d>>()
+        .single(world)
+        .expect("the real-layout app has one camera");
+    world.entity_mut(camera).insert(MainCamera);
+    app.update();
+}
+
+/// Where the main camera of `app` draws the world point `world`, in
+/// logical pixels from the window's top-left, worked out from the camera's
+/// own projection, place and viewport rather than from any layout: the
+/// projection draws a world unit at `1 / scale` logical pixels about the
+/// viewport's centre, world y up.
+#[cfg(test)]
+pub(crate) fn drawn_world_point(app: &mut App, world_point: Vec2) -> Vec2 {
+    use crate::app::visuals::MainCamera;
+
+    let world = app.world_mut();
+    let window = world
+        .query_filtered::<&Window, With<bevy::window::PrimaryWindow>>()
+        .single(world)
+        .expect("a primary window");
+    let (size, scale_factor) = (window.size(), window.scale_factor());
+    let (camera, projection, transform) = world
+        .query_filtered::<(&Camera, &Projection, &GlobalTransform), With<MainCamera>>()
+        .single(world)
+        .expect("one main camera");
+    let Projection::Orthographic(projection) = projection else {
+        panic!("the main camera is orthographic");
+    };
+    let viewport =
+        camera
+            .viewport
+            .as_ref()
+            .map_or(Rect::from_corners(Vec2::ZERO, size), |viewport| {
+                let min = viewport.physical_position.as_vec2() / scale_factor;
+                Rect::from_corners(min, min + viewport.physical_size.as_vec2() / scale_factor)
+            });
+    let offset = (world_point - transform.translation().truncate()) / projection.scale;
+    viewport.center() + Vec2::new(offset.x, -offset.y)
+}
+
+/// Holds `below`, a real-layout screen drawn as the game draws it
+/// ([`draw_as_the_game_does`]) in the [`BELOW_THE_MINIMUM`] window, to
+/// drawing what `minimum`, the same screen drawn the same way in the
+/// minimum's 1040x600 window, draws - scaled down by 800/1040 and centred:
+///
+/// - the main camera's viewport is the 800x462 rectangle 19 pixels down,
+///   and `UiScale` is 800/1040, both worked out here from those numbers;
+/// - every visible node is laid out as at the minimum, in the layout's own
+///   pixels, to within three physical pixels, and drawn inside that
+///   rectangle. `bevy_ui` rounds each node to whole physical pixels, which
+///   at this scale are 1.3 of the layout's, so a node nested in others can
+///   be a pixel off for each, and text is measured at the smaller size;
+///   the viewport's 462 pixels add 0.6 of one to the layout's 600. A
+///   layout made for the window itself would be hundreds of pixels off;
+/// - the buttons picking can reach are the minimum's, by their places in
+///   the tree, and the pointer at each one's drawn centre reaches the same
+///   ones the minimum's reaches at its centre, and misses the one drawn
+///   farthest from where the layout alone would put it, at that place.
+#[cfg(test)]
+pub(crate) fn assert_drawn_as_the_minimum_scaled_down(
+    below: &mut App,
+    minimum: &mut App,
+    screen: &str,
+) {
+    use super::button::{covered_at_their_centres, drawn_rect, move_pointer, reachable_buttons};
+    use crate::app::visuals::{MainCamera, WindowSize};
+    use bevy::picking::hover::Hovered;
+    use bevy::ui::{ComputedNode, UiGlobalTransform};
+
+    let scale = 800.0 / 1040.0;
+    let drawn = Rect::new(0.0, 19.0, 800.0, 481.0);
+    assert_eq!(below.world().resource::<WindowSize>().0, BELOW_THE_MINIMUM);
+    assert_eq!(
+        minimum.world().resource::<WindowSize>().0,
+        WindowSize::MINIMUM.0
+    );
+    {
+        let world = below.world_mut();
+        let camera = world
+            .query_filtered::<&Camera, With<MainCamera>>()
+            .single(world)
+            .expect("one main camera");
+        let viewport = camera.viewport.as_ref().expect("{screen}: letterboxed");
+        assert_eq!(
+            (viewport.physical_position, viewport.physical_size),
+            (UVec2::new(0, 19), UVec2::new(800, 462)),
+            "{screen}"
+        );
+        let ui_scale = world.resource::<UiScale>().0;
+        assert!((ui_scale - scale).abs() < 1e-6, "{screen}: {ui_scale}");
+    }
+    assert_eq!(minimum.world().resource::<UiScale>().0, 1.0, "{screen}");
+
+    // Every visible node in the layout's own pixels, keyed by its place in
+    // the tree - its root's rank among the roots, then its index among its
+    // parent's children at each level - which the two apps, built alike,
+    // share.
+    let laid_out = |app: &mut App| {
+        let world = app.world_mut();
+        let mut roots: Vec<Entity> = world
+            .query_filtered::<Entity, (With<ComputedNode>, Without<ChildOf>)>()
+            .iter(world)
+            .collect();
+        roots.sort();
+        let nodes: Vec<(Entity, Rect)> = world
+            .query::<(
+                Entity,
+                &ComputedNode,
+                &UiGlobalTransform,
+                &InheritedVisibility,
+            )>()
+            .iter(world)
+            .filter(|(_, node, _, visible)| visible.get() && node.size() != Vec2::ZERO)
+            .map(|(entity, node, transform, _)| {
+                let to_layout = node.inverse_scale_factor;
+                (
+                    entity,
+                    Rect::from_center_size(
+                        transform.translation * to_layout,
+                        node.size() * to_layout,
+                    ),
+                )
+            })
+            .collect();
+        nodes
+            .into_iter()
+            .map(|(entity, rect)| {
+                let mut place = Vec::new();
+                let mut current = entity;
+                while let Some(parent) = world.get::<ChildOf>(current).map(ChildOf::parent) {
+                    let siblings = world
+                        .get::<Children>(parent)
+                        .expect("a parent has children");
+                    place.push(siblings.iter().position(|child| child == current).unwrap());
+                    current = parent;
+                }
+                place.push(roots.iter().position(|root| *root == current).unwrap());
+                place.reverse();
+                (place, (entity, rect))
+            })
+            .collect::<std::collections::BTreeMap<Vec<usize>, (Entity, Rect)>>()
+    };
+    let (below_nodes, minimum_nodes) = (laid_out(below), laid_out(minimum));
+    assert!(minimum_nodes.len() > 5, "{screen}: the screen is laid out");
+    assert_eq!(
+        below_nodes.keys().collect::<Vec<_>>(),
+        minimum_nodes.keys().collect::<Vec<_>>(),
+        "{screen}: the same nodes are shown"
+    );
+    for ((entity, below_rect), (_, minimum_rect)) in
+        below_nodes.values().zip(minimum_nodes.values())
+    {
+        let apart = (below_rect.min - minimum_rect.min)
+            .abs()
+            .max((below_rect.max - minimum_rect.max).abs())
+            .max_element();
+        assert!(
+            apart <= 3.0 / scale,
+            "{screen}: a node laid out at {below_rect:?} below the minimum and {minimum_rect:?} at it"
+        );
+        let drawn_at = drawn_rect(below, *entity);
+        assert!(
+            drawn.inflate(0.5).contains(drawn_at.min) && drawn.inflate(0.5).contains(drawn_at.max),
+            "{screen}: a node drawn at {drawn_at:?}, outside {drawn:?}"
+        );
+    }
+
+    // Buttons compared by their places in the tree, which the two apps
+    // share, so that the same buttons are held to, not as many.
+    let places = |nodes: &std::collections::BTreeMap<Vec<usize>, (Entity, Rect)>,
+                  buttons: &[Entity]| {
+        buttons
+            .iter()
+            .map(|button| {
+                nodes
+                    .iter()
+                    .find(|(_, (entity, _))| entity == button)
+                    .map(|(place, _)| place.clone())
+                    .expect("a reachable button is laid out")
+            })
+            .collect::<std::collections::BTreeSet<Vec<usize>>>()
+    };
+    let reachable = reachable_buttons(below);
+    let reachable_at_the_minimum = reachable_buttons(minimum);
+    assert!(!reachable.is_empty(), "{screen} has buttons");
+    assert_eq!(
+        places(&below_nodes, &reachable),
+        places(&minimum_nodes, &reachable_at_the_minimum),
+        "{screen}: the same buttons can be reached"
+    );
+    let covered = covered_at_their_centres(below, &reachable);
+    assert_eq!(
+        places(&below_nodes, &covered),
+        places(
+            &minimum_nodes,
+            &covered_at_their_centres(minimum, &reachable_at_the_minimum)
+        ),
+        "{screen}: the pointer reaches the same buttons where they are drawn"
+    );
+    let layout_centre = |app: &App, entity: Entity| {
+        let node = app.world().get::<ComputedNode>(entity).unwrap();
+        let transform = app.world().get::<UiGlobalTransform>(entity).unwrap();
+        transform.translation * node.inverse_scale_factor
+    };
+    let (farthest, layout_point) = reachable
+        .iter()
+        .map(|button| (*button, layout_centre(below, *button)))
+        .max_by(|(a, a_point), (b, b_point)| {
+            let gap =
+                |button: Entity, point: Vec2| drawn_rect(below, button).center().distance(point);
+            gap(*a, *a_point).total_cmp(&gap(*b, *b_point))
+        })
+        .unwrap();
+    assert!(
+        !drawn_rect(below, farthest).contains(layout_point),
+        "{screen}: some button is drawn away from where the layout alone puts it"
+    );
+    move_pointer(below, layout_point);
+    assert!(
+        !below.world().get::<Hovered>(farthest).unwrap().get(),
+        "{screen}: the pointer reaches a button where the layout alone puts it"
+    );
+}
+
+/// Holds the main camera of `below` to drawing each of `points` of the
+/// world-space scene where `minimum`'s draws it, scaled down by 800/1040
+/// about the window's centre and moved to the [`BELOW_THE_MINIMUM`]
+/// window's: the scene takes the interface's scale.
+#[cfg(test)]
+pub(crate) fn assert_scene_drawn_as_the_minimum_scaled_down(
+    below: &mut App,
+    minimum: &mut App,
+    points: &[Vec2],
+    screen: &str,
+) {
+    let scale = 800.0 / 1040.0;
+    for point in points {
+        let expected = Vec2::new(400.0, 250.0)
+            + (drawn_world_point(minimum, *point) - Vec2::new(520.0, 300.0)) * scale;
+        let drawn = drawn_world_point(below, *point);
+        assert!(
+            drawn.distance(expected) < 0.5,
+            "{screen}: the world point {point} is drawn at {drawn}, where {expected} was due"
+        );
+    }
 }
 
 #[cfg(test)]

@@ -431,16 +431,24 @@ follows the window, as the renderer's camera system keeps a real one, and
 the game's own window tracking (`app::visuals::WindowLayoutPlugin`), where
 a test adds it, carries the size to `WindowSize` in the same frame. Before
 2026-11-28 the camera kept the size the app was made with, so a resize
-reached the screens' own passes but `bevy_ui` still laid out and
-hit-tested at the old size. A screen laid out for any size is
-tested at several:
-`app::visuals::NAMED_WINDOW_SIZES` names the ones that matter, from the
-1040x600 minimum and a 1280x720 laptop's maximised window up to 2560x1440,
-and the Match screen, Home, Settings, the Replay Library, the Replay Viewer
-and the Help modal run their real-layout tests at all of them - every button
-reached by the pointer, every text inside the window, on the Match and the
-Viewer nothing drawn meeting anything else, and on Settings and the Library
-no two texts meeting. Settings runs them on every tab and with its reset
+reached the screens' own passes but `bevy_ui` still laid out and hit-tested at
+the old size. The harness's camera has no viewport of its own, and draws the
+whole window. A test of a window smaller than the minimum marks it the main
+camera and adds the window tracking (`draw_as_the_game_does` in `ui::focus`),
+and the game's own framing then draws the window letterboxed, as it draws a real
+one: each screen's
+`a_window_below_the_minimum_draws_the_minimums_..._scaled_down` test holds
+it, in an 800x500 window, to the minimum's layout scaled down, inside the
+window, with the pointer landing where things are drawn. `ui::button`'s
+`centre_of` and `drawn_rect` give where a node is drawn, the viewport and
+scale included, so the pointer helpers click there. A screen laid out for
+any size is tested at several: `app::visuals::NAMED_WINDOW_SIZES` names the ones
+that matter, from the 1040x600 minimum and a 1280x720 laptop's maximised window
+up to 2560x1440, and the Match screen, Home, Settings, the Replay Library, the
+Replay Viewer and the Help modal run their real-layout tests at all of them -
+every button reached by the pointer, every text inside the window, on the Match
+and the Viewer nothing drawn meeting anything else, and on Settings and the
+Library no two texts meeting. Settings runs them on every tab and with its reset
 confirmation open, at the heights either side of its change of arrangement
 too; the Library with no Replays, one, a page, more than a page, the longest
 labels and each of its notes, and with each dialog open; Help on every
@@ -785,7 +793,9 @@ where a test lays a screen out and measures it. For UI, startup, or
 asset changes:
 
 1. run `cargo run`;
-2. confirm the 1040x900 Home screen opens;
+2. confirm the Home screen opens in a 1040x900 window centred on the screen,
+   or maximised on a screen without room for that (shorter than 1060
+   logical pixels);
 3. navigate Home -> Settings -> Home -> Match -> Home -> Replays;
 4. confirm each screen appears once and no previous entities remain;
 5. confirm Round 0 dots/cursor privacy and countdown/clack/marimba sounds behave
@@ -794,11 +804,30 @@ asset changes:
    page reads well and ends clear of the pagination row - the modal never
    scrolls, and while the tests hold every page clear of the row at every
    named size, in one column and in two, only a reader sees whether a page
-   divided between two columns still reads naturally. The window cannot be
-   resized yet, so `cargo run` shows only the one column; read the two
-   from captures at a two-column size such as 1040x600 (see "Capturing a
-   screen to a file", below); and
-7. close the window normally.
+   divided between two columns still reads naturally. Make the window
+   shorter than 784 pixels to see the two columns;
+7. on each screen, drag the window's edge and corner from the smallest size
+   it allows, 1040x600, to the largest the screen allows, and confirm that
+   everything stays inside the window and readable, that the focus ring
+   stays on its control, that the Replay Library stays on the Replay it was
+   on, and that the Help modal stays on its page;
+8. maximise the window and restore it;
+9. press F11 on each screen, during a match, with a dialog open, during a
+   binding capture and with the Replay Library's search field taking text, and
+   confirm that it enters fullscreen and that F11 again leaves it, the window
+   back as it was, without the key doing anything else. On a Mac with its
+   default settings F11 does not, as a rule, reach the game - alone the key
+   turns the volume down, and with fn Show Desktop's shortcut takes it first (on
+   2026-11-28 one press made while Show Desktop was showing did reach it) - so
+   check F11 there only where that shortcut has been changed, and check
+   Control-Command-F instead, the same places but a binding capture, where its
+   Control becomes the binding, confirming too that its F moves no player, types
+   nothing and plays no note, even once Control and Command are let go before F,
+   and that pressed again half a second after it switches, the window ends where
+   the game says it is - a second after the switch, or, pressed during macOS's
+   animation, the press may never reach the game; on macOS, enter and leave with
+   the window's green button as well, mixing it with the keys; and
+10. close the window normally.
 
 Since 2026-11-28 the tests check help-page length as well:
 `every_page_stands_inside_its_modal_at_every_size` in `ui::help` lays
@@ -918,15 +947,29 @@ The same day Keyboard Controls' two sentences on holding a key were joined
 into one paragraph, which keeps the page at its 24 lines with the default
 bindings, where its room is unchanged, and brings it to 24 from 25 with a
 Restart key named in nine characters or more: a longer key name had run
-the page a line past its room since before the modal was adapted.
+the page a line past its room since before the modal was adapted. A
+thirteenth, the same day, when F11 became the fullscreen key and Keyboard
+Controls gained "F11 switches the game to fullscreen and back." at the end
+of its MENU KEYS paragraph, measured all eleven pages again the same way:
+the same eleven figures, Keyboard Controls at 23 px with its text 519 px
+high, as before, because the sentence fills that paragraph's last line, as
+`textwrap` at 69 had said it would; and with the longest key names bound,
+23 px again. The table stands. A fourteenth, the same day, when the
+sentence became "F11, or Control-Command-F on a Mac, switches the game to
+fullscreen and back." and the paragraph's first sentence gave up "itself"
+after "every screen but the match" to keep its lines, as `textwrap` at 69
+said it would: the layout probe above read Keyboard Controls at 23.5 px,
+its text as high as before, and `textwrap` keeps the page at 24 lines with
+the longest key names too.
 
 In two columns the room is counted in lines. A column holds a whole number
 of them - 19 of 43 characters at the 1040x600 minimum, 21 of 54 at 1280x641 -
 and at the minimum the first column of Terms: Gray, Suicide, Ko & Territory
 and of Round 1+: Hidden Moves & Timing uses all 19; every other column
 there leaves a line or more, and at 1280x641 every page leaves three. With
-the longest key names Keyboard Controls takes 13 and 17 lines at the
-minimum, where the default bindings take 12 and 16.
+the longest key names Keyboard Controls takes 13 and 19 lines at the
+minimum, its second column full, where the default bindings take 18 and
+12.
 
 The help body wraps at 69 characters of its monospace font, which makes a
 rewording's line count predictable before any run: wrap the paragraph at
@@ -948,18 +991,33 @@ the text, so a rewording that changes a page's lines changes its row in
 The probe itself used to be rewritten from this description each time it
 was needed, so here it is. Save it as `src/ui/layout_probe.rs`, add
 `mod layout_probe;` beside the other modules in `src/ui/mod.rs`, register it
-with `app.add_systems(Last, layout_probe::layout_probe)` at the top of
-`UiPlugin::build`, build, and run the binary with `GT_PROBE_PAGE` set to the
-page you changed (zero-based); it does nothing without that variable, so it
-can stay registered across several runs. It opens the modal by setting
-`HudState` directly, measures on three consecutive frames so a stale layout
-would show as a changing number, prints the title's glyph box beside the
-body's so a title that wraps is caught too, and exits on its own. With
-`GT_PROBE_OUT=<png>` set as well, the same run saves the whole 1040x900
-window with the modal open, at twice the logical size, the way the capture
-probe under "Capturing a screen to a file" below does - which is how a
-capture to look at and the measurement come from one build and one command
-each. Remove all of it before committing: nothing in the tree
+at the top of `UiPlugin::build`:
+
+```rust
+app.add_systems(Last, layout_probe::layout_probe)
+    .add_systems(
+        PreUpdate,
+        layout_probe::lay_out_for_the_probe.after(crate::app::visuals::track_window_size),
+    )
+    .add_systems(
+        PostUpdate,
+        layout_probe::frame_like_the_main_camera.after(crate::app::visuals::frame_main_camera),
+    );
+```
+
+Then build, and run the binary with `GT_PROBE_PAGE` set to the page you
+changed (zero-based); it does nothing without that variable, so it can stay
+registered across several runs. It opens the modal by setting `HudState`
+directly, measures on three consecutive frames so a stale layout would show
+as a changing number, prints the title's glyph box beside the body's so a
+title that wraps is caught too, and exits on its own. Its room is the one
+column's: in two columns it measures the first. With `GT_PROBE_SIZE=WxH`
+the screens are laid out for a window that many logical pixels instead of
+the opening 1040x900, as the capture probe below does it. With
+`GT_PROBE_OUT=<png>` set as well, the same run saves the whole window with
+the modal open, at twice the logical size, the way that probe does - which
+is how a capture to look at and the measurement come from one build and one
+command each. Remove all of it before committing: nothing in the tree
 should print, and the source-reading tests in `src/architecture.rs` would
 read it as production code.
 
@@ -967,6 +1025,7 @@ read it as production code.
 cargo build
 GT_PROBE_PAGE=1 ./target/debug/go-together
 GT_PROBE_PAGE=1 GT_PROBE_OUT=/tmp/terms-1.png ./target/debug/go-together
+GT_PROBE_PAGE=1 GT_PROBE_SIZE=1040x600 GT_PROBE_OUT=/tmp/terms-1-small.png ./target/debug/go-together
 ```
 
 ```rust
@@ -979,10 +1038,47 @@ use bevy::text::TextLayoutInfo;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 
 use super::hud::{HudState, UiRole};
-use crate::app::visuals::{WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::app::visuals::{MainCamera, WindowSize};
 
 /// Rendered at twice the logical size, as on a high-density display.
 const SCALE: f32 = 2.0;
+
+/// The capture's own camera.
+#[derive(Component)]
+pub(super) struct ProbeCamera;
+
+/// The window size the probe lays the screens out for, from
+/// `GT_PROBE_SIZE=WxH`, and the opening size without it.
+fn probe_size() -> Vec2 {
+    std::env::var("GT_PROBE_SIZE").map_or(WindowSize::OPENING.0, |size| {
+        let (width, height) = size.split_once('x').expect("GT_PROBE_SIZE is WxH");
+        Vec2::new(width.parse().unwrap(), height.parse().unwrap())
+    })
+}
+
+/// Lays every screen out for the probe's size, after the window's own size
+/// has been read.
+pub(super) fn lay_out_for_the_probe(mut size: ResMut<WindowSize>) {
+    if std::env::var("GT_PROBE_PAGE").is_ok() {
+        size.set_if_neq(WindowSize(probe_size()));
+    }
+}
+
+/// Draws the world as the main camera frames it, at the capture's scale.
+pub(super) fn frame_like_the_main_camera(
+    main: Query<(&Projection, &Transform), (With<MainCamera>, Without<ProbeCamera>)>,
+    mut probe: Query<(&mut Projection, &mut Transform), With<ProbeCamera>>,
+) {
+    let Ok((Projection::Orthographic(main_projection), main_transform)) = main.single() else {
+        return;
+    };
+    for (mut projection, mut transform) in &mut probe {
+        if let Projection::Orthographic(projection) = projection.as_mut() {
+            projection.scale = main_projection.scale / SCALE;
+        }
+        *transform = *main_transform;
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn layout_probe(
@@ -1012,9 +1108,10 @@ pub(super) fn layout_probe(
     let frame = *frames;
 
     if frame == 20 && out.is_some() {
+        let window = probe_size();
         let mut image = Image::new_target_texture(
-            (WINDOW_WIDTH as f32 * SCALE) as u32,
-            (WINDOW_HEIGHT as f32 * SCALE) as u32,
+            (window.x * SCALE) as u32,
+            (window.y * SCALE) as u32,
             TextureFormat::Rgba8UnormSrgb,
             None,
         );
@@ -1036,6 +1133,7 @@ pub(super) fn layout_probe(
             // that target's own pixels, so it needs both of these to appear
             // at all and to appear at the size of the board it surrounds.
             IsDefaultUiCamera,
+            ProbeCamera,
         ));
         commands.insert_resource(UiScale(SCALE));
         *target = Some(handle);
@@ -1139,7 +1237,8 @@ on 2026-09-30 with Bevy 0.19.1. All four were checked again on 2026-10-27
 with Bevy 0.20.0, where each still holds - the scaled target still saves
 solid black, and the blended pixel below is the same - and the probe below
 compiles and runs unchanged. A fifth came with the layouts that adapt to
-the window, on 2026-11-27:
+the window, on 2026-11-27, and a sixth with the window that can be resized,
+on 2026-11-28:
 
 - **Scale with the projection, not the target.** Rendering at twice the
   logical size is `OrthographicProjection { scale: 0.5, .. }` on an image twice
@@ -1160,36 +1259,58 @@ the window, on 2026-11-27:
   the window's size places and scales its world-space scene through the
   main camera's projection and translation (`WorldFraming` in
   `app::visuals`), not by moving the scene. In the opening window that is a
-  scale of 1 over the origin, which is what the probe below assumes. A
-  capture of a screen laid out for any other size - by writing the probe's
-  size into `WindowSize` before the screens' layout passes run - needs its
-  own camera to take the main camera's projection scale, divided by the
-  capture's `SCALE`, and its translation, every frame, or the board is
-  drawn at its own size about the image's centre, wherever the layout
-  around it has made room for it.
+  scale of 1 over the origin. A capture of a screen laid out for any other
+  size - which the probe below makes by writing its size into `WindowSize`
+  before the screens' layout passes run - needs its own camera to take the
+  main camera's projection scale, divided by the capture's `SCALE`, and its
+  translation, every frame, or the board is drawn at its own size about the
+  image's centre, wherever the layout around it has made room for it.
+- **The game writes `UiScale` only when the window's letterbox changes.**
+  It draws a window smaller than the minimum scaled down (`Letterbox` in
+  `app::visuals`), and sets `UiScale` to that scale when it changes, so a
+  probe's own `UiScale(2.0)` stands as long as the real window keeps its
+  size. A capture at a size below the minimum therefore shows the minimum's
+  layout running off the image: the letterbox is drawn in the real window
+  alone, and is captured from it with `Screenshot::primary_window()`.
 
-The probe below is the one that work used. Save it as
-`src/ui/replay/viewer/board_probe.rs` - it lives there because the Viewer's
-state is private to that module - add `mod board_probe;` beside the other
-modules in `src/ui/replay/viewer/mod.rs`, and register it with
-`app.add_systems(Last, board_probe::board_probe);` at the top of
-`ReplayViewerPlugin::build`. It does nothing unless `GT_PROBE` is set, and
-exits the game on its own once the image is saved:
+The probe below is the one that work used, made to capture any size on
+2026-11-28. Save it as `src/ui/replay/viewer/board_probe.rs` - it lives there
+because the Viewer's state is private to that module - add `mod board_probe;`
+beside the other modules in `src/ui/replay/viewer/mod.rs`, and register it at
+the top of `ReplayViewerPlugin::build`:
+
+```rust
+app.add_systems(Last, board_probe::board_probe)
+    .add_systems(
+        PreUpdate,
+        board_probe::lay_out_for_the_probe.after(crate::app::visuals::track_window_size),
+    )
+    .add_systems(
+        PostUpdate,
+        board_probe::frame_like_the_main_camera.after(crate::app::visuals::frame_main_camera),
+    );
+```
+
+It does nothing unless `GT_PROBE` is set, and exits the game on its own once
+the image is saved:
 
 ```sh
 cargo build
 GT_PROBE=match GT_PROBE_OUT=/tmp/board.png ./target/debug/go-together
 GT_PROBE=viewer GT_PROBE_UI=1 GT_PROBE_KEY=1 GT_PROBE_OUT=/tmp/key.png ./target/debug/go-together
+GT_PROBE=library GT_PROBE_SIZE=1280x641 GT_PROBE_OUT=/tmp/library.png ./target/debug/go-together
 ```
 
 `GT_PROBE` is `match`, `viewer`, `library`, `settings`, or anything else for
-Home. `GT_PROBE_UI` captures the whole 1040x900 window with its interface
-instead of a square around the board; `GT_PROBE_AT` seeks the Viewer to a
-position in seconds instead of the end; `GT_PROBE_KEY` opens the Viewer's Key.
-The `match` mode writes a position straight into `GameState` - every stone
-colour beside every other and beside bare wood - and the `library` mode adds
-one card with the same position to the in-memory catalog, so neither needs a
-saved Replay and neither saves one. Run it from the repository root: the
+Home. `GT_PROBE_UI` captures the whole window with its interface instead of
+a square around the board; `GT_PROBE_SIZE=WxH` lays every screen out for a
+window that many logical pixels and captures the whole of it, where without
+it the window is the opening one, 1040x900. `GT_PROBE_AT` seeks the Viewer
+to a position in seconds instead of the end; `GT_PROBE_KEY` opens the
+Viewer's Key. The `match` mode writes a position straight into `GameState` -
+every stone colour beside every other and beside bare wood - and the `library`
+mode adds one card with the same position to the in-memory catalog, so neither
+needs a saved Replay and neither saves one. Run it from the repository root: the
 Viewer and Library modes read a fixture by relative path.
 
 Remove all of it before committing. The source-reading guards in
@@ -1217,7 +1338,7 @@ use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use super::ReplayViewerState;
 use super::geometry::VIEWER_BOARD_CENTER_Y;
 use crate::app::AppScreen;
-use crate::app::visuals::{BOARD_CENTER_Y, WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::app::visuals::{BOARD_CENTER_Y, MainCamera, WindowSize};
 use crate::gameplay::{GameState, MatchPhase};
 use crate::replay::Replay;
 use crate::replay_library::{ReplayCatalogEntry, ReplayLibrary};
@@ -1257,6 +1378,48 @@ const BOARD_CAPTURE: f32 = 700.0;
 /// Rendered at twice the logical size, as on a high-density display.
 const SCALE: f32 = 2.0;
 
+/// The capture's own camera.
+#[derive(Component)]
+pub(crate) struct ProbeCamera;
+
+/// The window size the probe lays the screens out for and captures, from
+/// `GT_PROBE_SIZE=WxH`, if it is set.
+fn probe_size() -> Option<Vec2> {
+    let size = std::env::var("GT_PROBE_SIZE").ok()?;
+    let (width, height) = size.split_once('x').expect("GT_PROBE_SIZE is WxH");
+    Some(Vec2::new(width.parse().unwrap(), height.parse().unwrap()))
+}
+
+/// Lays every screen out for the probe's size, after the window's own size
+/// has been read.
+pub(crate) fn lay_out_for_the_probe(mut size: ResMut<WindowSize>) {
+    if std::env::var("GT_PROBE").is_ok()
+        && let Some(probe) = probe_size()
+    {
+        size.set_if_neq(WindowSize(probe));
+    }
+}
+
+/// In a capture of the whole window, draws the world as the main camera
+/// frames it, at the capture's scale.
+pub(crate) fn frame_like_the_main_camera(
+    main: Query<(&Projection, &Transform), (With<MainCamera>, Without<ProbeCamera>)>,
+    mut probe: Query<(&mut Projection, &mut Transform), With<ProbeCamera>>,
+) {
+    if std::env::var("GT_PROBE_UI").is_err() && probe_size().is_none() {
+        return;
+    }
+    let Ok((Projection::Orthographic(main_projection), main_transform)) = main.single() else {
+        return;
+    };
+    for (mut projection, mut transform) in &mut probe {
+        if let Projection::Orthographic(projection) = projection.as_mut() {
+            projection.scale = main_projection.scale / SCALE;
+        }
+        *transform = *main_transform;
+    }
+}
+
 pub(crate) fn board_probe(
     mut commands: Commands,
     mut frames: Local<u32>,
@@ -1272,7 +1435,7 @@ pub(crate) fn board_probe(
         return;
     };
     let out = std::env::var("GT_PROBE_OUT").expect("GT_PROBE_OUT names the PNG to write");
-    let whole_window = std::env::var("GT_PROBE_UI").is_ok();
+    let whole_window = std::env::var("GT_PROBE_UI").is_ok() || probe_size().is_some();
     *frames += 1;
     let frame = *frames;
     let fixture = || {
@@ -1305,8 +1468,9 @@ pub(crate) fn board_probe(
         }
     }
     if frame == 20 {
+        let window = probe_size().unwrap_or(WindowSize::OPENING.0);
         let (width, height, center_y) = if whole_window {
-            (WINDOW_WIDTH as f32, WINDOW_HEIGHT as f32, 0.0)
+            (window.x, window.y, 0.0)
         } else if mode == "viewer" {
             (BOARD_CAPTURE, BOARD_CAPTURE, VIEWER_BOARD_CENTER_Y)
         } else {
@@ -1332,6 +1496,7 @@ pub(crate) fn board_probe(
                 ..OrthographicProjection::default_2d()
             }),
             Transform::from_xyz(0.0, center_y, 0.0),
+            ProbeCamera,
         ));
         if whole_window {
             // bevy_ui draws to the default UI camera and lays itself out in
@@ -1565,8 +1730,14 @@ what is published holds no path of that machine and no name of its user (see
 For the web build:
 
 1. run `trunk serve` and open its printed local URL;
-2. confirm the centered canvas keeps its 1040x900 aspect in a narrow iframe and
-   fullscreen;
+2. confirm the canvas fills the page less the status lines under it, at
+   several sizes, in a narrow iframe and enlarged, and in the browser's own
+   fullscreen; and that a page smaller than 1040x600 - a small window, or
+   browser zoom at 150% or more on a small screen - shows the game scaled
+   down whole, with a click landing on what it is over. Press F11 where the
+   browser uses it for fullscreen (on Windows and Linux; no macOS browser
+   does): the browser goes fullscreen and the game does nothing with the
+   key;
 3. wait for the start prompt, click the canvas (or focus it and press a key), and
    confirm the app starts with keyboard focus and no autoplay failure, in
    Chrome, Firefox, and Safari - the three differ in exactly this step (see

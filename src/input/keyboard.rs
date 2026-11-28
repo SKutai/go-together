@@ -13,20 +13,30 @@
 //!
 //! # Rebinding rules
 //!
-//! [`KeyboardKey`] is a deliberately small allow-list, and the two keys the
-//! interface reads for itself during live play are not on it: Escape, which
-//! cancels a capture and steps back from every screen, and F1, which opens
-//! and closes the
-//! Help modal on the title screen and during a Match. Neither can be
-//! bound, persisted, or even represented as a `KeyboardKey`. That is what
-//! lets both be read raw during live play, when gameplay reads every
-//! bindable key, and why a settings file naming either one fails to parse
-//! rather than loading a key the interface would then read twice.
-//! [`KeyboardKey::from_key_code`] refuses the two as reserved, and every
-//! other key outside the list as unsupported, so that capture can ignore
+//! [`KeyboardKey`] is a deliberately small allow-list, and the three keys
+//! the interface reads for itself during live play are not on it: Escape,
+//! which cancels a capture and steps back from every screen; F1, which
+//! opens and closes the Help modal on the title screen and during a Match;
+//! and F11, which switches the window to fullscreen and back on every
+//! screen of a desktop build. A browser keeps F11 for its own fullscreen,
+//! and the web page hands it to the browser before the game sees it. None
+//! of the three can be bound, persisted, or even represented as a
+//! `KeyboardKey`. That is what lets each be read raw during live play, when
+//! gameplay reads every bindable key, and why a settings file naming any of
+//! them fails to parse rather than loading a key the interface would then read
+//! twice. [`KeyboardKey::from_key_code`] refuses the three as reserved, and
+//! every other key outside the list as unsupported, so that capture can ignore
 //! the first silently and explain the second. Assigning a key that another
 //! action already uses swaps the two keys and returns that other action, so
 //! every action always has a distinct key.
+//!
+//! On a Mac, where the default settings keep F11 itself, Control-Command-F
+//! switches fullscreen too. It is no reserved key: F stays bindable, since a
+//! chord is no binding, and `crate::app::window` keeps the chord's F from the
+//! binding while it is held. Left Control is bindable, though, so during an
+//! armed capture the chord's Control is taken as the binding before its F
+//! arrives; nothing can tell that a chord is coming, so a Mac player switches
+//! fullscreen there with the window's green button.
 //!
 //! The `#[serde]` names on [`GameAction`] and [`KeyboardKey`] are part of the
 //! saved configuration format, but this module never touches the file:
@@ -43,10 +53,10 @@ use super::GameAction;
 
 /// Font-safe, serializable key allow-list exposed by Settings.
 ///
-/// Escape and F1 are absent on purpose - see the module docs. `f1` was a
-/// valid serde name in settings files written before F1 became the
-/// Help key; `crate::settings::schema` records what such a file
-/// loads as now.
+/// Escape, F1 and F11 are absent on purpose - see the module docs. `f1`
+/// and `f11` were valid serde names in settings files written before F1
+/// became the Help key and F11 the fullscreen key; `crate::settings::schema`
+/// records what such a file loads as now.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum KeyboardKey {
@@ -126,7 +136,6 @@ pub(crate) enum KeyboardKey {
     F8,
     F9,
     F10,
-    F11,
     F12,
     Numpad0,
     Numpad1,
@@ -225,7 +234,6 @@ impl KeyboardKey {
             Self::F8 => KeyCode::F8,
             Self::F9 => KeyCode::F9,
             Self::F10 => KeyCode::F10,
-            Self::F11 => KeyCode::F11,
             Self::F12 => KeyCode::F12,
             Self::Numpad0 => KeyCode::Numpad0,
             Self::Numpad1 => KeyCode::Numpad1,
@@ -324,7 +332,6 @@ impl KeyboardKey {
             KeyCode::F8 => Self::F8,
             KeyCode::F9 => Self::F9,
             KeyCode::F10 => Self::F10,
-            KeyCode::F11 => Self::F11,
             KeyCode::F12 => Self::F12,
             KeyCode::Numpad0 => Self::Numpad0,
             KeyCode::Numpad1 => Self::Numpad1,
@@ -342,7 +349,9 @@ impl KeyboardKey {
             KeyCode::NumpadDivide => Self::NumpadDivide,
             KeyCode::NumpadDecimal => Self::NumpadDecimal,
             KeyCode::NumpadEnter => Self::NumpadEnter,
-            KeyCode::Escape | KeyCode::F1 => return Err(KeyCaptureError::Reserved),
+            KeyCode::Escape | KeyCode::F1 | KeyCode::F11 => {
+                return Err(KeyCaptureError::Reserved);
+            }
             _ => return Err(KeyCaptureError::Unsupported),
         };
         Ok(key)
@@ -426,7 +435,6 @@ impl KeyboardKey {
             Self::F8 => "F8",
             Self::F9 => "F9",
             Self::F10 => "F10",
-            Self::F11 => "F11",
             Self::F12 => "F12",
             Self::Numpad0 => "Numpad 0",
             Self::Numpad1 => "Numpad 1",
@@ -459,13 +467,13 @@ impl KeyboardKey {
 }
 
 /// Why [`KeyboardKey::from_key_code`] refused a key. `Reserved` is one of
-/// the two keys the interface reads for itself during live play - Escape,
-/// which cancels a capture and leaves the screen, and F1, which opens and
-/// closes the
-/// Help modal on Home and during a Match, where every bindable key is
-/// gameplay's - so capture ignores it silently; `Unsupported` is any other
-/// [`KeyCode`] outside the allow-list, which capture reports so the player
-/// can tell "nothing happened" from "that key will not work".
+/// the three keys the interface reads for itself during live play, where
+/// every bindable key is gameplay's - Escape, which cancels a capture and
+/// leaves the screen; F1, which opens and closes the Help modal on Home and
+/// during a Match; and F11, which switches fullscreen on every screen - so
+/// capture ignores it silently; `Unsupported` is any other [`KeyCode`]
+/// outside the allow-list, which capture reports so the player can tell
+/// "nothing happened" from "that key will not work".
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum KeyCaptureError {
     Reserved,
@@ -579,8 +587,8 @@ impl KeyboardBindings {
 /// persistence layer in [`crate::settings`] to enforce action coverage and
 /// uniqueness. Supported-key parsing is handled by serde before entries
 /// reach [`KeyboardBindings::try_from_entries`], and that is also where a
-/// reserved key is refused: neither Escape nor F1 has a serde name, so
-/// neither can arrive here. The `Display` text is what the settings loader
+/// reserved key is refused: none of Escape, F1 and F11 has a serde name, so
+/// none can arrive here. The `Display` text is what the settings loader
 /// puts in its warning when the section falls back to defaults.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum KeyboardBindingsError {
@@ -674,50 +682,65 @@ mod tests {
     }
 
     #[test]
-    fn key_names_are_human_readable_and_escape_and_f1_are_reserved() {
+    fn key_names_are_human_readable_and_the_reserved_keys_are_refused() {
         assert_eq!(KeyboardKey::UpArrow.display_name(), "Up Arrow");
         assert_eq!(KeyboardKey::Backtick.display_name(), "Backtick");
         assert_eq!(KeyboardKey::Space.display_name(), "Space");
         assert_eq!(KeyboardKey::Digit1.display_name(), "1");
-        for reserved in [KeyCode::Escape, KeyCode::F1] {
+        for reserved in [KeyCode::Escape, KeyCode::F1, KeyCode::F11] {
             assert_eq!(
                 KeyboardKey::from_key_code(reserved),
                 Err(KeyCaptureError::Reserved),
                 "{reserved:?}"
             );
         }
-        // Reserved is narrower than unsupported: the next function key is
-        // still bindable, and a key with no allow-list entry is reported.
-        assert_eq!(KeyboardKey::from_key_code(KeyCode::F2), Ok(KeyboardKey::F2));
+        // Reserved is narrower than unsupported: the function keys beside
+        // each reserved one are still bindable, and a key with no
+        // allow-list entry is reported.
+        for (code, key) in [
+            (KeyCode::F2, KeyboardKey::F2),
+            (KeyCode::F10, KeyboardKey::F10),
+            (KeyCode::F12, KeyboardKey::F12),
+        ] {
+            assert_eq!(KeyboardKey::from_key_code(code), Ok(key), "{code:?}");
+            assert_eq!(key.key_code(), code);
+        }
         assert_eq!(
             KeyboardKey::from_key_code(KeyCode::CapsLock),
             Err(KeyCaptureError::Unsupported)
         );
     }
 
-    /// The reservation is structural, not a check: neither reserved key has
-    /// a `KeyboardKey` variant, so no binding, no `assign` and no settings
-    /// file can hold one. Serde refuses both names, which is what the
-    /// settings loader relies on for a hand-edited file.
+    /// The reservation is structural, not a check: no reserved key has a
+    /// `KeyboardKey` variant, so no binding, no `assign` and no settings
+    /// file can hold one. Serde refuses all three names, which is what the
+    /// settings loader relies on for a hand-edited file, and still reads
+    /// the names of the function keys beside them.
     #[test]
     fn reserved_keys_have_no_serde_name() {
-        for name in ["\"escape\"", "\"f1\""] {
+        for name in ["\"escape\"", "\"f1\"", "\"f11\""] {
             assert!(
                 serde_json::from_str::<KeyboardKey>(name).is_err(),
                 "{name} must not deserialize"
             );
         }
-        assert_eq!(
-            serde_json::from_str::<KeyboardKey>("\"f2\"").unwrap(),
-            KeyboardKey::F2
-        );
+        for (name, key) in [
+            ("\"f2\"", KeyboardKey::F2),
+            ("\"f10\"", KeyboardKey::F10),
+            ("\"f12\"", KeyboardKey::F12),
+        ] {
+            assert_eq!(serde_json::from_str::<KeyboardKey>(name).unwrap(), key);
+        }
         for key in [
             KeyboardKey::F2,
+            KeyboardKey::F10,
+            KeyboardKey::F12,
             KeyboardKey::Backtick,
             KeyboardKey::NumpadEnter,
         ] {
-            assert_ne!(key.key_code(), KeyCode::Escape);
-            assert_ne!(key.key_code(), KeyCode::F1);
+            for reserved in [KeyCode::Escape, KeyCode::F1, KeyCode::F11] {
+                assert_ne!(key.key_code(), reserved, "{key:?}");
+            }
         }
     }
 

@@ -1383,14 +1383,15 @@ pub(super) mod tests {
         out
     }
 
-    /// A window smaller than the minimum - a browser's page can be - gets
-    /// the frame the minimum gets: at 800x400 the screen's own readings of
-    /// the window raise it to 1040x600, so every node of the frame, its text
-    /// and its place are what they are at 1040x600 - entered there, where the
-    /// frame is the spawner's own, and resized to it from the opening window
-    /// with a long warning on the error line, where the placement pass moves
-    /// the frame and the display pass cuts the warning. As the game enters
-    /// and resizes it, through the screen's own plugin.
+    /// A window smaller than the minimum - fullscreen on a smaller screen, a
+    /// window manager that ignores the minimum, or a program that sets the
+    /// size - gets the frame the minimum gets: at 800x400 the screen's own
+    /// readings of the window raise it to 1040x600, so every node of the frame,
+    /// its text and its place are what they are at 1040x600 - entered there,
+    /// where the frame is the spawner's own, and resized to it from the opening
+    /// window with a long warning on the error line, where the placement pass
+    /// moves the frame and the display pass cuts the warning. As the game
+    /// enters and resizes it, through the screen's own plugin.
     #[test]
     fn a_window_below_the_minimum_gets_the_minimums_frame() {
         let below = Vec2::new(800.0, 400.0);
@@ -1419,6 +1420,37 @@ pub(super) mod tests {
         assert_eq!(frame_tree(&mut resized), frame_tree(&mut minimum));
     }
 
+    /// The game draws a window smaller than the minimum as the minimum's,
+    /// scaled down and centred, with the pointer landing where things are
+    /// drawn: each tab's frame laid out as at the minimum, in the sidebar,
+    /// and drawn inside the window.
+    #[test]
+    fn a_window_below_the_minimum_draws_the_minimums_settings_scaled_down() {
+        use crate::ui::focus::{
+            BELOW_THE_MINIMUM, assert_drawn_as_the_minimum_scaled_down, draw_as_the_game_does,
+        };
+
+        use super::super::MappingTab;
+
+        for tab in [
+            MappingTab::Preferences,
+            MappingTab::Game,
+            MappingTab::Keyboard,
+            MappingTab::Controller,
+        ] {
+            let laid_out = |window: Vec2| {
+                let mut mapping = ControlMappingState::new(None);
+                mapping.tab = tab;
+                let mut app = laid_out_settings(window, mapping, MatchSettings::default());
+                draw_as_the_game_does(&mut app);
+                app
+            };
+            let (mut below, mut minimum) =
+                (laid_out(BELOW_THE_MINIMUM), laid_out(WindowSize::MINIMUM.0));
+            assert_drawn_as_the_minimum_scaled_down(&mut below, &mut minimum, &format!("{tab:?}"));
+        }
+    }
+
     /// When the window's size changes while Settings is shown, the frame
     /// becomes exactly what entering it at the new size makes - every node's
     /// place, the footer's parent and the error line's justification - into
@@ -1436,7 +1468,7 @@ pub(super) mod tests {
         let mut seen_sidebar = false;
         for size in [
             WindowSize::MINIMUM.0,
-            Vec2::new(1440.0, 848.0),
+            Vec2::new(1440.0, 844.0),
             Vec2::new(1040.0, 853.0),
             Vec2::new(1040.0, 854.0),
             Vec2::new(1920.0, 1080.0),

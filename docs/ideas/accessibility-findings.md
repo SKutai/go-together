@@ -226,7 +226,8 @@ Points` were left where the pages already explain them.
 **Text has a floor of 14px**, as of 2026-10-07, stated in `CONTRIBUTING.md`.
 The smallest text had been an 11px validation error. What that did not
 touch - any way for a player to make text larger, and the web canvas drawing
-everything smaller in a small browser window - is under Text size below.
+everything smaller in a browser window smaller than the smallest one the game
+is laid out for - is under Text size below.
 
 ## Still open
 
@@ -278,25 +279,36 @@ larger - and only the first is closed.
   the copy gives way, and
   `the_game_tab_fits_its_panel_at_its_most_crowded` in
   `src/ui/settings/game.rs` holds both.
-- **No text-scale mechanism exists anywhere** - no `UiScale`, no font-size
-  setting, no OS scaling honoured - so a player who needs more than 14px has
-  no in-game remedy. Still open. The window is a fixed 1040x900 and not
-  resizable on either platform, which `CONTRIBUTING.md` documents as a
-  constraint rather than an oversight. This is goal 5 in
+- **No text-scale mechanism exists anywhere** - no font-size setting and no
+  OS scaling honoured, and the one `UiScale` the game sets only ever draws a
+  window smaller than the minimum scaled down - so a player who needs more
+  than 14px has no in-game remedy. Still open. Until 2026-11-28 the window
+  was also a fixed 1040x900 and not resizable on either platform; it can now
+  be resized, maximised and made fullscreen, and every screen keeps its text
+  at its size in any window rather than enlarging it. This is goal 5 in
   [`accessibility-goals.md`](accessibility-goals.md), and it waits on a font
   and licensing decision rather than on code.
-- **On the web, the floor holds in the game's pixels but not on screen.**
-  Found 2026-10-07. `web/shell.js` scales the whole canvas by
-  `Math.min(1, available width / 1040, available height / 900)`, where the
-  available height has already lost the shell's padding and its line of copy
-  above the canvas. Whenever the browser's page area is smaller than the
-  game, every piece of text is drawn proportionally smaller than its size:
-  a page area 700 CSS px tall gives a scale under 0.78, so 14px text is
-  drawn at under 11 CSS px, and downsampled as well. Browser zoom cannot
-  help, because zooming shrinks the page area in CSS px and the scale with
-  it: the canvas fills the viewport and then stops. This is goal 2's
-  territory, a window that adapts to the space it has, rather than
-  something a larger floor could fix. Nothing has been changed.
+- **On the web, the floor holds in the game's pixels but not on screen,
+  below the smallest window.** Found 2026-10-07, when `web/shell.js` scaled
+  the fixed 1040x900 canvas by `Math.min(1, available width / 1040,
+  available height / 900)`, so that whenever the browser's page area was
+  smaller than the game, every piece of text was drawn proportionally
+  smaller than its size: a page area 700 CSS px tall gave a scale under
+  0.78, so 14px text was drawn at under 11 CSS px, and downsampled as well.
+  Since 2026-11-28, as goal 2 asked, the canvas fills the page and the game lays
+  itself out at its size, so text keeps its size in any page at least 1040x600
+  CSS px, the smallest window the screens are laid out for. Below that the
+  canvas is laid out as the page raised to the minimum and scaled down to fit,
+  as the whole canvas used to be, so the finding still holds there: a page 500
+  CSS px tall leaves the canvas 436 to 457 of them under the status lines, which
+  scales it by at most 0.76, so 14px text is drawn at under 11 CSS px. In Chrome
+  on 2026-11-28 an 800x500 page gave 0.727 before the game had started, set by
+  the 436 px of height the status lines left it while they were taller, and
+  0.754 once it had, set by its 784 px of width; an 855x500 page, at 200% zoom,
+  gave 0.762, set by 457 px of height. Browser zoom still cannot help there,
+  because zooming in shrinks the page area in CSS px. A desktop window that ends
+  up smaller than the minimum - fullscreen on a smaller screen, or under a
+  window manager that ignores the minimum - is drawn the same way.
 
 ### Information carried only by sound
 

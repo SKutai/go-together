@@ -1817,6 +1817,13 @@ mod tests {
     /// fit; `docs/TESTING.md` carries the probe. A size this cannot read
     /// should be written as a number, or as a constant whose value is one.
     ///
+    /// What it reads is the size text is set at, so a scale applied on top
+    /// is invisible to it. The game applies one, `bevy_ui`'s `UiScale`, in
+    /// one place - `frame_main_camera` in `app::visuals` - and only to draw
+    /// a window smaller than the minimum, 1040x600, scaled down to fit: it
+    /// is 1 in every window at least the minimum, and never above 1. That
+    /// window is the one place text is drawn below the floor, by design.
+    ///
     /// Like the other guards that read source, this runs in both build
     /// configurations.
     #[test]

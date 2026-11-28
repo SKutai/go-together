@@ -183,6 +183,7 @@ pub(super) fn commit_active_game_editor(
 pub(super) fn capture_game_numeric_input(
     mut keyboard_events: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
+    chord: Option<Res<crate::app::window::FullscreenChord>>,
     mut settings: SettingsValues,
     mut mapping: ResMut<ControlMappingState>,
     mut audio: ResMut<AudioCueQueue>,
@@ -221,8 +222,14 @@ pub(super) fn capture_game_numeric_input(
         if mapping.game_editor.is_none() {
             break;
         }
+        // The F of Control-Command-F, on a Mac, is the fullscreen chord's, and
+        // so are its repeats once Control and Command are let go
+        // (`app::window`): no character for the field, and no error.
         if event.state != ButtonState::Pressed
             || matches!(event.logical_key, bevy::input::keyboard::Key::Escape)
+            || chord
+                .as_ref()
+                .is_some_and(|chord| chord.takes(event.key_code, &keys))
         {
             continue;
         }
@@ -833,6 +840,79 @@ mod tests {
                 .text,
             "13"
         );
+    }
+
+    /// On a Mac the F of Control-Command-F is the fullscreen chord's
+    /// (`app::window`), and so are its repeats once Control and Command are let
+    /// go: a numeric field takes no character from them and shows no error,
+    /// where an F alone, with no chord on the platform, is refused as not
+    /// digits, as ever.
+    #[test]
+    fn the_fullscreen_chords_f_is_no_input_for_a_numeric_field() {
+        use crate::app::window::FullscreenChord;
+
+        let mut settings = MatchSettings::default();
+        settings.set_enabled(MatchSettingField::RoundLimit, true);
+        let mut app = App::new();
+        app.add_plugins(UiButtonPlugin);
+        app.insert_resource(KeyboardBindings::default())
+            .insert_resource(ControllerBindings::default())
+            .insert_resource(GamePreferences::default())
+            .insert_resource(settings)
+            .insert_resource(SettingsStore::from_storage(DiscardingSettingsStorage))
+            .insert_resource(crate::input::controller::ControllerAssignments::default())
+            .insert_resource(ControlMappingState::new(None))
+            .insert_resource(AudioCueQueue::default())
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<crate::diagnostics::Diagnostics>()
+            .add_message::<KeyboardInput>()
+            .add_systems(
+                Update,
+                (
+                    super::super::handle_mapping_buttons,
+                    capture_game_numeric_input,
+                )
+                    .chain(),
+            );
+        app.update();
+        let pressed = app.world_mut().spawn(GameNumericInput::RoundLimit).id();
+        trigger_activation(&mut app, pressed);
+        app.update();
+        let f_repeat = |app: &mut App| {
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::KeyF,
+                logical_key: Key::Character("f".into()),
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: true,
+                window: Entity::PLACEHOLDER,
+            });
+            app.update();
+        };
+        let state = |app: &App| {
+            let mapping = app.world().resource::<ControlMappingState>();
+            (
+                mapping
+                    .game_editor
+                    .as_ref()
+                    .expect("the editor stays open")
+                    .editor
+                    .text
+                    .clone(),
+                mapping.game_error.is_some(),
+            )
+        };
+
+        // The chord's F, still held after Control and Command were let go.
+        app.insert_resource(FullscreenChord::holding_f());
+        f_repeat(&mut app);
+        f_repeat(&mut app);
+        assert_eq!(state(&app), ("100".to_string(), false));
+
+        // No chord here: an F is refused as it always was.
+        app.world_mut().remove_resource::<FullscreenChord>();
+        f_repeat(&mut app);
+        assert_eq!(state(&app), ("100".to_string(), true));
     }
 
     /// The frame-sharing defect the rising-edge guard exists for, on this

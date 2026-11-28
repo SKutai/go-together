@@ -601,8 +601,9 @@ mod tests {
     /// In a wide sidebar the columns keep their 420 px and stand together
     /// in the middle of the contents, 20 px apart, rather than at its edges;
     /// the panel stops at 1400 px wide and stands in the middle of the
-    /// window. The named sizes get these arrangements, a maximised
-    /// 1440x900 Mac being taken as 1440x848.
+    /// window. The named sizes get these arrangements: a maximised
+    /// 1440x900 Mac, 1440x844, is under the switch at 854, as it was at
+    /// 1440x848 before macOS 26.
     #[test]
     fn the_named_sizes_get_their_arrangements_and_wide_columns_stand_together() {
         let expected = [
@@ -612,7 +613,7 @@ mod tests {
             ("1280x720", SettingsArrangement::Sidebar),
             ("1366x689", SettingsArrangement::Sidebar),
             ("1366x768", SettingsArrangement::Sidebar),
-            ("1440x848", SettingsArrangement::Sidebar),
+            ("1440x844", SettingsArrangement::Sidebar),
             ("1920x1080", SettingsArrangement::TabsOnTop),
             ("2560x1440", SettingsArrangement::TabsOnTop),
         ];

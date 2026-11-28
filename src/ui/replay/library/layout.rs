@@ -1853,12 +1853,13 @@ mod tests {
         }
     }
 
-    /// A window smaller than the minimum - a browser's page can be - is
-    /// built as the minimum is: at 800x400 the screen's own reading of the
-    /// window raises it to 1040x600, so the page is built from the
-    /// minimum's layout, with the minimum's two cards, under real layout.
-    /// Laid out for its own size, that window would hold one; at 800x480 it
-    /// would hold the same two, which is why the test is not run there.
+    /// A window smaller than the minimum - fullscreen on a smaller screen, a
+    /// window manager that ignores the minimum, or a program that sets the
+    /// size - is built as the minimum is: at 800x400 the screen's own reading
+    /// of the window raises it to 1040x600, so the page is built from the
+    /// minimum's layout, with the minimum's two cards, under real layout. Laid
+    /// out for its own size, that window would hold one; at 800x480 it would
+    /// hold the same two, which is why the test is not run there.
     #[test]
     fn a_window_below_the_minimum_is_built_as_the_minimum() {
         use super::super::geometry::library_layout;
@@ -1871,6 +1872,25 @@ mod tests {
         let ui = app.world().resource::<ReplayLibraryUiState>();
         assert_eq!(ui.built_with, Some(minimum.build()));
         assert_eq!(cards(&mut app).len(), minimum.cards_per_page());
+    }
+
+    /// The game draws that window as the minimum's, scaled down and
+    /// centred, with the pointer landing where things are drawn: the page
+    /// of two cards, laid out as at the minimum, drawn inside the window.
+    /// Through the screen's own plugin and the game's window layout.
+    #[test]
+    fn a_window_below_the_minimum_draws_the_minimums_page_scaled_down() {
+        use crate::app::visuals::WindowSize;
+        use crate::ui::focus::{
+            BELOW_THE_MINIMUM, assert_drawn_as_the_minimum_scaled_down, draw_as_the_game_does,
+        };
+
+        let mut below = library_entered_at(BELOW_THE_MINIMUM, 20, None, false);
+        draw_as_the_game_does(&mut below);
+        let mut minimum = library_entered_at(WindowSize::MINIMUM.0, 20, None, false);
+        draw_as_the_game_does(&mut minimum);
+        assert_eq!(cards(&mut below).len(), 2);
+        assert_drawn_as_the_minimum_scaled_down(&mut below, &mut minimum, "the Library");
     }
 
     /// A change of the window's width that changes nothing the screen is
