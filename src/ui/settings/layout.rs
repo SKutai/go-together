@@ -1729,9 +1729,12 @@ pub(super) mod tests {
     /// no line may break, so that the word before it moves down and
     /// `bevy_ui` would set the message on a third line there. At 1040x600
     /// the first two are drawn as they are, on two lines, and the third in
-    /// the game's own two lines, broken at its spaces; elsewhere each is
-    /// drawn as it is, on one line on top, as it always was. Each keeps to
-    /// its place as the longest warning does.
+    /// the game's own two lines, broken at its spaces. Elsewhere each is
+    /// drawn as it is: on two lines in the sidebar at 1150x768, and on one
+    /// line on top, as it always was. Only the 1040x600 states tell this fit
+    /// from a wrap at spaces alone, which draws all three whole at the other
+    /// two sizes as well. Each keeps to its place as the longest warning
+    /// does.
     #[test]
     fn the_error_line_fits_a_message_where_bevy_ui_breaks_it() {
         use super::super::display::shown_error;
@@ -1785,6 +1788,85 @@ pub(super) mod tests {
                 assert_the_error_keeps_to_its_place(&mut app, window, &shown, &context);
             }
         }
+    }
+
+    /// The error line's text node is its place with the place's edges
+    /// rounded to the display's pixels, so a line of it holds the characters
+    /// of a pixel less than the place or those of a pixel more, and a
+    /// message is drawn as it is only where it fits at both. In the sidebar
+    /// the place follows the window's width, and at some widths the two
+    /// counts are one apart: at 1064x600 the place is 479.6 px, a pixel less
+    /// holds 56 characters and a pixel more 57, and the node `bevy_ui` lays
+    /// the text out in is 479 px, which holds 57. A message with a space
+    /// before "!" as the 57th character of its first line takes two lines at
+    /// 56 and three at 57: at 1064x600 it is set in the game's own two
+    /// lines, and at 1040x600, where both counts are 56, it is drawn as it
+    /// is. At 1081x600 the place less a pixel is an exact number of advances,
+    /// 59, which a line holds whole: a message whose first line is 59
+    /// characters is drawn as it is there, on two lines. In each window the
+    /// node holds one of the two counts, and the message keeps to its place
+    /// as the longest warning does. Under real layout.
+    #[test]
+    fn the_error_line_fits_a_message_at_both_counts_its_place_can_hold() {
+        use super::super::display::shown_error;
+        use super::super::geometry::ERROR_SIZE;
+        use crate::ui::line_breaks::chars_per_line;
+
+        const WIDER_BANG: &str = concat!(
+            "The controller was disconnected while you were remapping ! ",
+            "Plug it back in and press any button to go on mapping."
+        );
+        const EXACT_FIT: &str = concat!(
+            "Could not load settings: the keyboard section was stored by ",
+            "a newer version of the game, which this one cannot read."
+        );
+        let game_lines = WIDER_BANG.replacen(" ! ", "\n! ", 1);
+        // The window, the characters a pixel less and a pixel more than its
+        // place hold, the message, and how it is drawn.
+        let cases = [
+            (Vec2::new(1040.0, 600.0), [56, 56], WIDER_BANG, WIDER_BANG),
+            (
+                Vec2::new(1064.0, 600.0),
+                [56, 57],
+                WIDER_BANG,
+                game_lines.as_str(),
+            ),
+            (Vec2::new(1081.0, 600.0), [59, 59], EXACT_FIT, EXACT_FIT),
+        ];
+        for (window, counts, message, drawn) in cases {
+            let context = format!("{window}, {message:?}");
+            let layout = settings_layout(window);
+            assert!(layout.sidebar(), "{context}");
+            let (width, room) = layout.error_line();
+            assert_eq!(room, 2, "{context}");
+            assert_eq!(
+                [width - 1.0, width + 1.0].map(|width| chars_per_line(width, ERROR_SIZE)),
+                counts,
+                "{context}: {width} px"
+            );
+            let mut app = laid_out_settings(
+                window,
+                ControlMappingState::new(Some(message.into())),
+                MatchSettings::default(),
+            );
+            let shown = shown_error(message, &layout);
+            assert_eq!(shown, drawn, "{context}");
+            let world = app.world_mut();
+            let node = world
+                .query::<(&MappingUiRole, &ComputedNode)>()
+                .iter(world)
+                .find(|(role, _)| matches!(role, MappingUiRole::Error))
+                .map(|(_, node)| node.size.x * node.inverse_scale_factor)
+                .expect("the error line is laid out");
+            assert!(
+                counts.contains(&chars_per_line(node, ERROR_SIZE)),
+                "{context}: a node {node} px wide"
+            );
+            assert_the_error_keeps_to_its_place(&mut app, window, &shown, &context);
+        }
+        // At 1081x600 a hair less than the place less a pixel holds 58.
+        let (width, _) = settings_layout(Vec2::new(1081.0, 600.0)).error_line();
+        assert_eq!(chars_per_line(width - 1.01, ERROR_SIZE), 58);
     }
 
     /// Every message the screen itself puts on its error line, and every

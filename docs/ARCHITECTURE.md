@@ -670,13 +670,20 @@ measured on 2026-11-28 - and
 the Keyboard tab's shared Restart Match binding stands on one line beside
 its heading. A binding error, which has no room for a line of its own
 there, stands in the instruction's place in the top row while it is shown.
-A message that fits its place, its lines counted as `bevy_ui` breaks
-them (`ui::line_breaks`), is drawn as it always was. One that does not is
-set in the game's own lines, broken at its spaces, which `bevy_ui` keeps
-as they are; where those are more than the place has room for, two in the
-sidebar and one on top, it is cut to them, the last ending with "...",
-and the log keeps it whole. Only the warning that the settings file could
-not be loaded is that long, since it quotes what the file holds.
+A message that fits its place, its lines counted as `bevy_ui` breaks them
+(`ui::line_breaks`), is drawn as it always was; the text's node is the
+place with its edges rounded to the display's pixels, so a message fits
+only where it fits at the characters a pixel less than the place holds and
+at those a pixel more. One that does not is set in the game's own lines,
+broken at its spaces and a word longer than a line split, which `bevy_ui`
+keeps as they are; where those are more than the place has room for, two
+in the sidebar and one on top, it is cut to them, the last ending with
+"...", and the log keeps it whole. The game's own messages are printable
+ASCII and fit their place. Only the warning that the settings file could
+not be loaded is ever set in the game's own lines, since it quotes the
+file's path and what the file holds, which can be long or carry anything;
+and `ui::line_breaks` follows printable ASCII alone, so a message with
+anything else in it fits only on one line.
 In both arrangements the two players' columns stand centred together, and
 the order of travel is the same: the tabs, the tab's controls, Reset
 Controls, then Back. The longest default row, the Controller tab's
