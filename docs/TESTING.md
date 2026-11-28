@@ -441,7 +441,12 @@ the named sizes, a few fractional ones and a few larger windows - and
 check the same things from the layout's own boxes. The two halves
 check different things: the sweep reaches every size, at the cost of
 trusting the layout's own idea of where each box is, and the real layout
-checks that idea against `bevy_ui` at the sizes it runs.
+checks that idea against `bevy_ui` at the sizes it runs. The room the
+Viewer's label needs is the one input that comes from a text: its lines
+are counted as `bevy_ui` breaks them (`ui::replay::viewer::wrap`), and
+`the_label_check_counts_the_lines_bevy_ui_sets` lays several hundred
+labels out with `bevy_ui` at the header's narrowest width and holds the
+count to the lines it sets each on, label for label.
 
 It is also how a test presses a button. `ui::button` carries the helpers -
 `click`, `hover`, `mouse_button`, `queue_mouse_button` for a key in the same
@@ -591,7 +596,8 @@ tests in `gameplay::countdown`: the recorded reveal frame carries the cleaned
 board and the sweep's credits, and validation re-derives both from the
 persisted selections.
 Viewer tests assert the Back/Match Settings navigation contract, modal
-exclusion and cleanup, old-Replay Off/Legacy defaults, and 1040x900 fit.
+exclusion and cleanup, old-Replay Off/Legacy defaults, and fit at every
+window size from the 1040x600 minimum up, as above.
 
 Run the same storage contract against an in-memory/mock backend in native tests.
 It should cover successful reads and writes, missing values, invalid serialized
@@ -1026,14 +1032,19 @@ the panel fits the window, and since 2026-11-28 a test holds that:
 `the_key_stands_inside_the_window_in_either_form` in `ui::replay::viewer`
 lays the Key out at every named window size and at either side of the
 height where it turns to two columns, holds it 12 px inside the window,
-and holds its height in each form to the figure the layout chooses its
-form by - 698 px in one column and 494 in two, read from the `ComputedNode`
-of its panel at a scale factor of 1, where text rounds up the most (695 px
-in one column on a display at twice that). A row that grows changes those
-figures and fails the test until they are measured again. In one column
-a Key sentence wraps at 65 characters - 624 px of 16 px monospace - so the
-same `textwrap` count predicts its lines, and each line costs about 19.5
-px; in two columns, at 44.
+and holds its height in each form to the figure measured for it, read from
+the `ComputedNode` of its panel at a scale factor of 1: 698 px in one
+column, which is what the layout chooses the Key's form by, and 494 in
+two. At twice that scale it measured 695 px in one column, on that day's
+captures - text rounds up to whole physical pixels, which adds less at a
+finer scale - and below a scale of 1, as in a zoomed-out browser, it was
+not measured. A row that grows changes those figures and fails the test
+until they are measured again. In one column a Key sentence wraps at 65
+characters - 624 px of 16 px monospace - so the same `textwrap` count
+predicts its lines, and each line costs about 19.5 px; in two columns, at
+44. The score badges' sentence points to the result line, which tall and
+wide put in different places, so it has a wording for each arrangement;
+the two wrap at the same places at either width.
 
 ### Capturing a screen to a file
 
