@@ -753,8 +753,9 @@ struct SearchLabel {
 /// The search field's `label` as it is shown, for a field whose lines hold
 /// `chars` characters. Where `bevy_ui` sets the label on the field's
 /// [`SEARCH_FIELD_LINES`] lines, breaking them where it breaks them -
-/// after a space, a hyphen or a slash, and never before a closing bracket or
-/// `!` - and no line runs past the field's sides, it is shown whole and
+/// after a space, a hyphen, a slash or the caret's `|`, and never before
+/// `)` `]` `}` `!` `?` `,` `.` `:` `;` or `/`, even after a space - and no
+/// line runs past the field's sides, it is shown whole and
 /// `bevy_ui` sets it so, as it always has. Otherwise - a longer label, one
 /// that would take a third line, or a word longer than a line - it is cut to
 /// one line, as a field scrolls its text, with [`CUT_MARK`] at each end cut
@@ -1076,13 +1077,13 @@ mod tests {
     }
 
     /// The search field's text, on texts worked out by hand: whole where
-    /// `bevy_ui` sets it on the field's two lines, breaking them after a
-    /// space, a hyphen or a slash; and otherwise - a longer text, a word
+    /// `bevy_ui` sets it on the field's two lines, breaking them after a space,
+    /// a hyphen, a slash or the caret; and otherwise - a longer text, a word
     /// longer than a line, or a space before "!" that no line may break at -
     /// cut to one line, with its end, where the caret is among its last
-    /// characters or the field is unfocused; with its start, where the caret
-    /// is among its first; and otherwise with the run that ends at the
-    /// caret. A cut text is exactly a line long, and always shows the caret.
+    /// characters or the field is unfocused; with its start, where the caret is
+    /// among its first; and otherwise with the run that ends at the caret. A
+    /// cut text is exactly a line long, and always shows the caret.
     #[test]
     fn the_search_fields_text_is_whole_in_two_lines_or_cut_around_the_caret() {
         assert_eq!(search_field_chars(250.0), 25);
@@ -1103,6 +1104,9 @@ mod tests {
         assert_eq!(shown(hyphen, 21, 12), (hyphen.to_string(), false));
         let slash = "Search: abc/defghijkl|";
         assert_eq!(shown(slash, 21, 12), (slash.to_string(), false));
+        // "Search: abc|" and "defghijkl": a break after the caret's mark.
+        let caret = "Search: abc|defghijkl";
+        assert_eq!(shown(caret, 11, 12), (caret.to_string(), false));
         // No break before the "!": "Search: ", "abc ! " and "defghij|".
         let bang = "Search: abc ! defghij|";
         assert_eq!(shown(bang, 21, 12), ("... defghij|".to_string(), true));
@@ -1132,16 +1136,18 @@ mod tests {
     }
 
     /// A query of the 60 characters a label can have, and a shorter one, in
-    /// words, as one word, and in words joined by hyphens and by slashes, and
-    /// a query with a space before "!" as the last character a line of the
-    /// field holds, typed in and not, with the header on two rows at
-    /// 1040x900, where the field is 500 px, and on one at 1150x768, where it
-    /// is 250. Where `bevy_ui` sets the query on the field's two lines, it is
-    /// drawn whole on them, as it always was: words joined by hyphens or
-    /// slashes break after them. Where it does not, it is drawn on one line,
-    /// cut around the caret: a longer query, a word longer than a line, and
-    /// the space before "!", where no line may break, so that the word
-    /// before it moves down and takes a third line, one more than spaces
+    /// words, as one word, and in words joined by hyphens and by slashes; and
+    /// queries with a space before "!" as the last character a line of the
+    /// field holds, of 39 characters and of 97 - longer than a label can be, as
+    /// a query may be, since in the wider field no 60 can put the "!" there and
+    /// still take a third line. Each is typed in and not, with the header on
+    /// two rows at 1040x900, where the field is 500 px, and on one at 1150x768,
+    /// where it is 250. Where `bevy_ui` sets the query on the field's two
+    /// lines, it is drawn whole on them, as it always was: words joined by
+    /// hyphens or slashes break after them. Where it does not, it is drawn on
+    /// one line, cut around the caret: a longer query, a word longer than a
+    /// line, and the space before "!", where no line may break, so that the
+    /// word before it moves down and takes a third line, one more than spaces
     /// alone would. Laid out whole, as a query that fits is, each of those
     /// takes that third line or runs past the field's side. Either way the
     /// field's text stays inside it, nothing runs under Clear or over the

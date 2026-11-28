@@ -5,11 +5,14 @@
 //! it takes, and the Replay Library's search field and Settings' error line
 //! to know whether a text fits them whole.
 //!
-//! Every text in the game is printable ASCII in a monospaced font (see
-//! [`crate::ui::text_metrics`]), so a line's width is its length in
-//! characters, and where it may break depends only on which characters
-//! stand around the place. All three parts of the answer are rules,
-//! followed here exactly rather than estimated:
+//! The game's own strings, the Replay labels and the search queries are
+//! printable ASCII, in a monospaced font (see [`crate::ui::text_metrics`]),
+//! so a line's width is its length in characters, and where it may break
+//! depends only on which characters stand around the place. Settings'
+//! error line can carry anything, since it quotes a path or a setting's
+//! value from the settings file, and [`fits`] takes a text with anything
+//! else in it on one line only. For printable ASCII, all three parts of the
+//! answer are rules, followed here exactly rather than estimated:
 //!
 //! * **How many characters a line holds** is what parley, the layout
 //!   engine `bevy_ui` uses, counts: it adds the font's advance, as it
@@ -49,8 +52,9 @@
 //! In the game, a test in `ui::replay::viewer` lays a corpus of labels out
 //! with `bevy_ui` at several widths and holds where each of their lines
 //! starts to this, character for character, which a change to any one rule
-//! here fails; the search field's and the error line's tests hold their
-//! fits to what `bevy_ui` draws.
+//! here fails. The search field's test holds its fit to what `bevy_ui`
+//! draws both ways, laying each query it cuts out whole as well; the error
+//! line's tests hold what it draws to its place.
 
 /// The font's advance at `font_px`, in pixels at a scale factor of 1, as
 /// parley scales it: 600 units of a 1000-unit em, the size divided by the
