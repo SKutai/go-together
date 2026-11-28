@@ -318,6 +318,7 @@ mod tests {
         let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .insert_state(AppScreen::Home)
+            .add_plugins(crate::app::visuals::WindowLayoutPlugin)
             .add_plugins(UiFocusPlugin)
             .add_plugins(ReplayLibraryPlugin)
             .insert_resource(library)
@@ -1379,9 +1380,9 @@ mod tests {
     /// the first card shown, the first card moves back and every card on
     /// the page moves down as many places, and the ring moves with them: it
     /// stays drawn on the same button of the same Replay, not on the same
-    /// place on the page. Through the screen's own plugin and the focus
-    /// core, with the window's size written as the game's tracker writes
-    /// it; a pass that left the ring's memory where it was would draw it on
+    /// place on the page. Through the screen's own plugin, the focus core
+    /// and the game's own window tracking, the window itself resized; a
+    /// pass that left the ring's memory where it was would draw it on
     /// another Replay's card.
     #[test]
     fn the_ring_stays_on_its_replay_when_a_taller_window_moves_the_page_back() {
@@ -1412,8 +1413,15 @@ mod tests {
         tab_to(&mut app, target);
         assert_eq!(focused(&app), Some(target));
 
-        app.world_mut().insert_resource(WindowSize(taller));
+        {
+            let world = app.world_mut();
+            let mut windows =
+                world.query_filtered::<&mut Window, With<bevy::window::PrimaryWindow>>();
+            let mut window = windows.single_mut(world).unwrap();
+            window.resolution.set(taller.x, taller.y);
+        }
         app.update();
+        assert_eq!(app.world().resource::<WindowSize>().0, taller);
         app.update();
         assert_eq!(ui(&app).scroll_offset, 10 - after);
         let now = focused(&app).expect("the ring is drawn");
