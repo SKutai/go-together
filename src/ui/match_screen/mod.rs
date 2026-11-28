@@ -1584,6 +1584,34 @@ mod tests {
         app
     }
 
+    /// The game draws a window smaller than the minimum as the minimum's,
+    /// scaled down and centred, with the pointer landing where things are
+    /// drawn: the Match's furniture laid out as at the minimum and drawn
+    /// inside the window, and its board, which the main camera draws,
+    /// scaled with it.
+    #[test]
+    fn a_window_below_the_minimum_draws_the_minimums_match_scaled_down() {
+        use crate::ui::focus::{
+            BELOW_THE_MINIMUM, assert_drawn_as_the_minimum_scaled_down,
+            assert_scene_drawn_as_the_minimum_scaled_down, draw_as_the_game_does,
+        };
+
+        let mut below = match_layout_app(BELOW_THE_MINIMUM, GameState::default());
+        draw_as_the_game_does(&mut below);
+        let mut minimum = match_layout_app(WindowSize::MINIMUM.0, GameState::default());
+        draw_as_the_game_does(&mut minimum);
+        assert_drawn_as_the_minimum_scaled_down(&mut below, &mut minimum, "the Match");
+        assert_scene_drawn_as_the_minimum_scaled_down(
+            &mut below,
+            &mut minimum,
+            &[
+                Vec2::new(0.0, BOARD_CENTER_Y),
+                board_position(Point::new(0, 0)),
+            ],
+            "the Match",
+        );
+    }
+
     /// The line under the result is laid out only once the Match has
     /// ended. During play it takes no room: in tall the Match timer stands
     /// where it always has, directly under the heading, and when the Match

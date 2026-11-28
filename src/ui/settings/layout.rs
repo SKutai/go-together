@@ -1419,6 +1419,36 @@ pub(super) mod tests {
         assert_eq!(frame_tree(&mut resized), frame_tree(&mut minimum));
     }
 
+    /// The game draws a window smaller than the minimum as the minimum's,
+    /// scaled down and centred, with the pointer landing where things are
+    /// drawn: each tab's frame laid out as at the minimum, in the sidebar,
+    /// and drawn inside the window.
+    #[test]
+    fn a_window_below_the_minimum_draws_the_minimums_settings_scaled_down() {
+        use crate::ui::focus::{
+            BELOW_THE_MINIMUM, assert_drawn_as_the_minimum_scaled_down, draw_as_the_game_does,
+        };
+
+        use super::super::MappingTab;
+
+        for tab in [
+            MappingTab::Preferences,
+            MappingTab::Game,
+            MappingTab::Keyboard,
+            MappingTab::Controller,
+        ] {
+            let laid_out = |window: Vec2| {
+                let mut mapping = ControlMappingState::new(None);
+                mapping.tab = tab;
+                let mut app = laid_out_settings(window, mapping, MatchSettings::default());
+                draw_as_the_game_does(&mut app);
+                app
+            };
+            let (mut below, mut minimum) = (laid_out(BELOW_THE_MINIMUM), laid_out(WindowSize::MINIMUM.0));
+            assert_drawn_as_the_minimum_scaled_down(&mut below, &mut minimum, &format!("{tab:?}"));
+        }
+    }
+
     /// When the window's size changes while Settings is shown, the frame
     /// becomes exactly what entering it at the new size makes - every node's
     /// place, the footer's parent and the error line's justification - into

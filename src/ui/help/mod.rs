@@ -2015,6 +2015,34 @@ mod tests {
         }
     }
 
+    /// The game draws that window as the minimum's, scaled down and
+    /// centred, with the pointer landing where things are drawn: the
+    /// modal's two columns over Home and over the Match, laid out as at
+    /// the minimum, drawn inside the window, the arrows and Close reached
+    /// where they are drawn. Through the HUD's own plugin and the game's
+    /// window layout.
+    #[test]
+    fn a_window_below_the_minimum_draws_the_minimums_modal_scaled_down() {
+        use crate::app::visuals::WindowSize;
+        use crate::ui::focus::{
+            BELOW_THE_MINIMUM, assert_drawn_as_the_minimum_scaled_down, draw_as_the_game_does,
+        };
+
+        for screen in [AppScreen::Home, AppScreen::Match] {
+            let mut below = help_over(screen, BELOW_THE_MINIMUM);
+            open_on_page(&mut below, 0);
+            draw_as_the_game_does(&mut below);
+            let mut minimum = help_over(screen, WindowSize::MINIMUM.0);
+            open_on_page(&mut minimum, 0);
+            draw_as_the_game_does(&mut minimum);
+            assert_drawn_as_the_minimum_scaled_down(
+                &mut below,
+                &mut minimum,
+                &format!("Help over {screen:?}"),
+            );
+        }
+    }
+
     /// A change of screen moves the open modal to where the new screen puts
     /// it, through real transitions, with the HUD's own plugin and the game's
     /// window tracking, the window never resized: from Home to the Match and

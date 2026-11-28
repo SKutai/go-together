@@ -1873,6 +1873,25 @@ mod tests {
         assert_eq!(cards(&mut app).len(), minimum.cards_per_page());
     }
 
+    /// The game draws that window as the minimum's, scaled down and
+    /// centred, with the pointer landing where things are drawn: the page
+    /// of two cards, laid out as at the minimum, drawn inside the window.
+    /// Through the screen's own plugin and the game's window layout.
+    #[test]
+    fn a_window_below_the_minimum_draws_the_minimums_page_scaled_down() {
+        use crate::app::visuals::WindowSize;
+        use crate::ui::focus::{
+            BELOW_THE_MINIMUM, assert_drawn_as_the_minimum_scaled_down, draw_as_the_game_does,
+        };
+
+        let mut below = library_entered_at(BELOW_THE_MINIMUM, 20, None, false);
+        draw_as_the_game_does(&mut below);
+        let mut minimum = library_entered_at(WindowSize::MINIMUM.0, 20, None, false);
+        draw_as_the_game_does(&mut minimum);
+        assert_eq!(cards(&mut below).len(), 2);
+        assert_drawn_as_the_minimum_scaled_down(&mut below, &mut minimum, "the Library");
+    }
+
     /// A change of the window's width that changes nothing the screen is
     /// built from rebuilds nothing - every card is the entity it was - and
     /// the page follows the window all the same, by flex: in one column from

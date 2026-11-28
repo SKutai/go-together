@@ -233,6 +233,32 @@ mod tests {
         app
     }
 
+    /// The game draws a window smaller than the minimum as the minimum's,
+    /// scaled down and centred, with the pointer landing where things are
+    /// drawn: the panel and the bars laid out as at the minimum and drawn
+    /// inside the window, and the diamond, which the main camera draws,
+    /// scaled with them.
+    #[test]
+    fn a_window_below_the_minimum_draws_the_minimums_home_scaled_down() {
+        use crate::app::visuals::WindowSize;
+        use crate::ui::focus::{
+            BELOW_THE_MINIMUM, assert_drawn_as_the_minimum_scaled_down,
+            assert_scene_drawn_as_the_minimum_scaled_down, draw_as_the_game_does,
+        };
+
+        let mut below = home_layout_app(BELOW_THE_MINIMUM);
+        draw_as_the_game_does(&mut below);
+        let mut minimum = home_layout_app(WindowSize::MINIMUM.0);
+        draw_as_the_game_does(&mut minimum);
+        assert_drawn_as_the_minimum_scaled_down(&mut below, &mut minimum, "Home");
+        assert_scene_drawn_as_the_minimum_scaled_down(
+            &mut below,
+            &mut minimum,
+            &[Vec2::ZERO, Vec2::new(180.0, -90.0)],
+            "Home",
+        );
+    }
+
     /// The boxes of the panel and of each marimba bar, lowest note first, in
     /// logical pixels from the window's top-left, as `bevy_ui` laid them
     /// out.

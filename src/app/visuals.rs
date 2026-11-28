@@ -19,9 +19,11 @@
 //! of the lines of notes over its list, the Replay Viewer's of its Replay's
 //! label, whose lines in the header it counts, and the Help modal's place of
 //! the screen it is open over. [`WINDOW_WIDTH`] and [`WINDOW_HEIGHT`] are
-//! only the size the window opens at, and the window keeps it: it is not
-//! resizable. Every screen - the Match screen, Home, Settings, both Replay
-//! screens and the Help modal - is laid out for any size.
+//! only the size the window opens at: a player can resize it, maximise it
+//! and make it fullscreen, and the browser build's canvas fills its page
+//! (`super::window`). Every screen - the Match screen, Home, Settings, both
+//! Replay screens and the Help modal - is laid out for any size from the
+//! minimum up.
 //!
 //! Text and controls are `bevy_ui` nodes, which no camera transform touches,
 //! so they keep their size whatever the window does. What grows and shrinks
@@ -40,6 +42,27 @@
 //! camera stays at a scale of 1 over the origin, as it always was:
 //! [`reset_world_framing_on_screen_change`] puts the framing back on every
 //! change of screen, so no screen inherits another's zoom.
+//!
+//! # Below the minimum
+//!
+//! A window smaller than the minimum in either direction - fullscreen on a
+//! screen smaller than it, or under a window manager that ignores the
+//! minimum the window asks for - gets the layout for
+//! [`WindowSize::layout`], drawn scaled down by one factor until it fits
+//! and centred, with the window's background around it ([`Letterbox`]). So
+//! it shows exactly what a window of that layout's size shows, smaller,
+//! which is the one place text is drawn below the 14 px floor. The scale
+//! is applied in one place, [`frame_main_camera`], and three ways at once:
+//! the main camera's viewport is the drawn rectangle, so the camera draws
+//! nothing outside it and `bevy_ui` lays out and hit-tests inside it;
+//! `bevy_ui`'s `UiScale` is the scale, so the interface lays itself out at
+//! the layout's size inside that rectangle; and the camera's projection
+//! takes it too, so the world-space scene shrinks with the interface around
+//! it. `UiScale` is 1 for every window at least the minimum, and never
+//! above 1. A pointer lands where things are drawn, because picking reads
+//! the same viewport and scale. In a browser the page never makes the
+//! canvas smaller than the minimum: there the page itself draws a smaller
+//! one scaled down (`web/shell.js`), and the scale here stays 1.
 //!
 //! # Key items
 //!
@@ -75,6 +98,7 @@
 //! Add new shared geometry or handles here; add screen-specific layout to the
 //! owning `ui` module instead.
 
+use bevy::camera::Viewport;
 use bevy::prelude::*;
 use bevy::state::state::StateTransitionEvent;
 use bevy::window::PrimaryWindow;
@@ -85,10 +109,10 @@ use crate::presentation::{
 };
 use crate::rules::{BOARD_SIZE, Cell, Player, Point};
 
-/// The window's size when the game opens, in logical pixels. An adapted
-/// layout does not read these: it reads [`WindowSize`], which starts at
-/// this size. Every screen is adapted now, and none places itself from
-/// them.
+/// The window's size when the game opens, in logical pixels: on a desktop,
+/// where the monitor has room for it (`super::window`). No layout reads
+/// these: every screen reads [`WindowSize`], which starts at this size and
+/// follows the window wherever the player takes it.
 pub(crate) const WINDOW_WIDTH: u32 = 1040;
 pub(crate) const WINDOW_HEIGHT: u32 = 900;
 /// The smallest window the layouts are made for, in logical pixels. A
@@ -340,9 +364,10 @@ impl WindowSize {
         Self(Vec2::new(MIN_WINDOW_WIDTH as f32, MIN_WINDOW_HEIGHT as f32));
 
     /// The size a layout is computed for: the window's own, raised to
-    /// [`Self::MINIMUM`] in each direction it falls short in. Only a
-    /// browser window or a screen smaller than the minimum can be smaller,
-    /// and there the layout is the minimum's.
+    /// [`Self::MINIMUM`] in each direction it falls short in. A window is
+    /// smaller only when the platform lets it be - fullscreen on a screen
+    /// smaller than the minimum, or a window manager that ignores the
+    /// minimum - and there the layout is drawn as its [`Letterbox`] says.
     pub(crate) fn layout(self) -> Vec2 {
         self.0.max(Self::MINIMUM.0)
     }
@@ -358,12 +383,74 @@ impl Default for WindowSize {
 /// the window changes, writing only when the size itself is different.
 /// Runs in `PreUpdate`, so every `Update` layout pass sees this frame's
 /// size, and `bevy_ui` lays out against the same size later in the frame.
+/// A window with no area draws nothing - Windows reports a minimised one
+/// as 0x0 - so it keeps the size it had, and no screen is laid out again
+/// for it and then again on the way back.
 pub(crate) fn track_window_size(
     windows: Query<&Window, (With<PrimaryWindow>, Changed<Window>)>,
     mut size: ResMut<WindowSize>,
 ) {
     for window in &windows {
-        size.set_if_neq(WindowSize(window.size()));
+        let window = window.size();
+        if window.x > 0.0 && window.y > 0.0 {
+            size.set_if_neq(WindowSize(window));
+        }
+    }
+}
+
+/// How a window is drawn: the layout for [`WindowSize::layout`], scaled
+/// down by one factor until it fits the window and centred in it. For a
+/// window at least the minimum that is the window itself, at a scale of 1;
+/// see the module docs for a smaller one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Letterbox {
+    /// How much smaller than the layout's own size it is drawn: the
+    /// smaller of the window's width and height against the layout's, and
+    /// never above 1.
+    pub(crate) scale: f32,
+    /// Where it is drawn, in logical pixels from the window's top-left.
+    pub(crate) drawn: Rect,
+}
+
+impl Letterbox {
+    /// How a window of `window` logical pixels is drawn. A window with no
+    /// area draws nothing, and is given the scale of 1 that leaves the
+    /// camera as it was.
+    pub(crate) fn for_window(window: Vec2) -> Self {
+        let layout = WindowSize(window).layout();
+        let scale = if window.x > 0.0 && window.y > 0.0 {
+            (window / layout).min_element().min(1.0)
+        } else {
+            1.0
+        };
+        let size = layout * scale;
+        let min = (window - size) / 2.0;
+        Self {
+            scale,
+            drawn: Rect::from_corners(min, min + size),
+        }
+    }
+
+    /// The main camera's viewport for this letterbox in a window of
+    /// `physical` pixels at `scale_factor`: `None`, the whole window, at a
+    /// scale of 1, and otherwise the drawn rectangle in whole pixels,
+    /// centred. Across the direction the window binds, the rectangle is the
+    /// window's whole width or height; along the other it is rounded up,
+    /// so that `bevy_ui`, dividing by the scale again, lays out no less
+    /// than the layout's size there - at most a fraction of a pixel more.
+    pub(crate) fn viewport(self, physical: UVec2, scale_factor: f32) -> Option<Viewport> {
+        if self.scale >= 1.0 {
+            return None;
+        }
+        let size = (self.drawn.size() * scale_factor)
+            .ceil()
+            .as_uvec2()
+            .min(physical);
+        Some(Viewport {
+            physical_position: (physical - size) / 2,
+            physical_size: size,
+            ..default()
+        })
     }
 }
 
@@ -438,16 +525,44 @@ impl Default for WorldFraming {
 }
 
 /// Gives the main camera the projection scale and translation
-/// [`WorldFraming`] asks for, writing only what differs. Runs in
-/// `PostUpdate` before the camera's projection is recomputed and transforms
-/// are propagated, so a framing written during `Update` is drawn that same
-/// frame.
+/// [`WorldFraming`] asks for, and draws a window smaller than the minimum
+/// as its [`Letterbox`] says: the camera's viewport, `bevy_ui`'s
+/// `UiScale` and the projection all take the letterbox's scale. Writes only
+/// what differs, and `UiScale` only when the letterbox's scale changes, so
+/// that a capture probe's own `UiScale` stands while the window keeps its
+/// size. A window with no area changes nothing. Runs in `PostUpdate`
+/// before the camera's projection is recomputed and transforms are
+/// propagated, and so before `bevy_ui` reads the camera and lays out, so a
+/// framing written during `Update` is drawn that same frame.
 pub(crate) fn frame_main_camera(
     framing: Res<WorldFraming>,
-    mut cameras: Query<(&mut Projection, &mut Transform), With<MainCamera>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    ui_scale: Option<ResMut<UiScale>>,
+    mut scale_written: Local<Option<f32>>,
+    mut cameras: Query<(Option<&mut Camera>, &mut Projection, &mut Transform), With<MainCamera>>,
 ) {
-    let scale = 1.0 / framing.zoom;
-    for (mut projection, mut transform) in &mut cameras {
+    let window = windows.single().ok();
+    if window.is_some_and(|window| !(window.width() > 0.0 && window.height() > 0.0)) {
+        return;
+    }
+    let letterbox = window.map(|window| Letterbox::for_window(window.size()));
+    let fit = letterbox.map_or(1.0, |letterbox| letterbox.scale);
+    if *scale_written != Some(fit) {
+        if let Some(mut ui_scale) = ui_scale {
+            ui_scale.0 = fit;
+        }
+        *scale_written = Some(fit);
+    }
+    let viewport = window.zip(letterbox).and_then(|(window, letterbox)| {
+        letterbox.viewport(window.physical_size(), window.scale_factor())
+    });
+    let scale = 1.0 / (framing.zoom * fit);
+    for (camera, mut projection, mut transform) in &mut cameras {
+        if let Some(mut camera) = camera
+            && !same_viewport(camera.viewport.as_ref(), viewport.as_ref())
+        {
+            camera.viewport = viewport.clone();
+        }
         if let Projection::Orthographic(current) = projection.as_ref()
             && current.scale != scale
             && let Projection::Orthographic(orthographic) = projection.as_mut()
@@ -458,6 +573,19 @@ pub(crate) fn frame_main_camera(
         if transform.translation != translation {
             transform.translation = translation;
         }
+    }
+}
+
+/// Whether two viewports are the same, as Bevy's `Viewport` cannot say.
+fn same_viewport(a: Option<&Viewport>, b: Option<&Viewport>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => {
+            a.physical_position == b.physical_position
+                && a.physical_size == b.physical_size
+                && a.depth == b.depth
+        }
+        _ => false,
     }
 }
 
@@ -763,6 +891,32 @@ mod tests {
                 .physical_size(),
             UVec2::new(2560, 1282)
         );
+
+        // Minimised to no area, as Windows reports it: nothing to lay out
+        // for, so the size stays; and back.
+        for size in [Vec2::ZERO, Vec2::new(1280.0, 0.0), Vec2::new(0.0, 641.0)] {
+            app.world_mut()
+                .get_mut::<Window>(window)
+                .unwrap()
+                .resolution
+                .set(size.x, size.y);
+            app.update();
+        }
+        assert_eq!(app.world().resource::<WindowSize>().0, Vec2::new(1280.0, 641.0));
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .resolution
+            .set(1366.0, 689.0);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Seen>().0,
+            [
+                Vec2::new(1040.0, 900.0),
+                Vec2::new(1280.0, 641.0),
+                Vec2::new(1366.0, 689.0)
+            ]
+        );
     }
 
     #[test]
@@ -807,6 +961,226 @@ mod tests {
         }
     }
 
+    /// A window at least the minimum is drawn as itself; a smaller one, in
+    /// either direction or both, draws the layout for its raised size,
+    /// scaled by the smaller of its two ratios to that layout, centred.
+    /// Each threshold on both sides, a window wider than the minimum but
+    /// short, one tall but narrow, and one with no area.
+    #[test]
+    fn a_window_smaller_than_the_minimum_is_drawn_scaled_and_centred() {
+        let rect = |x: f32, y: f32, w: f32, h: f32| Rect::new(x, y, x + w, y + h);
+        for window in [
+            Vec2::new(1040.0, 600.0),
+            Vec2::new(1040.0, 900.0),
+            Vec2::new(2560.0, 1440.0),
+        ] {
+            assert_eq!(
+                Letterbox::for_window(window),
+                Letterbox {
+                    scale: 1.0,
+                    drawn: rect(0.0, 0.0, window.x, window.y),
+                },
+                "{window}"
+            );
+        }
+        let close = |actual: Letterbox, scale: f32, drawn: Rect, context: &str| {
+            assert!((actual.scale - scale).abs() < 1e-5, "{context}: {actual:?}");
+            assert!(
+                (actual.drawn.min - drawn.min).abs().max_element() < 1e-3
+                    && (actual.drawn.max - drawn.max).abs().max_element() < 1e-3,
+                "{context}: {actual:?}"
+            );
+        };
+        // 800x500: the width binds, at 800/1040; 600 tall is drawn 461.5
+        // tall, 19.2 from the top.
+        close(
+            Letterbox::for_window(Vec2::new(800.0, 500.0)),
+            800.0 / 1040.0,
+            rect(0.0, 19.230_77, 800.0, 461.538_46),
+            "800x500",
+        );
+        // One pixel short of the minimum either way.
+        close(
+            Letterbox::for_window(Vec2::new(1039.0, 900.0)),
+            1039.0 / 1040.0,
+            rect(0.0, 0.432_69, 1039.0, 899.134_6),
+            "1039x900",
+        );
+        close(
+            Letterbox::for_window(Vec2::new(1040.0, 599.0)),
+            599.0 / 600.0,
+            rect(0.866_67, 0.0, 1_038.266_7, 599.0),
+            "1040x599",
+        );
+        // Wide but short: laid out 1600x600 and drawn at 0.8, 1280 wide,
+        // 160 in from either side.
+        close(
+            Letterbox::for_window(Vec2::new(1600.0, 480.0)),
+            0.8,
+            rect(160.0, 0.0, 1280.0, 480.0),
+            "1600x480",
+        );
+        // Tall but narrow: laid out 1040x1000 and drawn at 1000/1040.
+        close(
+            Letterbox::for_window(Vec2::new(1000.0, 1000.0)),
+            1000.0 / 1040.0,
+            rect(0.0, 19.230_77, 1000.0, 961.538_5),
+            "1000x1000",
+        );
+        assert_eq!(Letterbox::for_window(Vec2::ZERO).scale, 1.0);
+        assert_eq!(Letterbox::for_window(Vec2::new(800.0, 0.0)).scale, 1.0);
+    }
+
+    /// The camera's viewport is the drawn rectangle in whole physical
+    /// pixels, centred: the window's whole extent where it binds, rounded
+    /// up along the other, so that the layout's size divided back out is
+    /// never less than the layout. None at a scale of 1.
+    #[test]
+    fn the_letterbox_viewport_covers_the_layout_in_whole_pixels() {
+        assert!(
+            Letterbox::for_window(Vec2::new(1040.0, 600.0))
+                .viewport(UVec2::new(1040, 600), 1.0)
+                .is_none()
+        );
+        for (window, scale_factor, position, size) in [
+            // 800x500 at 1 and at 2: 461.54 and 923.08 rounded up.
+            (UVec2::new(800, 500), 1.0, UVec2::new(0, 19), UVec2::new(800, 462)),
+            (UVec2::new(1600, 1000), 2.0, UVec2::new(0, 38), UVec2::new(1600, 924)),
+            // 1600x480 at 1.25: 2000x600 physical, drawn 1600x600 of it.
+            (UVec2::new(2000, 600), 1.25, UVec2::new(200, 0), UVec2::new(1600, 600)),
+        ] {
+            let logical = window.as_vec2() / scale_factor;
+            let letterbox = Letterbox::for_window(logical);
+            let viewport = letterbox
+                .viewport(window, scale_factor)
+                .expect("smaller than the minimum");
+            assert_eq!(viewport.physical_position, position, "{logical}");
+            assert_eq!(viewport.physical_size, size, "{logical}");
+            // What bevy_ui lays out in: the viewport over the scale factor
+            // and the letterbox's scale - the layout, or a fraction more.
+            let laid_out = viewport.physical_size.as_vec2() / (scale_factor * letterbox.scale);
+            let layout = WindowSize(logical).layout();
+            assert!(
+                laid_out.cmpge(layout - 1e-3).all() && laid_out.cmplt(layout + 1.0).all(),
+                "{logical}: {laid_out}"
+            );
+        }
+    }
+
+    /// A window smaller than the minimum is drawn letterboxed by the main
+    /// camera alone, through the production plugin: its viewport is the
+    /// drawn rectangle, `UiScale` is the letterbox's scale and the
+    /// projection takes it on top of the framing's zoom. At the minimum
+    /// and above, the whole window at a scale of 1. `UiScale` is written
+    /// only when the letterbox's scale changes, so another writer's value
+    /// stands while the window keeps its size; and a window with no area
+    /// changes nothing.
+    #[test]
+    fn the_main_camera_draws_a_window_below_the_minimum_letterboxed() {
+        use bevy::window::WindowResolution;
+
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .add_plugins(bevy::transform::TransformPlugin)
+            .init_state::<AppScreen>()
+            .init_resource::<UiScale>()
+            .add_plugins(WindowLayoutPlugin);
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: WindowResolution::new(1600, 1000).with_scale_factor_override(2.0),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+        let camera = app
+            .world_mut()
+            .spawn((
+                MainCamera,
+                Camera::default(),
+                Projection::Orthographic(OrthographicProjection::default_2d()),
+                Transform::default(),
+            ))
+            .id();
+        // The first frame enters the first screen, which puts the framing
+        // back; a screen's own framing comes after it.
+        app.update();
+        *app.world_mut().resource_mut::<WorldFraming>() = WorldFraming {
+            zoom: 0.7,
+            center: Vec2::new(0.0, -20.0),
+        };
+        let drawn = |app: &App| {
+            let camera = app.world().get::<Camera>(camera).unwrap();
+            let Projection::Orthographic(projection) =
+                app.world().get::<Projection>(camera_entity(app)).unwrap()
+            else {
+                panic!("orthographic");
+            };
+            (
+                camera
+                    .viewport
+                    .as_ref()
+                    .map(|viewport| (viewport.physical_position, viewport.physical_size)),
+                projection.scale,
+                app.world().resource::<UiScale>().0,
+            )
+        };
+        fn camera_entity(app: &App) -> Entity {
+            let world = app.world();
+            world
+                .iter_entities()
+                .find(|entity| entity.contains::<MainCamera>())
+                .unwrap()
+                .id()
+        }
+        let resize = |app: &mut App, size: Vec2| {
+            app.world_mut()
+                .get_mut::<Window>(window)
+                .unwrap()
+                .resolution
+                .set(size.x, size.y);
+            app.update();
+        };
+
+        // 800x500 logical at a scale factor of 2.
+        app.update();
+        let (viewport, projection_scale, ui_scale) = drawn(&app);
+        let fit = 800.0 / 1040.0;
+        assert_eq!(viewport, Some((UVec2::new(0, 38), UVec2::new(1600, 924))));
+        assert!((ui_scale - fit).abs() < 1e-6, "{ui_scale}");
+        assert!(
+            (projection_scale - 1.0 / (0.7 * fit)).abs() < 1e-5,
+            "{projection_scale}"
+        );
+
+        // At the minimum and above: the whole window, as before.
+        for size in [Vec2::new(1040.0, 600.0), Vec2::new(1920.0, 1080.0)] {
+            resize(&mut app, size);
+            let (viewport, projection_scale, ui_scale) = drawn(&app);
+            assert_eq!(viewport, None, "{size}");
+            assert_eq!(ui_scale, 1.0, "{size}");
+            assert!((projection_scale - 1.0 / 0.7).abs() < 1e-6, "{size}");
+        }
+
+        // Another writer's UiScale stands while the size does, and gives
+        // way to the next change of the letterbox's scale.
+        app.world_mut().resource_mut::<UiScale>().0 = 2.0;
+        app.update();
+        assert_eq!(app.world().resource::<UiScale>().0, 2.0);
+        resize(&mut app, Vec2::new(1600.0, 480.0));
+        assert!((app.world().resource::<UiScale>().0 - 0.8).abs() < 1e-6);
+        let (viewport, ..) = drawn(&app);
+        assert_eq!(viewport, Some((UVec2::new(320, 0), UVec2::new(2560, 960))));
+
+        // Minimised: nothing changes, and restoring the size puts it back.
+        resize(&mut app, Vec2::ZERO);
+        let (viewport, _, ui_scale) = drawn(&app);
+        assert_eq!(viewport, Some((UVec2::new(320, 0), UVec2::new(2560, 960))));
+        assert!((ui_scale - 0.8).abs() < 1e-6);
+    }
+
     /// The main camera takes the framing as its projection scale and its
     /// translation, and nothing else does; a change of screen puts the
     /// framing back to a scale of 1 over the origin, and the camera with it.
@@ -827,13 +1201,14 @@ mod tests {
             .world_mut()
             .spawn((
                 MainCamera,
+                Camera::default(),
                 orthographic(),
                 Transform::from_xyz(0.0, 0.0, 999.0),
             ))
             .id();
         let other = app
             .world_mut()
-            .spawn((orthographic(), Transform::default()))
+            .spawn((Camera::default(), orthographic(), Transform::default()))
             .id();
         let camera = |app: &App, entity: Entity| {
             let Projection::Orthographic(projection) =

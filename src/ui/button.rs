@@ -407,10 +407,23 @@ pub(crate) fn touch(app: &mut App, phase: bevy::input::touch::TouchPhase, positi
     app.update();
 }
 
-/// The centre of `entity`'s node as laid out, in logical pixels from the
-/// window's top-left.
+/// The centre of `entity`'s node as it is drawn, in logical pixels from the
+/// window's top-left: [`drawn_rect`]'s centre.
 #[cfg(test)]
 pub(crate) fn centre_of(app: &App, entity: Entity) -> Vec2 {
+    drawn_rect(app, entity).center()
+}
+
+/// Where `entity`'s node is drawn, in logical pixels from the window's
+/// top-left. `bevy_ui` lays a node out in its camera's viewport, in the
+/// window's physical pixels, so this is the node's place in the viewport
+/// moved by the viewport's corner and divided by the window's scale
+/// factor. For a window at least the minimum that is where the layout
+/// puts it; for a smaller one, which the main camera draws letterboxed
+/// (`app::visuals`), it is where the player sees it, not where the layout
+/// alone would put it.
+#[cfg(test)]
+pub(crate) fn drawn_rect(app: &App, entity: Entity) -> Rect {
     let world = app.world();
     let node = world
         .get::<ComputedNode>(entity)
@@ -418,7 +431,20 @@ pub(crate) fn centre_of(app: &App, entity: Entity) -> Vec2 {
     let transform = world
         .get::<bevy::ui::UiGlobalTransform>(entity)
         .expect("a laid-out node has a global transform");
-    transform.translation * node.inverse_scale_factor
+    let camera = world
+        .get::<bevy::ui::ComputedUiTargetCamera>(entity)
+        .and_then(bevy::ui::ComputedUiTargetCamera::get)
+        .and_then(|camera| world.get::<Camera>(camera));
+    let corner = camera
+        .and_then(|camera| camera.viewport.as_ref())
+        .map_or(Vec2::ZERO, |viewport| viewport.physical_position.as_vec2());
+    let scale_factor = camera
+        .and_then(Camera::target_scaling_factor)
+        .unwrap_or(1.0);
+    Rect::from_center_size(
+        (corner + transform.translation) / scale_factor,
+        node.size() / scale_factor,
+    )
 }
 
 /// Moves the mouse onto the centre of `entity`, and runs one frame.
