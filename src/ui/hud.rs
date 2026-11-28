@@ -961,53 +961,80 @@ mod tests {
         assert_eq!(modal_entities(&mut app), [modal]);
     }
 
-    /// A closed modal's copy is not generated: its text entities are left
-    /// untouched while it is closed and filled on the frame it opens.
+    /// A closed modal's copy is not generated: its text entities - the
+    /// title, both columns of the page and the page's number - are left
+    /// untouched while it is closed and filled on the frame it opens. In the
+    /// opening window the page is all in the first column; in a window too
+    /// small for the one column it is already divided between the two on
+    /// that first frame, exactly as `page_columns` sets it.
     #[test]
     fn modal_copy_is_generated_only_while_its_modal_is_open() {
-        let mut app = App::new();
-        app.add_plugins(bevy::state::app::StatesPlugin)
-            .init_state::<AppScreen>()
-            .add_plugins(HudPlugin)
-            .insert_resource(GameState::default())
-            .insert_resource(GamePreferences::default())
-            .insert_resource(InputGate::default())
-            .insert_resource(GameplayPause::default())
-            .insert_resource(KeyboardBindings::default())
-            .insert_resource(crate::input::controller::ControllerBindings::default())
-            .insert_resource(crate::input::controller::ControllerAssignments::default());
-        app.update();
-        app.update();
-        let help_texts = |app: &mut App| -> Vec<String> {
-            let world = app.world_mut();
-            let mut texts: Vec<(u8, String)> = world
-                .query::<(&UiRole, &Text)>()
-                .iter(world)
-                .filter_map(|(role, text)| {
-                    let rank = match role {
-                        UiRole::HelpTitle => 0,
-                        UiRole::HelpBody => 1,
-                        UiRole::HelpPage => 2,
-                        _ => return None,
-                    };
-                    Some((rank, text.0.clone()))
-                })
-                .collect();
-            texts.sort();
-            texts.into_iter().map(|(_, text)| text).collect()
-        };
-        assert_eq!(
-            help_texts(&mut app),
-            ["", "", ""],
-            "closed, the modal's text is never generated"
-        );
+        use crate::input::controller::{ControllerAssignments, ControllerBindings};
 
-        app.world_mut().resource_mut::<HudState>().help_open = true;
-        app.update();
-        let [title, body, page] = <[String; 3]>::try_from(help_texts(&mut app)).unwrap();
-        assert_eq!(title, "Keyboard Controls");
-        assert!(body.starts_with("PLAYER 1 - BLACK"));
-        assert_eq!(page, "Page 1 of 11");
+        for window in [WindowSize::OPENING, WindowSize::MINIMUM] {
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin)
+                .init_state::<AppScreen>()
+                .insert_resource(window)
+                .add_plugins(HudPlugin)
+                .insert_resource(GameState::default())
+                .insert_resource(GamePreferences::default())
+                .insert_resource(InputGate::default())
+                .insert_resource(GameplayPause::default())
+                .insert_resource(KeyboardBindings::default())
+                .insert_resource(ControllerBindings::default())
+                .insert_resource(ControllerAssignments::default());
+            app.update();
+            app.update();
+            let help_texts = |app: &mut App| -> Vec<String> {
+                let world = app.world_mut();
+                let mut texts: Vec<(u8, String)> = world
+                    .query::<(&UiRole, &Text)>()
+                    .iter(world)
+                    .filter_map(|(role, text)| {
+                        let rank = match role {
+                            UiRole::HelpTitle => 0,
+                            UiRole::HelpBody => 1,
+                            UiRole::HelpBodyContinued => 2,
+                            UiRole::HelpPage => 3,
+                            _ => return None,
+                        };
+                        Some((rank, text.0.clone()))
+                    })
+                    .collect();
+                texts.sort();
+                texts.into_iter().map(|(_, text)| text).collect()
+            };
+            let context = format!("{}", window.0);
+            assert_eq!(
+                help_texts(&mut app),
+                ["", "", "", ""],
+                "{context}: closed, the modal's text is never generated"
+            );
+
+            app.world_mut().resource_mut::<HudState>().help_open = true;
+            app.update();
+            let [title, first, second, page] =
+                <[String; 4]>::try_from(help_texts(&mut app)).unwrap();
+            assert_eq!(title, "Keyboard Controls", "{context}");
+            assert_eq!(page, "Page 1 of 11", "{context}");
+            let (_, body) = help_page(
+                0,
+                &KeyboardBindings::default(),
+                &ControllerBindings::default(),
+                &ControllerAssignments::default(),
+            );
+            let layout = help_layout(window.layout());
+            if layout.two_columns() {
+                assert_eq!([first, second], page_columns(&body, &layout), "{context}");
+            } else {
+                assert_eq!(
+                    [first.as_str(), second.as_str()],
+                    [body.as_str(), ""],
+                    "{context}"
+                );
+            }
+        }
     }
 
     /// The shared pass styles a `HudAction` button from its pointer state,

@@ -777,17 +777,29 @@ asset changes:
    page reads well and ends clear of the pagination row - the modal never
    scrolls, and while the tests hold every page clear of the row at every
    named size, in one column and in two, only a reader sees whether a page
-   divided between two columns still reads naturally; and
+   divided between two columns still reads naturally. The window cannot be
+   resized yet, so `cargo run` shows only the one column; read the two
+   from captures at a two-column size such as 1040x600 (see "Capturing a
+   screen to a file", below); and
 7. close the window normally.
 
 Since 2026-11-28 the tests check help-page length as well:
 `every_page_stands_inside_its_modal_at_every_size` in `ui::help` lays every
-page out at every named size, over Home and over the Match, and holds its
-text above the pagination row, and `every_page_fits_two_columns_at_the_minimum`
-holds every page to the two columns of the 1040x600 window, line for line
-against a count worked out apart from the game. A page that outgrows its
-room fails them. The margins are still worth knowing, because they say how
-far a page can grow before it does. Measured from screenshots of the
+page out at every named size, over Home and over the Match, and holds the
+pagination row where the modal's own numbers put it and the page's text
+above it. A page too long for its room is not clipped: it pushes the row
+and Close down the modal, and the test fails on the row.
+`every_page_fits_two_columns_at_the_minimum` holds every page to the two
+columns of the 1040x600 window, line for line against a count worked out
+apart from the game. Both run with the default bindings and with the
+longest key names bound, which lengthen Keyboard Controls and Ending,
+Territory & Restart. A page that outgrows its room fails them. The margins
+are still worth knowing, because they say how far a page can grow before it
+does, once the 18 px gap the modal keeps between the page and the row is
+taken off: a page takes one more line only with at least 21.6 px plus that
+gap, about 40 px by the glyph-box metric below and 45 px in the table's
+terms, so Keyboard Controls, Round 1+ and Shared Controller Actions are
+full. Measured from screenshots of the
 original nine pages at 1040x900, and by the probe below for the two terms
 pages added on 2026-10-05, as the gap between the last line of body text
 and the top of the pagination row, against a body line pitch of about
@@ -885,23 +897,36 @@ layout as the running game) by the glyph-box metric: 23, 45, 45, 66, 23,
 45, 174, 131, 326, 326 and 23 px, in the order of the pages. Those are the
 table's figures less the calibration, to within its spread, so the table
 stands; the title row's glyph boxes came out as before, the longest 648 px.
+The same day Keyboard Controls' two sentences on holding a key were joined
+into one paragraph, which keeps the page at its 24 lines with the default
+bindings, where its room is unchanged, and brings it to 24 from 25 with a
+Restart key named in nine characters or more: a longer key name had run
+the page a line past its room since before the modal was adapted.
 
 In two columns the room is counted in lines. A column holds a whole number
 of them - 19 of 43 characters at the 1040x600 minimum, 21 of 54 at 1280x641 -
 and at the minimum the first column of Terms: Gray, Suicide, Ko & Territory
 and of Round 1+: Hidden Moves & Timing uses all 19; every other column
-there leaves a line or more, and at 1280x641 every page leaves three.
+there leaves a line or more, and at 1280x641 every page leaves three. With
+the longest key names Keyboard Controls takes 13 and 17 lines there, where
+the default bindings take 12 and 16.
 
 The help body wraps at 69 characters of its monospace font, which makes a
 rewording's line count predictable before any run: wrap the paragraph at
 69 with Python's `textwrap` and count. The 2026-10-03 rewording used that
 to find wordings that kept both paragraphs at four lines, and the probe
-then confirmed it. It is a guide, not a substitute - the probe is still
-what says a page fits. In two columns the game wraps the page itself, the
-same greedy way (`ui::help::geometry::wrap_lines`), at a column's
+then confirmed it. It is a guide, not a substitute: the tests above are
+what say a page fits, and the probe is what measures how much room it
+leaves. In one column `bevy_ui` wraps the page, and breaks a line after a
+hyphen as `textwrap` does by default: at 1040x900 Shared Controller Actions
+wraps `mid-match` and takes 24 lines, where a wrap at spaces alone counts
+25. In two columns the game wraps the page itself, at spaces alone but
+otherwise the same greedy way (`ui::help::geometry::wrap_lines`), at a column's
 characters, so `textwrap` at 43 (with `break_on_hyphens=False`) predicts a
 page's lines at the minimum, and `geometry::split_page` says where they
-divide between the columns.
+divide between the columns. The two-column test compares those counts, not
+the text, so a rewording that changes a page's lines changes its row in
+`INDEPENDENT_SPLITS`, worked out again that way at 43 and at 54.
 
 The probe itself used to be rewritten from this description each time it
 was needed, so here it is. Save it as `src/ui/layout_probe.rs`, add
