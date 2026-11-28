@@ -1115,10 +1115,11 @@ pub(crate) fn engine_ui_app(window: Vec2) -> App {
     app
 }
 
-/// Keeps the camera of [`engine_ui_app`] the size of the primary window,
-/// render target and viewport, as the renderer's camera system keeps a real
-/// one: without it, a test that resized the window would have `bevy_ui` lay
-/// out, and picking hit-test, at the size the app was made with.
+/// Keeps the camera of [`engine_ui_app`] the size and scale factor of the
+/// primary window, render target and viewport, as the renderer's camera
+/// system keeps a real one: without it, a test that resized the window
+/// would have `bevy_ui` lay out, and picking hit-test, at the size the app
+/// was made with.
 #[cfg(test)]
 fn follow_the_primary_window(
     windows: Query<&Window, (With<bevy::window::PrimaryWindow>, Changed<Window>)>,
@@ -1131,6 +1132,7 @@ fn follow_the_primary_window(
     for mut camera in &mut cameras {
         if let Some(target) = camera.computed.target_info.as_mut() {
             target.physical_size = physical_size;
+            target.scale_factor = window.scale_factor();
         }
         if let Some(viewport) = camera.viewport.as_mut() {
             viewport.physical_size = physical_size;
@@ -1893,7 +1895,9 @@ mod tests {
     /// that fills the window fills the opening window, then, on the first
     /// frame after the window is resized, the new one, with the pointer
     /// reaching it at the new window's far corner - and the opening window
-    /// again when it is resized back.
+    /// again when it is resized back, the pointer no longer reaching it at
+    /// that corner; and the window's logical size when its scale factor
+    /// doubles, which halves that size.
     #[test]
     fn the_harness_lays_out_at_the_windows_new_size_after_a_resize() {
         use crate::app::visuals::WindowSize;
@@ -1913,6 +1917,7 @@ mod tests {
         app.update();
         let size = |app: &App| app.world().get::<ComputedNode>(page).unwrap().size();
         assert_eq!(size(&app), WindowSize::OPENING.0);
+        let mut last = WindowSize::OPENING.0;
         for window in [Vec2::new(1920.0, 1080.0), WindowSize::OPENING.0] {
             {
                 let world = app.world_mut();
@@ -1926,17 +1931,37 @@ mod tests {
             }
             app.update();
             assert_eq!(size(&app), window);
-            // Inside the new window and outside the old one, or the
-            // reverse: picking reaches the node there.
-            let corner = window - Vec2::splat(2.0);
+            // Picking follows too, at the far corner of the larger window:
+            // growing, the pointer reaches the node at a point the old window
+            // did not have; shrinking, it does not at a point only the old
+            // window had.
+            let grew = window.x > last.x;
+            let corner = window.max(last) - Vec2::splat(2.0);
             crate::ui::button::move_pointer(&mut app, corner);
             let hovered = app
                 .world()
                 .get::<bevy::picking::hover::Hovered>(page)
                 .unwrap()
                 .get();
-            assert!(hovered, "{window}: the pointer at {corner}");
+            assert_eq!(hovered, grew, "{window}: the pointer at {corner}");
+            last = window;
         }
+        // And its scale factor: at two physical pixels to the logical one,
+        // the window's 1040x900 pixels are 520x450 logical ones, which the
+        // node fills - where a camera left at a scale factor of 1 would lay
+        // it out at the physical size.
+        let logical = {
+            let world = app.world_mut();
+            let mut windows =
+                world.query_filtered::<&mut Window, With<bevy::window::PrimaryWindow>>();
+            let mut window = windows.single_mut(world).unwrap();
+            window.resolution.set_scale_factor_override(Some(2.0));
+            window.size()
+        };
+        assert_eq!(logical, WindowSize::OPENING.0 / 2.0);
+        app.update();
+        let node = app.world().get::<ComputedNode>(page).unwrap();
+        assert_eq!(node.size() * node.inverse_scale_factor(), logical);
     }
 
     /// The same premise through the production collector: under real layout

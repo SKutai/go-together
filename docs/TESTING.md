@@ -794,8 +794,8 @@ and Close down the modal, and the test fails on the row.
 `every_page_fits_two_columns_at_the_minimum` holds every page to the two
 columns of the 1040x600 window, line for line against a count worked out
 apart from the game. Both run with the default bindings and with the
-longest key names bound, which lengthen Keyboard Controls and Ending,
-Territory & Restart. A page that outgrows its room fails them. The margins
+longest key names bound, which lengthen Keyboard Controls, Ending,
+Territory & Restart and the three controller pages. A page that outgrows its room fails them. The margins
 are still worth knowing, because they say how far a page can grow before it
 does, once the 18 px gap the modal keeps between the page and the row is
 taken off: a page takes one more line only with at least 21.6 px plus that
@@ -910,8 +910,8 @@ of them - 19 of 43 characters at the 1040x600 minimum, 21 of 54 at 1280x641 -
 and at the minimum the first column of Terms: Gray, Suicide, Ko & Territory
 and of Round 1+: Hidden Moves & Timing uses all 19; every other column
 there leaves a line or more, and at 1280x641 every page leaves three. With
-the longest key names Keyboard Controls takes 13 and 17 lines there, where
-the default bindings take 12 and 16.
+the longest key names Keyboard Controls takes 13 and 17 lines at the
+minimum, where the default bindings take 12 and 16.
 
 The help body wraps at 69 characters of its monospace font, which makes a
 rewording's line count predictable before any run: wrap the paragraph at

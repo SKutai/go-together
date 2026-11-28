@@ -419,7 +419,9 @@ mod tests {
     /// 1040 to 2560: a pixel or less, except where the Match changes
     /// arrangement - which moves its board by more than a pixel - and at
     /// exactly one height for each width, where the modal passes over the
-    /// heading's line in one step, from over the heading to under it.
+    /// heading's line in one step, from over the heading to under it, of 47
+    /// to 56.3 px: the heading's line and its gap, or the band's narrower
+    /// gap.
     #[test]
     fn a_pixel_of_height_moves_the_modal_a_pixel_or_less_but_once() {
         for width in 1040..=2560 {
@@ -439,6 +441,10 @@ mod tests {
                             was_over && is_under,
                             "{size}: a step of {step} px, from {top} to {}",
                             now.0
+                        );
+                        assert!(
+                            (47.0 - 1e-3..=56.3 + 1e-3).contains(&step),
+                            "{size}: a step of {step} px over the heading"
                         );
                         switches.push(height);
                     }
@@ -484,9 +490,10 @@ mod tests {
                 gap(width, first_under) >= 6.2 - 1e-3,
                 "{width}x{first_under}"
             );
+            let step = top(width, first_under) - top(width, last_over);
             assert!(
-                top(width, first_under) - top(width, last_over) > 40.0,
-                "{width}x{first_under}: the one step"
+                (47.0 - 1e-3..=56.3 + 1e-3).contains(&step),
+                "{width}x{first_under}: the one step, {step} px"
             );
         }
         assert!((gap(1280.0, 831.0) - 6.2).abs() < 1e-3);

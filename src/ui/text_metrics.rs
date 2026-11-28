@@ -9,9 +9,9 @@
 //! line fits, or how tall it stands, reads these: the Match screen's title
 //! row, which chooses between one line and two for its clocks; Home,
 //! Settings and the Replay Library, which leave room for their titles and
-//! notes; the Library's search field, which cuts its text to the characters
-//! its one line holds; and the Help modal, whose two columns hold a known
-//! number of characters and lines. `bevy_ui` is still what lays the text
+//! notes; the Library's search field and Settings' error line, which cut a
+//! text to the characters their lines hold; and the Help modal, whose two
+//! columns hold a known number of characters and lines. `bevy_ui` is still what lays the text
 //! out and draws it, and the test here holds the two to each other.
 //!
 //! A different font, or Bevy laying text out differently, is what would
@@ -36,9 +36,9 @@ pub(crate) const fn text_height(lines: usize, font_px: f32) -> f32 {
     lines as f32 * LINE_HEIGHT_PER_PX * font_px
 }
 
-/// What marks text cut away to fit a line: three full stops, since every
-/// string the game draws is printable ASCII and the font draws anything
-/// else, an ellipsis among them, as a missing glyph (`crate::architecture`).
+/// What marks text cut away to fit a line: three full stops, since the
+/// game's own strings are printable ASCII (`crate::architecture`) and the
+/// font draws anything else, an ellipsis among them, as a missing glyph.
 pub(crate) const CUT_MARK: &str = "...";
 
 /// Wraps `text` at `chars` characters a line, greedily, as `bevy_ui` wraps
