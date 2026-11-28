@@ -523,7 +523,8 @@ pub(crate) fn prefers_reduced_motion() -> bool {
 }
 
 /// A desktop window: the game's own, opening at the game's opening size,
-/// placed on its monitor by the game, and switched to fullscreen by F11.
+/// placed on its monitor by the game, and switched to fullscreen by F11 -
+/// and on a Mac by Control-Command-F as well.
 pub(crate) fn window_platform_config() -> WindowPlatformConfig {
     WindowPlatformConfig {
         canvas: None,
@@ -532,6 +533,7 @@ pub(crate) fn window_platform_config() -> WindowPlatformConfig {
         opening_size: None,
         placed_on_a_monitor: true,
         fullscreen_key: true,
+        fullscreen_chord: cfg!(target_os = "macos"),
     }
 }
 

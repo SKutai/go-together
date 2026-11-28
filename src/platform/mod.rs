@@ -96,6 +96,10 @@ pub(crate) struct WindowPlatformConfig {
     /// fullscreen, and the page passes it to the browser before the game
     /// sees it.
     pub(crate) fullscreen_key: bool,
+    /// Whether Control-Command-F switches fullscreen too, as F11 does:
+    /// macOS's own fullscreen shortcut, the game's on a Mac alone, where
+    /// the default settings keep F11 itself for volume and Show Desktop.
+    pub(crate) fullscreen_chord: bool,
 }
 
 /// The browser adapter's window: drawn into the page's `#go-together`
@@ -115,6 +119,7 @@ pub(crate) fn browser_window_platform_config(
         opening_size: canvas_size,
         placed_on_a_monitor: false,
         fullscreen_key: false,
+        fullscreen_chord: false,
     }
 }
 

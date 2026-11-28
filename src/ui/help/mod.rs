@@ -460,12 +460,12 @@ pub(super) fn help_page(
                  Starting in Round 1, hold {} together for 3 seconds to end the match. \
                  During play or after scoring, hold {} for 3 seconds to restart.\n\n\
                  MENU KEYS\n\
-                 Tab or the arrow keys highlight a button on every screen but the match \
-                 itself, and in this window even mid-match; Enter or Space presses it. \
-                 F1 opens and closes this window, mid-match too. Escape closes windows \
-                 like this one, steps back from Settings, Replays and an open replay, and \
-                 during a match asks before returning; Enter confirms. F11 switches the \
-                 game to fullscreen and back.",
+                 Tab or the arrow keys highlight a button on every screen but the match, \
+                 and in this window even mid-match; Enter or Space presses it. F1 opens \
+                 and closes this window, mid-match too. Escape closes windows like this \
+                 one, steps back from Settings, Replays and an open replay, and during a \
+                 match asks before returning; Enter confirms. F11, or Control-Command-F \
+                 on a Mac, switches the game to fullscreen and back.",
                 bindings.key(GameAction::PlayerOneUp).display_name(),
                 bindings.key(GameAction::PlayerOneLeft).display_name(),
                 bindings.key(GameAction::PlayerOneDown).display_name(),
@@ -1008,11 +1008,11 @@ mod tests {
         .1;
         assert!(keyboard.ends_with(
             "MENU KEYS\nTab or the arrow keys highlight a button on every screen but the \
-             match itself, and in this window even mid-match; Enter or Space presses it. \
-             F1 opens and closes this window, mid-match too. Escape closes windows like \
+             match, and in this window even mid-match; Enter or Space presses it. F1 \
+             opens and closes this window, mid-match too. Escape closes windows like \
              this one, steps back from Settings, Replays and an open replay, and during \
-             a match asks before returning; Enter confirms. F11 switches the game to \
-             fullscreen and back."
+             a match asks before returning; Enter confirms. F11, or Control-Command-F on \
+             a Mac, switches the game to fullscreen and back."
         ));
 
         let shared = help_page(
@@ -1741,7 +1741,7 @@ mod tests {
         (
             "1040x600",
             [
-                (30, 12, 17, true),
+                (31, 18, 12, true),
                 (35, 17, 17, true),
                 (37, 19, 18, false),
                 (34, 15, 18, true),
@@ -1757,7 +1757,7 @@ mod tests {
         (
             "1280x641",
             [
-                (26, 11, 14, true),
+                (27, 11, 15, true),
                 (29, 14, 14, true),
                 (31, 18, 12, true),
                 (28, 13, 14, true),
@@ -1834,8 +1834,8 @@ mod tests {
         // with `textwrap` too.
         let (keyboard, controller) = longest_bindings();
         for (name, longest_keyboard_controls) in [
-            ("1040x600", (32, 13, 18, true)),
-            ("1280x641", (28, 12, 15, true)),
+            ("1040x600", (33, 13, 19, true)),
+            ("1280x641", (29, 12, 16, true)),
         ] {
             let (w, h) = name.split_once('x').unwrap();
             let layout = help_layout(Vec2::new(w.parse().unwrap(), h.parse().unwrap()));

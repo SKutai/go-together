@@ -137,10 +137,11 @@ neither player.
 **F11** switches the game to fullscreen and back, on every screen, wherever the
 system lets the key through to it, as Windows 11 does. A Mac with its default
 settings does not: the key alone turns the volume down, and with fn it is
-Show Desktop's shortcut, which takes it first. There the window's green button
-makes the game fullscreen, and the game follows it. A browser keeps F11 for
-its own fullscreen. Neither F1 nor F11 can be bound, which is what keeps them
-working during a match.
+Show Desktop's shortcut, which takes it first. So on a Mac **Control-Command-F**,
+macOS's own fullscreen shortcut, does the same, and the window's green button
+works too. A browser keeps F11 for its own fullscreen. Neither F1 nor F11 can
+be bound, which is what keeps them working during a match, and the chord's F
+never moves a player or types a letter.
 
 ## Build and run locally
 

@@ -820,8 +820,10 @@ asset changes:
    with its default settings F11 never reaches the game - alone the key
    turns the volume down, and with fn Show Desktop's shortcut takes it
    first, as seen on 2026-11-28 - so check F11 there only where that
-   shortcut has been changed; on macOS, enter and leave with the window's
-   green button, mixing it with F11 where F11 arrives; and
+   shortcut has been changed, and check Control-Command-F instead, the
+   same places, confirming too that its F moves no player, types nothing
+   and plays no note; on macOS, enter and leave with the window's green
+   button as well, mixing it with the keys; and
 10. close the window normally.
 
 Since 2026-11-28 the tests check help-page length as well:
@@ -949,15 +951,22 @@ of its MENU KEYS paragraph, measured all eleven pages again the same way:
 the same eleven figures, Keyboard Controls at 23 px with its text 519 px
 high, as before, because the sentence fills that paragraph's last line, as
 `textwrap` at 69 had said it would; and with the longest key names bound,
-23 px again. The table stands.
+23 px again. The table stands. A fourteenth, the same day, when the
+sentence became "F11, or Control-Command-F on a Mac, switches the game to
+fullscreen and back." and the paragraph's first sentence gave up "itself"
+after "every screen but the match" to keep its lines, as `textwrap` at 69
+said it would: the layout probe above read Keyboard Controls at 23.5 px,
+its text as high as before, and `textwrap` keeps the page at 24 lines with
+the longest key names too.
 
 In two columns the room is counted in lines. A column holds a whole number
 of them - 19 of 43 characters at the 1040x600 minimum, 21 of 54 at 1280x641 -
 and at the minimum the first column of Terms: Gray, Suicide, Ko & Territory
 and of Round 1+: Hidden Moves & Timing uses all 19; every other column
 there leaves a line or more, and at 1280x641 every page leaves three. With
-the longest key names Keyboard Controls takes 13 and 18 lines at the
-minimum, where the default bindings take 12 and 17.
+the longest key names Keyboard Controls takes 13 and 19 lines at the
+minimum, its second column full, where the default bindings take 18 and
+12.
 
 The help body wraps at 69 characters of its monospace font, which makes a
 rewording's line count predictable before any run: wrap the paragraph at

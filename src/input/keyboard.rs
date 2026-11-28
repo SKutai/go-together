@@ -21,7 +21,10 @@
 //! screen of a desktop build. A browser keeps F11 for its own fullscreen,
 //! and the web page hands it to the browser before the game sees it. None
 //! of the three can be bound, persisted, or even represented as a
-//! `KeyboardKey`. That is what lets each be read raw during live play,
+//! `KeyboardKey`. On a Mac, where the default settings keep F11 itself,
+//! Control-Command-F switches fullscreen too; F stays bindable, since a
+//! chord is no binding, and `crate::app::window` keeps the chord's F from
+//! the binding while it is held. That is what lets each be read raw during live play,
 //! when gameplay reads every bindable key, and why a settings file naming
 //! any of them fails to parse rather than loading a key the interface
 //! would then read twice. [`KeyboardKey::from_key_code`] refuses the three

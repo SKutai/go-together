@@ -592,15 +592,17 @@ switches once. On macOS borderless fullscreen is the green button's own, a
 Space of its own, so F11 and the button are one fullscreen. Bevy never
 writes `Window::mode` back from the system, so the system's own state is
 read from winit every frame into `SystemFullscreen`, `Window::mode` is kept
-in step with it when it changes - after a green-button entry as after F11's
-- and F11 asks for the other of the system's two states. Only a change is
+in step with it when it changes - after a green-button entry as after
+F11's - and F11 asks for the other of the system's two states. Only a change is
 followed, not a difference: winit reports a fullscreen once the platform
 has taken it up, which on macOS came a frame after F11's request and, for
 the green button's way out, at the end of its animation, and following the
 old state meanwhile would undo what F11 asked for. A Mac with its default
 settings keeps the key from the game, though: the key alone sends volume
-down, and with fn it is Show Desktop's shortcut, which takes it first, so
-there the green button is the way in and out, and the game follows it. A
+down, and with fn it is Show Desktop's shortcut, which takes it first. So on
+a Mac, and only there, Control-Command-F - macOS's own fullscreen shortcut -
+does what F11 does, once a press; the green button works as well, and the
+game follows it. A
 browser keeps F11 for its own fullscreen: `web/shell.js`
 stops the key at the page's window, before winit's handler on the canvas,
 which cancels every key's default action, can cancel this one's, and the
@@ -1563,7 +1565,11 @@ during a Match Escape/Start open the Return Home confirmation and Enter/South
 confirm it. So is F1, the one fixed key that opens something: the Help modal,
 on Home and during a Match, closing it again on a second press. F11, the third
 reserved key, is read raw too, but by `app::window` rather than here: it
-changes the window, not anything in it. A screen whose own control is reading
+changes the window, not anything in it. So does Control-Command-F on a Mac,
+which is no reserved key - F stays bindable - but whose F `app::window`
+takes out of `ButtonInput` from its press until it is let go, so that no
+binding, capture or ring sees it; the Home marimba and the Replay Library's
+text fields, which read keys as messages, ask it first. A screen whose own control is reading
 the raw devices - Settings during a binding capture or a numeric edit, the
 Replay Library while its search field or rename dialog is taking text - raises
 the focus module's `FocusYield` from its own `Update` chain, and the ring

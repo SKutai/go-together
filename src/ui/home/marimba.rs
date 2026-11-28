@@ -236,6 +236,8 @@ fn handle_home_marimba_input(
     mut keyboard_events: MessageReader<KeyboardInput>,
     screen: Res<State<AppScreen>>,
     hud: Res<HudState>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    chord: Option<Res<crate::app::window::FullscreenChord>>,
     mut marimba: ResMut<HomeMarimbaState>,
     mut audio: ResMut<AudioCueQueue>,
 ) {
@@ -248,8 +250,16 @@ fn handle_home_marimba_input(
     // skipping is harmless); the messages are still drained below.
     let accepts_notes =
         *screen.get() == AppScreen::Home && !modal_open(&hud) && !screen.is_changed();
+    // The F of Control-Command-F, on a Mac, is the fullscreen chord's and
+    // plays nothing (`app::window`).
+    let the_chords = |key: KeyCode| {
+        chord
+            .as_ref()
+            .zip(keys.as_ref())
+            .is_some_and(|(chord, keys)| chord.takes(key, keys))
+    };
     for event in keyboard_events.read() {
-        if event.state != ButtonState::Pressed || !accepts_notes {
+        if event.state != ButtonState::Pressed || !accepts_notes || the_chords(event.key_code) {
             continue;
         }
         let Some(bar) = home_marimba_bar_for_key(event.key_code) else {
@@ -600,6 +610,50 @@ mod tests {
                 .drain()
                 .is_empty()
         );
+    }
+
+    /// On a Mac the F of Control-Command-F is the fullscreen chord's
+    /// (`app::window`) and plays no note: with Control and Command held, and
+    /// while the chord's F is still held after they are let go. An F alone,
+    /// or with Control alone, plays as ever, and with no chord at all - any
+    /// other platform - F plays whatever is held.
+    #[test]
+    fn the_fullscreen_chords_f_plays_no_note() {
+        use crate::app::window::FullscreenChord;
+
+        let count = |app: &App| app.world().resource::<HomeMarimbaState>().note_count;
+        let held = |app: &mut App, keys: &[KeyCode]| {
+            let mut input = ButtonInput::<KeyCode>::default();
+            for key in keys {
+                input.press(*key);
+            }
+            app.insert_resource(input);
+        };
+
+        let mut app = home_marimba_input_app();
+        app.insert_resource(FullscreenChord::default());
+        app.update();
+        held(&mut app, &[KeyCode::ControlLeft, KeyCode::SuperLeft]);
+        send_keyboard_event(&mut app, KeyCode::KeyF, ButtonState::Pressed, false);
+        assert_eq!(count(&app), 0, "the chord");
+        held(&mut app, &[KeyCode::ControlLeft]);
+        send_keyboard_event(&mut app, KeyCode::KeyF, ButtonState::Pressed, false);
+        assert_eq!(count(&app), 1, "Control and F");
+        held(&mut app, &[]);
+        send_keyboard_event(&mut app, KeyCode::KeyF, ButtonState::Pressed, false);
+        assert_eq!(count(&app), 2, "F alone");
+
+        app.insert_resource(FullscreenChord::holding_f());
+        send_keyboard_event(&mut app, KeyCode::KeyF, ButtonState::Pressed, true);
+        assert_eq!(count(&app), 2, "the chord's F, still held");
+        send_keyboard_event(&mut app, KeyCode::KeyA, ButtonState::Pressed, false);
+        assert_eq!(count(&app), 3, "another key meanwhile");
+
+        let mut elsewhere = home_marimba_input_app();
+        elsewhere.update();
+        held(&mut elsewhere, &[KeyCode::ControlLeft, KeyCode::SuperLeft]);
+        send_keyboard_event(&mut elsewhere, KeyCode::KeyF, ButtonState::Pressed, false);
+        assert_eq!(count(&elsewhere), 1, "no chord here");
     }
 
     /// The Match exit's confirmed return transitions in `PreUpdate`, so the

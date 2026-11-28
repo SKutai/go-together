@@ -468,8 +468,8 @@ validation error, set smaller than the description it explained, to a
 player who had just made a mistake. Raising text can wrap a line that used
 to fit, so measure the screen afterwards rather than assuming; `docs/TESTING.md`
 carries the probe that does it. The floor is in the game's own pixels: a
-window smaller than the smallest one the screens are laid out for, 1040x600
-- fullscreen on a smaller screen, a window manager that ignores the minimum,
+window smaller than the smallest one the screens are laid out for, 1040x600 -
+fullscreen on a smaller screen, a window manager that ignores the minimum,
 a program that sets the size, or a browser page under 1040x600 - is laid out
 as the window raised to the minimum and drawn scaled down to fit, which is
 the one place text falls below 14px, and is recorded in

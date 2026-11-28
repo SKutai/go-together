@@ -50,18 +50,19 @@ play, so a pad cannot reach the Help button either.
 
 **Resizable and fullscreen**: as of 2026-11-28, **the goal is met.** The
 desktop window can be resized down to 1040x600, maximised and made
-fullscreen - by F11, which became a reserved key for it, wherever the system
-lets the key through, and on macOS by the window's green button, since a Mac
-with its default settings keeps F11 for itself - and the browser build's
-canvas fills its page. Every screen lays itself out for the window's size
-rather than being stretched: text keeps its size, and the boards and Home's
-diamond grow and shrink. A window smaller than the minimum - fullscreen on a
-smaller screen, a window manager that ignores the minimum, a program that
-sets the size, or a browser page - is laid out as the window raised to the
-minimum and drawn scaled down to fit. `docs/ARCHITECTURE.md`'s "The window's size, and what answers to
-it" says how. What the goal leaves for later is remembering the window's
-size, place and fullscreen state between runs, which nothing does yet, and
-text that grows with the window, which is goal 5's.
+fullscreen - by F11, which became a reserved key for it, wherever the
+system lets the key through, and on a Mac, which with its default settings
+keeps F11 for itself, by Control-Command-F and the window's green button -
+and the browser build's canvas fills its page. Every screen lays itself out
+for the window's size rather than being stretched: text keeps its size, and
+the boards and Home's diamond grow and shrink. A window smaller than the
+minimum - fullscreen on a smaller screen, a window manager that ignores the
+minimum, a program that sets the size, or a browser page - is laid out as
+the window raised to the minimum and drawn scaled down to fit.
+`docs/ARCHITECTURE.md`'s "The window's size, and what answers to it" says
+how. What the goal leaves for later is remembering the window's size, place
+and fullscreen state between runs, which nothing does yet, and text that
+grows with the window, which is goal 5's.
 
 Until then it was a documented constraint, not an oversight: the window was
 made with `resizable: false` in both platform adapters, `CONTRIBUTING.md`'s UI

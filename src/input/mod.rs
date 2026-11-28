@@ -14,7 +14,8 @@
 //! pad's Start to leave a screen or dismiss a modal, with East doing the same
 //! on the menu screens, F1 to open and close the Help modal on Home and
 //! during a Match, F11 to switch a desktop build's window to fullscreen and
-//! back, Tab, the arrows, Enter, Space and a pad's D-pad and South to drive
+//! back - and on a Mac Control-Command-F, whose F no binding then sees -
+//! Tab, the arrows, Enter, Space and a pad's D-pad and South to drive
 //! the focus ring, modifier keys in a numeric field, the Home marimba, the
 //! browser audio unlock. The Settings capture systems additionally read raw
 //! keys and pads in order to *create* bindings. None of it reaches gameplay:

@@ -63,6 +63,20 @@
 //! hands it to the browser before the game sees it, and the game reads
 //! nothing of it there either ([`WindowPlatformConfig::fullscreen_key`]).
 //!
+//! A Mac with its default settings keeps F11 itself: the key alone turns
+//! the volume down, and with fn it is Show Desktop's shortcut, which takes
+//! it first (seen on 2026-11-28). So on a Mac, and only there
+//! ([`WindowPlatformConfig::fullscreen_chord`]), Control-Command-F -
+//! macOS's own fullscreen shortcut - switches fullscreen as F11 does, once
+//! a press. F stays an ordinary key: a chord is no binding, and a plain F,
+//! or F with other modifiers, is what it always was. But the chord's F is
+//! the chord's alone. [`take_the_fullscreen_chord`] takes it out of
+//! `ButtonInput` from its press until it is let go, so no binding, capture
+//! or ring sees it, and the two systems that read keys as messages - the
+//! Home marimba and the Replay Library's text fields - ask
+//! [`FullscreenChord::takes`] first (a text field types nothing while
+//! Control or Command is held in any case).
+//!
 //! Fullscreen is borderless, on the monitor the window is on, and going
 //! back restores the window as it was. That is the platform's to do; on
 //! macOS it did, for a 1280x720 window taken to fullscreen and back by F11
@@ -87,7 +101,8 @@
 use std::time::Duration;
 
 use bevy::ecs::system::NonSendMarker;
-use bevy::input::InputSystems;
+use bevy::input::keyboard::KeyboardInput;
+use bevy::input::{ButtonState, InputSystems};
 use bevy::prelude::*;
 use bevy::window::{
     Monitor, MonitorSelection, PrimaryMonitor, PrimaryWindow, WindowMode, WindowPosition,
@@ -199,11 +214,12 @@ pub(crate) fn opening_on(primary: Option<Vec2>, listed: &[Vec2]) -> Option<Openi
 }
 
 /// Places the window as it opens and shows it, and switches fullscreen on
-/// F11, each where the host leaves it to the game: the systems of the
-/// module docs, in `PreUpdate`.
+/// F11 and, on a Mac, Control-Command-F, each where the host leaves it to
+/// the game: the systems of the module docs, in `PreUpdate`.
 pub(crate) struct GameWindowPlugin {
     placed_on_a_monitor: bool,
     fullscreen_key: bool,
+    fullscreen_chord: bool,
 }
 
 impl GameWindowPlugin {
@@ -212,6 +228,7 @@ impl GameWindowPlugin {
         Self {
             placed_on_a_monitor: platform.placed_on_a_monitor,
             fullscreen_key: platform.fullscreen_key,
+            fullscreen_chord: platform.fullscreen_chord,
         }
     }
 }
@@ -232,11 +249,16 @@ impl Plugin for GameWindowPlugin {
                     read_fullscreen_from_the_system,
                     keep_the_window_mode_with_the_system
                         .run_if(resource_changed::<SystemFullscreen>),
-                    switch_fullscreen_on_f11,
+                    take_the_fullscreen_chord.run_if(resource_exists::<FullscreenChord>),
+                    switch_fullscreen_on_its_keys,
                 )
                     .chain()
                     .after(InputSystems),
             );
+            if self.fullscreen_chord {
+                app.init_resource::<FullscreenChord>()
+                    .add_message::<KeyboardInput>();
+            }
         }
     }
 }
@@ -381,18 +403,99 @@ fn keep_the_window_mode_with_the_system(
     }
 }
 
-/// On F11, asks for the mode [`mode_after_f11`] gives from the system's
-/// state. A press in the frame the system's state changed waits for the
-/// next one: that frame's change has just been written into
-/// `Window::mode`, and asking for the other mode on top of it would leave
-/// the mode Bevy last applied, and so ask for nothing.
-fn switch_fullscreen_on_f11(
+/// Whether the keys held make an F the fullscreen chord's: Control and
+/// Command both, and neither Shift nor Option, as in macOS's own shortcut,
+/// Control-Command-F. Command is Bevy's Super key.
+pub(crate) fn chord_modifiers_held(keys: &ButtonInput<KeyCode>) -> bool {
+    keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
+        && keys.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight])
+        && !keys.any_pressed([
+            KeyCode::ShiftLeft,
+            KeyCode::ShiftRight,
+            KeyCode::AltLeft,
+            KeyCode::AltRight,
+        ])
+}
+
+/// Control-Command-F, where it is the game's: whether the F now held went
+/// down as the chord, so that nothing else takes it until it is let go, and
+/// whether a press of the chord has asked for the other mode. See the
+/// module docs.
+#[derive(Resource, Debug, Default)]
+pub(crate) struct FullscreenChord {
+    f_held: bool,
+    asked: bool,
+}
+
+impl FullscreenChord {
+    /// Whether a press of `key`, read as a message, is the chord's and so
+    /// for nothing else: an F while the chord's F is held, or an F with
+    /// the chord's modifiers held.
+    pub(crate) fn takes(&self, key: KeyCode, keys: &ButtonInput<KeyCode>) -> bool {
+        key == KeyCode::KeyF && (self.f_held || chord_modifiers_held(keys))
+    }
+
+    /// The state the chord leaves while its F is still held, for a test of
+    /// a system that reads keys as messages.
+    #[cfg(test)]
+    pub(crate) fn holding_f() -> Self {
+        Self {
+            f_held: true,
+            asked: false,
+        }
+    }
+}
+
+/// Reads the chord from this frame's key messages, after Bevy's input
+/// systems have pressed its F: an F pressed - not a repeat - with the
+/// chord's modifiers held asks for the switch, once, and from that press
+/// until F is let go `ButtonInput` holds no F, so no binding, capture or
+/// ring sees it, not even for a press and release within one frame.
+fn take_the_fullscreen_chord(
+    mut chord: ResMut<FullscreenChord>,
+    mut messages: MessageReader<KeyboardInput>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+) {
+    let mut pressed_now = false;
+    for message in messages.read() {
+        if message.key_code != KeyCode::KeyF {
+            continue;
+        }
+        match message.state {
+            ButtonState::Pressed if !message.repeat && chord_modifiers_held(&keys) => {
+                chord.f_held = true;
+                chord.asked = true;
+                pressed_now = true;
+            }
+            ButtonState::Released => chord.f_held = false,
+            ButtonState::Pressed => {}
+        }
+    }
+    if chord.f_held || pressed_now {
+        keys.reset(KeyCode::KeyF);
+    }
+}
+
+/// On F11, or the chord where it is the game's, asks for the mode
+/// [`mode_after_f11`] gives from the system's state. A press in the frame
+/// the system's state changed waits for the next one: that frame's change
+/// has just been written into `Window::mode`, and asking for the other mode
+/// on top of it would leave the mode Bevy last applied, and so ask for
+/// nothing.
+fn switch_fullscreen_on_its_keys(
     keys: Res<ButtonInput<KeyCode>>,
     system: Res<SystemFullscreen>,
+    chord: Option<ResMut<FullscreenChord>>,
     mut pressed: Local<bool>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
 ) {
     *pressed |= keys.just_pressed(KeyCode::F11);
+    if let Some(mut chord) = chord
+        && chord.asked
+    {
+        chord.asked = false;
+        *pressed = true;
+    }
     if !*pressed || system.is_changed() {
         return;
     }
@@ -679,7 +782,8 @@ mod tests {
     }
 
     /// The opening from what is known of the monitors: the primary one
-    /// decides wherever it is named, even beside others; without it, every
+    /// decides wherever it is named, even beside others all short of room;
+    /// without it, every
     /// monitor listed short of room maximises, and one with room, or none
     /// listed, leaves the window where the platform puts it.
     #[test]
@@ -689,6 +793,7 @@ mod tests {
         let short = Vec2::new(1366.0, 768.0);
         let room = Vec2::new(1920.0, 1080.0);
         assert_eq!(opening_on(Some(room), &[short, room]), Some(Centred));
+        assert_eq!(opening_on(Some(room), &[short, short]), Some(Centred));
         assert_eq!(opening_on(Some(short), &[short, room]), Some(Maximised));
         assert_eq!(opening_on(Some(short), &[]), Some(Maximised));
         assert_eq!(opening_on(None, &[short]), Some(Maximised));
@@ -878,6 +983,175 @@ mod tests {
             "the other of what the system shows, the window"
         );
         assert!(!app.world().resource::<SystemFullscreen>().0);
+    }
+
+    /// The desktop's window config with the chord on, as on a Mac, or off.
+    fn with_the_chord(on: bool) -> WindowPlatformConfig {
+        WindowPlatformConfig {
+            fullscreen_chord: on,
+            ..window_platform_config()
+        }
+    }
+
+    fn keys(app: &App) -> &ButtonInput<KeyCode> {
+        app.world().resource::<ButtonInput<KeyCode>>()
+    }
+
+    /// An F going down or up as the keyboard delivers it: its message, and
+    /// the `ButtonInput` state Bevy's input systems make of it, which a
+    /// repeat presses again.
+    fn f_key(app: &mut App, state: ButtonState, repeat: bool) {
+        let window = {
+            let world = app.world_mut();
+            world
+                .query_filtered::<Entity, With<PrimaryWindow>>()
+                .single(world)
+                .unwrap()
+        };
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::KeyF,
+            logical_key: bevy::input::keyboard::Key::Character("f".into()),
+            state,
+            text: None,
+            repeat,
+            window,
+        });
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.clear();
+        match state {
+            ButtonState::Pressed => keys.press(KeyCode::KeyF),
+            ButtonState::Released => keys.release(KeyCode::KeyF),
+        }
+    }
+
+    fn hold(app: &mut App, held: &[KeyCode]) {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        for key in held {
+            keys.press(*key);
+        }
+    }
+
+    /// Control-Command-F switches fullscreen as F11 does where the chord is
+    /// the game's - the desktop on a Mac, and nowhere else - and asks for
+    /// the other of the system's states at each press. Without both
+    /// Control and Command, or with Shift or Option as well, or where the
+    /// chord is not the game's, F is only F: nothing switches, and F stays
+    /// pressed for whatever reads it.
+    #[test]
+    fn control_command_f_switches_fullscreen_on_a_mac_alone() {
+        use KeyCode::{AltLeft, ControlLeft, ShiftRight, SuperLeft, SuperRight};
+
+        assert_eq!(
+            window_platform_config().fullscreen_chord,
+            cfg!(target_os = "macos")
+        );
+        assert!(!browser_window_platform_config(None).fullscreen_chord);
+        let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+
+        let mut app = fullscreen_app(&with_the_chord(true));
+        hold(&mut app, &[ControlLeft, SuperLeft]);
+        f_key(&mut app, ButtonState::Pressed, false);
+        app.update();
+        assert_eq!(mode(&mut app), fullscreen);
+        system_shows(&mut app, true);
+        f_key(&mut app, ButtonState::Released, false);
+        app.update();
+        f_key(&mut app, ButtonState::Pressed, false);
+        app.update();
+        assert_eq!(mode(&mut app), WindowMode::Windowed, "and back");
+
+        for (on, held) in [
+            (false, &[ControlLeft, SuperLeft][..]),
+            (true, &[ControlLeft][..]),
+            (true, &[SuperRight][..]),
+            (true, &[ControlLeft, SuperLeft, ShiftRight][..]),
+            (true, &[ControlLeft, SuperLeft, AltLeft][..]),
+        ] {
+            let mut app = fullscreen_app(&with_the_chord(on));
+            hold(&mut app, held);
+            f_key(&mut app, ButtonState::Pressed, false);
+            app.update();
+            let context = format!("the chord {on}, with {held:?}");
+            assert_eq!(mode(&mut app), WindowMode::Windowed, "{context}");
+            assert!(keys(&app).just_pressed(KeyCode::KeyF), "{context}");
+        }
+    }
+
+    /// A held chord asks once, however long the keyboard repeats its F,
+    /// and keeps its F from `ButtonInput` from its press until it is let go,
+    /// even once Control and Command are let go first, and no release of it
+    /// reaches anything. The next F alone is F again.
+    #[test]
+    fn a_held_chord_asks_once_and_keeps_its_f_until_it_is_let_go() {
+        let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+        let mut app = fullscreen_app(&with_the_chord(true));
+        hold(&mut app, &[KeyCode::ControlLeft, KeyCode::SuperLeft]);
+        f_key(&mut app, ButtonState::Pressed, false);
+        app.update();
+        assert_eq!(mode(&mut app), fullscreen);
+        assert!(!keys(&app).pressed(KeyCode::KeyF));
+        system_shows(&mut app, true);
+        for _ in 0..4 {
+            f_key(&mut app, ButtonState::Pressed, true);
+            app.update();
+            assert_eq!(mode(&mut app), fullscreen, "asked once");
+            assert!(!keys(&app).pressed(KeyCode::KeyF), "held, repeated");
+        }
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.release(KeyCode::ControlLeft);
+            keys.release(KeyCode::SuperLeft);
+        }
+        f_key(&mut app, ButtonState::Pressed, true);
+        app.update();
+        assert!(!keys(&app).pressed(KeyCode::KeyF), "still the chord's");
+        f_key(&mut app, ButtonState::Released, false);
+        app.update();
+        assert!(!keys(&app).just_released(KeyCode::KeyF), "let go unheard");
+        f_key(&mut app, ButtonState::Pressed, false);
+        app.update();
+        assert!(keys(&app).just_pressed(KeyCode::KeyF), "F alone is F");
+        assert_eq!(mode(&mut app), fullscreen, "and switches nothing");
+    }
+
+    /// The chord's F never reaches the action bound to F - Player Two's
+    /// Right by default - through the game's own reading of the bindings,
+    /// while an F alone, or with Control alone, does.
+    #[test]
+    fn the_chords_f_reaches_no_binding() {
+        use crate::input::controller::{
+            ControllerAssignments, ControllerBindings, ControllerHysteresisState,
+        };
+        use crate::input::keyboard::{KeyboardBindings, KeyboardKey};
+        use crate::input::{GameAction, SemanticInput, update_semantic_input};
+
+        let bindings = KeyboardBindings::default();
+        assert_eq!(bindings.key(GameAction::PlayerTwoRight), KeyboardKey::F);
+        let right = |app: &App| {
+            app.world()
+                .resource::<SemanticInput>()
+                .pressed(GameAction::PlayerTwoRight)
+        };
+        for (held, reaches) in [
+            (&[KeyCode::ControlLeft, KeyCode::SuperLeft][..], false),
+            (&[][..], true),
+            (&[KeyCode::ControlLeft][..], true),
+        ] {
+            let mut app = fullscreen_app(&with_the_chord(true));
+            app.insert_resource(KeyboardBindings::default())
+                .insert_resource(ControllerBindings::default())
+                .insert_resource(ControllerAssignments::default())
+                .insert_resource(ControllerHysteresisState::default())
+                .insert_resource(SemanticInput::default())
+                .add_systems(Update, update_semantic_input);
+            hold(&mut app, held);
+            f_key(&mut app, ButtonState::Pressed, false);
+            app.update();
+            assert_eq!(right(&app), reaches, "with {held:?}");
+            f_key(&mut app, ButtonState::Pressed, true);
+            app.update();
+            assert_eq!(right(&app), reaches, "with {held:?}, held");
+        }
     }
 
     /// A browser keeps F11: with the browser's window the plugin reads

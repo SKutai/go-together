@@ -1209,6 +1209,89 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// On a Mac, Control-Command-F switches fullscreen while a field takes
+    /// the keys, as F11 does, and types nothing into it - the search field
+    /// or the rename dialog's - where an F alone types an f.
+    #[test]
+    fn the_fullscreen_chord_switches_while_a_field_takes_the_keys_and_types_nothing() {
+        use crate::app::window::{GameWindowPlugin, SystemFullscreen};
+        use crate::platform::{WindowPlatformConfig, window_platform_config};
+        use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
+
+        let (mut app, root) = library_app(3);
+        app.add_plugins(GameWindowPlugin::new(&WindowPlatformConfig {
+            fullscreen_chord: true,
+            ..window_platform_config()
+        }));
+        app.update();
+        let mode = |app: &mut App| {
+            let world = app.world_mut();
+            world
+                .query_filtered::<&Window, With<PrimaryWindow>>()
+                .single(world)
+                .unwrap()
+                .mode
+        };
+        let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+        let f = || Key::Character("f".into());
+        // Control, Command and F down, then F let go, as the keyboard
+        // delivers the chord; `tap` lets go of the rest.
+        let chord = |app: &mut App| {
+            {
+                let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+                keys.press(KeyCode::ControlLeft);
+                keys.press(KeyCode::SuperLeft);
+            }
+            type_key(app, KeyCode::KeyF, f());
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::KeyF,
+                logical_key: f(),
+                state: ButtonState::Released,
+                text: None,
+                repeat: false,
+                window: Entity::PLACEHOLDER,
+            });
+            app.update();
+        };
+        let shows = |app: &mut App, fullscreen: bool| {
+            app.world_mut()
+                .resource_mut::<SystemFullscreen>()
+                .set_if_neq(SystemFullscreen(fullscreen));
+            app.update();
+        };
+        let editor_text = |app: &App| match &ui(app).dialog {
+            Some(LibraryDialog::Rename { editor, .. }) => Some(editor.text.clone()),
+            _ => None,
+        };
+
+        // The search field.
+        let search = control_at(&mut app, (FocusGroup::Screen, TOOLBAR_FOCUS_ORDER));
+        tab_to(&mut app, search);
+        enter(&mut app);
+        type_text(&mut app, "3");
+        chord(&mut app);
+        assert_eq!(mode(&mut app), fullscreen, "the chord asks for fullscreen");
+        assert_eq!(ui(&app).search.text, "3", "and types nothing");
+        assert!(ui(&app).search_focused, "the field keeps the keys");
+        shows(&mut app, true);
+        type_key(&mut app, KeyCode::KeyF, f());
+        assert_eq!(ui(&app).search.text, "3f", "an F alone types");
+        assert_eq!(mode(&mut app), fullscreen, "and switches nothing");
+        type_key(&mut app, KeyCode::Backspace, Key::Backspace);
+        assert_eq!(ui(&app).search.text, "3");
+        enter(&mut app);
+
+        // The rename dialog.
+        let target = control_at(&mut app, (FocusGroup::Screen, card_focus_order(0) + 1));
+        tab_to(&mut app, target);
+        enter(&mut app);
+        let before = editor_text(&app).expect("the rename dialog is open");
+        chord(&mut app);
+        assert_eq!(mode(&mut app), WindowMode::Windowed, "and back");
+        assert_eq!(editor_text(&app), Some(before), "nothing typed");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// While the rename dialog is open its editor owns the keys: the ring is
     /// drawn on Save Label as a legend and does not move on Tab; Space and
     /// characters land in the field rather than pressing; every keystroke's
