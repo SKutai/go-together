@@ -535,16 +535,18 @@ mod tests {
                 .len(),
             HOME_MARIMBA_BAR_COUNT
         );
-        // The first nine are the seven menu focus keys (`crate::ui::focus`
+        // The first ten are the seven menu focus keys (`crate::ui::focus`
         // reads Enter, Space, Tab and the four arrows raw on Home) plus
-        // Escape and F1, which close and open the help modal there: none
-        // of them may ever become a note.
+        // Escape and F1, which close and open the help modal there, and
+        // F11, which switches fullscreen on every screen: none of them may
+        // ever become a note.
         for key in [
             KeyCode::Space,
             KeyCode::Enter,
             KeyCode::Tab,
             KeyCode::Escape,
             KeyCode::F1,
+            KeyCode::F11,
             KeyCode::ArrowLeft,
             KeyCode::ArrowRight,
             KeyCode::ArrowUp,

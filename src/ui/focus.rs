@@ -187,10 +187,13 @@
 //! so the default Teleport on East cannot fire on the way out either. F1 is
 //! the one fixed key that opens something rather than closing it: the
 //! Help modal, on the two screens that have a button for it, by the
-//! same reservation that makes Escape safe during live play
-//! (`crate::input::keyboard` says why neither can be bound). Home
-//! itself is the root - there is nowhere back to go, and Escape there only
-//! closes the Help modal. The Settings, Replay Library and Replay
+//! same reservation that makes Escape safe during live play. F11 is the
+//! third reserved key, and the one that changes the window rather than
+//! anything in it: `crate::app::window` reads it on every screen and
+//! switches fullscreen, and nothing here reads it at all
+//! (`crate::input::keyboard` says why none of the three can be bound).
+//! Home itself is the root - there is nowhere back to go, and Escape there
+//! only closes the Help modal. The Settings, Replay Library and Replay
 //! Viewer exits live in those screens' own modules beside the input they
 //! already read; the Match exit lives here because the Match reads no menu
 //! input of its own.
@@ -766,7 +769,7 @@ fn help_key_screen(screen: AppScreen) -> bool {
 /// closing re-arms the input gate until the button is physically released,
 /// so the teleport cannot fire on the release either. Start is the pad's
 /// back on every screen and Escape is the keyboard's; both are structurally
-/// unbindable, as F1 is (`crate::input::keyboard` says how), see
+/// unbindable, as F1 and F11 are (`crate::input::keyboard` says how), see
 /// [`handle_match_return`].
 ///
 /// F1 does nothing while the Return Home confirmation is open, alone or
@@ -856,10 +859,10 @@ fn handle_help_modal_keys(
 /// the Help modal here, in [`handle_help_modal_keys`], which reads
 /// it only while that modal already blocks gameplay.) Start is absent from
 /// `ControllerInput`'s twenty variants, which makes it structurally
-/// unbindable in exactly the way `KeyCode::Escape` and `KeyCode::F1` are
-/// (the two reserved keys) - the same property that makes Escape safe here,
-/// F1 safe as the Help key, and the reason
-/// Start can be back everywhere else too. Enter and South *are* bindable,
+/// unbindable in exactly the way `KeyCode::Escape`, `KeyCode::F1` and
+/// `KeyCode::F11` are (the three reserved keys) - the same property that
+/// makes Escape safe here, F1 safe as the Help key and F11 as the
+/// fullscreen key, and the reason Start can be back everywhere else too. Enter and South *are* bindable,
 /// but they are read only while the confirmation is open, when the input
 /// gate is armed and gameplay is paused, so neither can reach the board;
 /// and when back and confirm land in the same frame, back wins, because the

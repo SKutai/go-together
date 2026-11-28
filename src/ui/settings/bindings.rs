@@ -28,9 +28,10 @@
 //! # Capture rules
 //!
 //! Keyboard capture rejects reserved keys silently - Escape still has to
-//! cancel the capture and leave the screen, and F1 is the Help key
-//! on the screens that have them - and reports unsupported keys, so the
-//! player can tell "nothing happened" from "that key will not work".
+//! cancel the capture and leave the screen, F1 is the Help key on the
+//! screens that have them, and F11 switches fullscreen, during a capture
+//! too - and reports unsupported keys, so the player can tell "nothing
+//! happened" from "that key will not work".
 //! Controller capture only accepts input from the controller *assigned to the
 //! player being remapped*, so a second pad cannot silently rebind the first
 //! player; if that controller disconnects mid-capture the capture is
@@ -373,9 +374,10 @@ pub(super) fn mapping_binding_colors(highlight: Highlight, capturing: bool) -> (
 /// Binds the next pressed key to the row being captured.
 ///
 /// Reserved keys are ignored silently - Escape still has to cancel the
-/// capture and leave the screen, and F1 is the Help key on the
-/// screens that have them - while an unsupported key explains itself, so
-/// the player can tell "nothing happened" from "that key will not work".
+/// capture and leave the screen, F1 is the Help key on the screens that
+/// have them, and F11 switches fullscreen, during a capture too - while an
+/// unsupported key explains itself, so the player can tell "nothing
+/// happened" from "that key will not work".
 #[derive(SystemParam)]
 pub(super) struct MappingKeyCapture<'w, 's> {
     keys: Res<'w, ButtonInput<KeyCode>>,
@@ -570,8 +572,8 @@ mod tests {
     /// a binding row (the focus ring's activation makes it reachable),
     /// that same press is still in `just_pressed` when capture reads it and
     /// would silently become the row's binding, persisted to disk with a
-    /// success sound. Only Escape and F1 are reserved, so Enter is even
-    /// bindable.
+    /// success sound. Only Escape, F1 and F11 are reserved, so Enter is
+    /// even bindable.
     #[test]
     fn the_key_press_that_starts_a_capture_is_never_captured_itself() {
         let saved = Arc::new(Mutex::new(None));
@@ -642,12 +644,13 @@ mod tests {
         assert!(saved.lock().unwrap().is_some(), "a real capture persists");
     }
 
-    /// The two reserved keys during an armed capture: neither binds, neither
+    /// The three reserved keys during an armed capture: none binds, none
     /// is reported, nothing is written, and the capture stays armed for the
-    /// next fresh press. Escape also cancels the capture, but from
-    /// `handle_mapping_escape`, which is not in this schedule; F1 does
-    /// nothing on this screen at all, which is why it must at least not
-    /// bind.
+    /// next fresh press, which binds. Escape also cancels the capture, but
+    /// from `handle_mapping_escape`, which is not in this schedule; F1 does
+    /// nothing on this screen at all, and F11 switches fullscreen from
+    /// `app::window`, which is not in this schedule either, which is why
+    /// each must at least not bind.
     #[test]
     fn reserved_keys_are_ignored_silently_by_an_armed_capture() {
         let saved = Arc::new(Mutex::new(None));
@@ -680,7 +683,7 @@ mod tests {
             Some(GameAction::PlayerOneSelect)
         );
 
-        for reserved in [KeyCode::F1, KeyCode::Escape] {
+        for reserved in [KeyCode::F1, KeyCode::F11, KeyCode::Escape] {
             {
                 let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
                 keys.clear();

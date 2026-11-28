@@ -13,14 +13,14 @@
 //! operable without a pointer that includes pads as well as keys: Escape or a
 //! pad's Start to leave a screen or dismiss a modal, with East doing the same
 //! on the menu screens, F1 to open and close the Help modal on Home and
-//! during a Match, Tab, the arrows, Enter, Space and a pad's D-pad and
-//! South to drive the
-//! focus ring, modifier keys in a numeric field, the Home marimba, the browser
-//! audio unlock. The Settings capture systems additionally read raw keys and
-//! pads in order to *create* bindings. None of it reaches gameplay: chrome
-//! input is fixed rather than remappable, precisely so it belongs to neither
-//! player - and the two keys read during live play, Escape and F1, are
-//! reserved outright, so no binding can ever hold them either.
+//! during a Match, F11 to switch a desktop build's window to fullscreen and
+//! back, Tab, the arrows, Enter, Space and a pad's D-pad and South to drive
+//! the focus ring, modifier keys in a numeric field, the Home marimba, the
+//! browser audio unlock. The Settings capture systems additionally read raw
+//! keys and pads in order to *create* bindings. None of it reaches gameplay:
+//! chrome input is fixed rather than remappable, precisely so it belongs to
+//! neither player - and the three keys read during live play, Escape, F1 and
+//! F11, are reserved outright, so no binding can ever hold them either.
 //!
 //! # Layout
 //!

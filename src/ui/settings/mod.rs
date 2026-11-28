@@ -747,7 +747,7 @@ fn handle_mapping_escape(
     // a bindable controller input, so while a controller capture is armed, a
     // pressed East is the player *binding* East and must reach
     // `capture_controller_mapping` instead of cancelling it. Escape can never
-    // be bound (reserved, as F1 is) and Start is absent from
+    // be bound (reserved, as F1 and F11 are) and Start is absent from
     // `ControllerInput` altogether, so both still cancel a controller
     // capture - Start being a pad-only player's only way to do so.
     let pad_back = gamepads.iter().any(|gamepad| {
