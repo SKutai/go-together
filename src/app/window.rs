@@ -30,19 +30,28 @@
 //! Bevy makes the window before it knows the monitors, so the window opens
 //! hidden, and [`place_the_opening_window`] places it on the first frame,
 //! when they are known, and then shows it: centred, at once; maximised,
-//! once the maximised size has arrived, or [`MAXIMISE_PATIENCE`] later if
-//! the platform never sends one, as a desktop with no window manager does
-//! not. Either way no frame is drawn at a size the window is about to
-//! leave. Centring is Bevy's: it puts the window's frame where its inside
-//! would stand centred, so the window stands a title bar below the middle.
-//! With no primary monitor known the window is shown where the platform
-//! puts it, at the opening size. That is the normal case on Wayland, where
-//! winit names no primary monitor and a window cannot be placed; it is the
-//! case on an X server whose RandR lists no monitor, where winit's only
-//! answer is a 1x1 stand-in it never lists among the monitors; and it is
-//! the case on a Mac whose display is asleep as the game starts, when
-//! macOS lists no active display at all. A browser's canvas is neither
-//! hidden nor placed: the page puts it where it stands.
+//! once the maximised size has arrived, so that no frame is drawn at a size
+//! the window is about to leave. Where no maximised size comes within
+//! [`MAXIMISE_PATIENCE`] - a desktop with no window manager sends none, and
+//! an X11 window manager ignores a request from a window not yet mapped -
+//! the window is shown at the opening size and asked again on the next
+//! frame, once it is shown, and on that path it is drawn at the opening
+//! size until the maximised size arrives, if it ever does. Centring is
+//! Bevy's: it puts the window's frame where its inside would stand centred,
+//! so the window stands a title bar below the middle.
+//!
+//! With no primary monitor known the window cannot be centred, but it can
+//! still be maximised: it is where every monitor listed is short of room,
+//! and otherwise it is shown at the opening size where the platform puts
+//! it ([`opening_on`]). Wayland is that case: winit names no primary
+//! monitor there, though it lists the outputs, and a window cannot be
+//! positioned, only maximised. Wayland has not been tried with this game.
+//! An X server whose RandR lists no monitor, where winit's only answer is a
+//! 1x1 stand-in it never lists, and a Mac whose display is asleep as the
+//! game starts, when macOS lists no active display at all (seen on
+//! 2026-11-28), list none, and the window is shown where the platform puts
+//! it. A browser's canvas is neither hidden nor placed: the page puts it
+//! where it stands.
 //!
 //! # Fullscreen
 //!
@@ -55,8 +64,10 @@
 //! nothing of it there either ([`WindowPlatformConfig::fullscreen_key`]).
 //!
 //! Fullscreen is borderless, on the monitor the window is on, and going
-//! back restores the window as it was; that is the platform's to do, and
-//! it does. On macOS borderless fullscreen is the green button's own, a
+//! back restores the window as it was. That is the platform's to do; on
+//! macOS it did, for a 1280x720 window taken to fullscreen and back by F11
+//! and by the green button, and on Windows for a maximised window taken
+//! there and back by F11 (both on 2026-11-28). On macOS borderless fullscreen is the green button's own, a
 //! Space of its own, so F11 and the button are one fullscreen and either
 //! leaves what the other entered. But Bevy never writes `Window::mode`
 //! back from the system, so after the button it would still say windowed,
@@ -66,10 +77,12 @@
 //! winit every frame into [`SystemFullscreen`], `Window::mode` is kept in
 //! step with it whenever it changes, and F11 asks for the other of the
 //! system's two states ([`mode_after_f11`]), never of `Window::mode`'s.
-//! Only a change is followed, not a difference: a compositor that is slow
-//! to confirm a change - Wayland's - goes on reporting the old state for
-//! a frame or two, and following that would undo what F11 asked for
-//! before it took effect.
+//! Only a change is followed, not a difference: winit reports a platform's
+//! fullscreen once the platform has taken it up, which can be a frame or
+//! more after it was asked for - on macOS F11's fullscreen was reported a
+//! frame late, and the button's way out not until its animation had
+//! ended, most of a second - and following the old state meanwhile would
+//! undo what F11 asked for before it took effect.
 
 use std::time::Duration;
 
@@ -108,8 +121,8 @@ use crate::platform::WindowPlatformConfig;
 /// window unless a dock is moved to a side, and every common screen is
 /// wide enough to centre the window clear of one: the narrowest, 1280
 /// wide, leaves 120 a side. An estimate, then, from those sources; with
-/// fewer than 160 px a 1036-px-tall Windows screen put the window's bottom
-/// 9 px under the taskbar, as measured.
+/// an allowance of 100 px instead, a window centred on a 1036-px-tall
+/// Windows screen had its bottom 9 px under the taskbar, as measured.
 pub(crate) const OPENING_ALLOWANCE: Vec2 = Vec2::new(0.0, 160.0);
 
 /// How long a window that asked to be maximised stays hidden waiting for
@@ -165,6 +178,26 @@ pub(crate) fn opening_for(monitor: Vec2) -> Opening {
     }
 }
 
+/// How the window opens from what is known of the monitors, in logical
+/// pixels: by the primary monitor where one is named ([`opening_for`]);
+/// where none is, maximised if every monitor `listed` is short of room,
+/// and otherwise `None`, shown at the opening size where the platform puts
+/// it, since a window is centred only on the primary monitor. With no
+/// monitor listed either, `None` as well.
+pub(crate) fn opening_on(primary: Option<Vec2>, listed: &[Vec2]) -> Option<Opening> {
+    match primary {
+        Some(primary) => Some(opening_for(primary)),
+        None if !listed.is_empty()
+            && listed
+                .iter()
+                .all(|monitor| opening_for(*monitor) == Opening::Maximised) =>
+        {
+            Some(Opening::Maximised)
+        }
+        None => None,
+    }
+}
+
 /// Places the window as it opens and shows it, and switches fullscreen on
 /// F11, each where the host leaves it to the game: the systems of the
 /// module docs, in `PreUpdate`.
@@ -217,31 +250,38 @@ pub(crate) enum WindowOpening {
     /// Asked to be maximised `since` that much real time into the run,
     /// when it was `from` logical pixels, and hidden until it is not.
     Maximising { since: Duration, from: Vec2 },
+    /// Shown at the size it had once [`MAXIMISE_PATIENCE`] passed with no
+    /// maximised size, and to be asked again on the next frame: Bevy
+    /// applies a maximise request before it shows a window, so one made
+    /// in the frame the window is shown would still reach it hidden.
+    AskAgain,
     /// Placed and shown; nothing more to do.
     Shown,
 }
 
-/// Places the hidden window on the first frame, from the primary
-/// monitor's logical size, and shows it once it is placed; see the module
+/// Places the hidden window on the first frame, from the monitors' logical
+/// sizes ([`opening_on`]), and shows it once it is placed; see the module
 /// docs.
 pub(crate) fn place_the_opening_window(
     mut opening: ResMut<WindowOpening>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
-    monitors: Query<&Monitor, With<PrimaryMonitor>>,
+    primary: Query<&Monitor, With<PrimaryMonitor>>,
+    monitors: Query<&Monitor>,
     time: Res<Time<Real>>,
 ) {
     let Ok(mut window) = windows.single_mut() else {
         return;
     };
+    let logical = |monitor: &Monitor| {
+        Vec2::new(
+            monitor.physical_width as f32,
+            monitor.physical_height as f32,
+        ) / monitor.scale_factor as f32
+    };
     match *opening {
         WindowOpening::Unplaced => {
-            let monitor = monitors.single().ok().map(|monitor| {
-                Vec2::new(
-                    monitor.physical_width as f32,
-                    monitor.physical_height as f32,
-                ) / monitor.scale_factor as f32
-            });
-            match monitor.map(opening_for) {
+            let listed: Vec<Vec2> = monitors.iter().map(logical).collect();
+            match opening_on(primary.single().ok().map(logical), &listed) {
                 Some(Opening::Centred) => {
                     window.position = WindowPosition::Centered(MonitorSelection::Primary);
                     window.visible = true;
@@ -261,17 +301,17 @@ pub(crate) fn place_the_opening_window(
             }
         }
         WindowOpening::Maximising { since, from } => {
-            let arrived = window.size() != from;
-            let late = time.elapsed().saturating_sub(since) >= MAXIMISE_PATIENCE;
-            if arrived || late {
-                if !arrived {
-                    // A platform may ignore a hidden window's request; it
-                    // answers a shown one.
-                    window.set_maximized(true);
-                }
+            if window.size() != from {
                 window.visible = true;
                 *opening = WindowOpening::Shown;
+            } else if time.elapsed().saturating_sub(since) >= MAXIMISE_PATIENCE {
+                window.visible = true;
+                *opening = WindowOpening::AskAgain;
             }
+        }
+        WindowOpening::AskAgain => {
+            window.set_maximized(true);
+            *opening = WindowOpening::Shown;
         }
         WindowOpening::Shown => {}
     }
@@ -516,8 +556,9 @@ mod tests {
 
     /// A window waiting to be maximised is shown on the frame its new size
     /// has arrived and is not asked again; one whose size never changes is
-    /// shown once [`MAXIMISE_PATIENCE`] has passed, and asked again then,
-    /// shown - and not a frame before.
+    /// shown once [`MAXIMISE_PATIENCE`] has passed - and not a frame
+    /// before - and asked again on the frame after, when it has been shown,
+    /// never on the frame it is shown in.
     #[test]
     fn a_maximised_window_is_shown_when_its_size_arrives_or_after_a_wait() {
         let native = window_platform_config();
@@ -557,32 +598,74 @@ mod tests {
         let mut late = window(&mut app);
         assert!(late.visible);
         assert_eq!(late.size(), Vec2::new(1040.0, 900.0));
-        assert_eq!(late.internal.take_maximize_request(), Some(true));
+        assert_eq!(
+            late.internal.take_maximize_request(),
+            None,
+            "not in the frame it is shown in"
+        );
+        app.update();
+        let mut asked = window(&mut app);
+        assert!(asked.visible);
+        assert_eq!(asked.internal.take_maximize_request(), Some(true));
+        assert_eq!(
+            *app.world().resource::<WindowOpening>(),
+            WindowOpening::Shown
+        );
+        app.update();
+        assert_eq!(
+            window(&mut app).internal.take_maximize_request(),
+            None,
+            "asked once"
+        );
     }
 
-    /// With no primary monitor - a Wayland compositor's monitors, which
-    /// winit names none of primary, or none at all - the window is shown at
-    /// once, at the opening size, where the platform puts it. A browser's
-    /// canvas is shown from the start and nothing places it.
+    /// With no primary monitor the opening follows every monitor listed:
+    /// maximised where all are short of room, as a Wayland laptop's one
+    /// output is, and otherwise shown at once, at the opening size, where
+    /// the platform puts it - with one that has room, or with none listed
+    /// at all, as on a Mac whose display is asleep. Nothing is centred. A
+    /// browser's canvas is shown from the start and nothing places it.
     #[test]
-    fn with_no_primary_monitor_the_window_is_shown_where_the_platform_puts_it() {
+    fn with_no_primary_monitor_the_window_follows_every_monitor_listed() {
         let native = window_platform_config();
-        let mut app = opening_app(&native, None);
-        // A monitor that is not the primary one, as on Wayland.
-        app.world_mut().spawn(Monitor {
+        let unnamed = |width: u32, height: u32, scale_factor: f64| Monitor {
             name: None,
-            physical_width: 3840,
-            physical_height: 2160,
+            physical_width: width,
+            physical_height: height,
             physical_position: IVec2::ZERO,
             refresh_rate_millihertz: None,
-            scale_factor: 2.0,
+            scale_factor,
             video_modes: Vec::new(),
-        });
+        };
+
+        // Monitors that are not the primary one, as on Wayland: 1366x768
+        // and 2560x1600 at 2, 1280x800, both short.
+        let mut app = opening_app(&native, None);
+        app.world_mut().spawn(unnamed(1366, 768, 1.0));
+        app.world_mut().spawn(unnamed(2560, 1600, 2.0));
+        app.update();
+        let mut asked = window(&mut app);
+        assert!(!asked.visible, "hidden until the maximised size arrives");
+        assert_eq!(asked.position, WindowPosition::Automatic);
+        assert_eq!(asked.internal.take_maximize_request(), Some(true));
+
+        // One of them has room: 3840x2160 at 2 is 1920x1080.
+        let mut app = opening_app(&native, None);
+        app.world_mut().spawn(unnamed(1366, 768, 1.0));
+        app.world_mut().spawn(unnamed(3840, 2160, 2.0));
         app.update();
         let mut shown = window(&mut app);
         assert!(shown.visible);
         assert_eq!(shown.position, WindowPosition::Automatic);
         assert_eq!(shown.size(), Vec2::new(1040.0, 900.0));
+        assert_eq!(shown.internal.take_maximize_request(), None);
+
+        // None listed at all.
+        let mut app = opening_app(&native, None);
+        app.update();
+        let mut shown = window(&mut app);
+        assert!(shown.visible);
+        assert_eq!(shown.position, WindowPosition::Automatic);
         assert_eq!(shown.internal.take_maximize_request(), None);
 
         let browser = browser_window_platform_config(Some((1300, 700)));
@@ -593,6 +676,29 @@ mod tests {
         assert_eq!(canvas.position, WindowPosition::Automatic);
         assert_eq!(canvas.internal.take_maximize_request(), None);
         assert!(!app.world().contains_resource::<WindowOpening>());
+    }
+
+    /// The opening from what is known of the monitors: the primary one
+    /// decides wherever it is named, even beside others; without it, every
+    /// monitor listed short of room maximises, and one with room, or none
+    /// listed, leaves the window where the platform puts it.
+    #[test]
+    fn the_opening_follows_the_primary_monitor_or_else_every_monitor() {
+        use Opening::{Centred, Maximised};
+
+        let short = Vec2::new(1366.0, 768.0);
+        let room = Vec2::new(1920.0, 1080.0);
+        assert_eq!(opening_on(Some(room), &[short, room]), Some(Centred));
+        assert_eq!(opening_on(Some(short), &[short, room]), Some(Maximised));
+        assert_eq!(opening_on(Some(short), &[]), Some(Maximised));
+        assert_eq!(opening_on(None, &[short]), Some(Maximised));
+        assert_eq!(
+            opening_on(None, &[short, Vec2::new(1280.0, 800.0)]),
+            Some(Maximised)
+        );
+        assert_eq!(opening_on(None, &[short, room]), None);
+        assert_eq!(opening_on(None, &[room]), None);
+        assert_eq!(opening_on(None, &[]), None);
     }
 
     /// F11 asks for the other of the system's two states, never of
@@ -649,14 +755,18 @@ mod tests {
         window(app).mode
     }
 
-    /// Through the production plugin and schedule, on every screen, with
-    /// nothing open and with either of the HUD's modals open, each press of
-    /// F11 asks for fullscreen when the system shows the window windowed
-    /// and for the window when it shows it fullscreen, and a held key asks
-    /// once. Between presses the test does what the system would: it shows
-    /// what was asked. A binding capture and a text field, which hold the
-    /// keys on their screens, have tests of their own beside them in
-    /// `ui::settings` and `ui::replay::library`.
+    /// Through the production plugin and schedule, in every `AppScreen`
+    /// state, with neither and with each of the HUD's modal flags set,
+    /// each press of F11 asks for fullscreen when the system shows the
+    /// window windowed and for the window when it shows it fullscreen, and
+    /// a held key asks once. Between presses the test does what the system
+    /// would: it shows what was asked. No screen's own plugin is loaded, so
+    /// this holds what the window plugin does whatever the state, not what
+    /// a screen does with keys: the plugin reads F11 in `PreUpdate`, before
+    /// any screen's systems run, and the two places that hold the keys - a
+    /// binding capture and a text field - have tests of their own beside
+    /// them, with their screens loaded, in `ui::settings` and
+    /// `ui::replay::library`.
     #[test]
     fn each_f11_press_asks_for_the_other_mode_on_every_screen() {
         use crate::ui::hud::HudState;
