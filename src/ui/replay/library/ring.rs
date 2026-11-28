@@ -1479,9 +1479,9 @@ mod tests {
     /// player opens the last card's Replay from its View Replay; the window
     /// becomes 1920x1080 while the Viewer is shown, where a page holds all
     /// ten Replays from the first; and back in the Library the ring is on the
-    /// same Replay's View Replay, ten places down the page, not on the
-    /// fourth card's. Through the screen's own plugin, the focus core and
-    /// the game's own window tracking, the window itself resized.
+    /// same Replay's View Replay, six places down the page onto the tenth,
+    /// not on the fourth card's. Through the screen's own plugin, the focus
+    /// core and the game's own window tracking, the window itself resized.
     #[test]
     fn the_ring_stays_on_its_replay_when_the_window_grows_on_another_screen() {
         use super::super::geometry::library_layout;

@@ -44,7 +44,7 @@ use crate::replay::REPLAY_LABEL_RULE;
 use crate::replay_library::{ReplayCatalogEntry, ReplayLibrary, filter_and_sort_replays};
 use crate::rules::{BOARD_SIZE, Cell, Point};
 use crate::ui::focus::Focusable;
-use crate::ui::text_metrics::{CUT_MARK, line_width};
+use crate::ui::text_metrics::{CUT_MARK, line_width, wrap_lines};
 /// What the list says when the Library holds no Replays at all.
 const NO_REPLAYS_MESSAGE: &str =
     "No completed match replays yet.\nFinish and score a match to save it automatically.";
@@ -333,10 +333,13 @@ fn library_title() -> impl Bundle {
 fn spawn_toolbar_sections(controls: &mut ChildSpawnerCommands, view: LibraryView) {
     let ui = view.ui;
     let search_label = if ui.search.text.is_empty() {
-        if ui.search_focused {
-            "Search label: |".into()
-        } else {
-            "Search replay labels...".into()
+        SearchLabel {
+            text: if ui.search_focused {
+                "Search label: |".into()
+            } else {
+                "Search replay labels...".into()
+            },
+            cut: false,
         }
     } else {
         const PREFIX: &str = "Search: ";
@@ -355,6 +358,8 @@ fn spawn_toolbar_sections(controls: &mut ChildSpawnerCommands, view: LibraryView
         };
         shown_search_label(&label, caret, search_field_chars(view.layout.search_width))
     };
+    let search_cut = search_label.cut;
+    let search_label = search_label.text;
     let mut ring = RingOrder::starting_at(TOOLBAR_FOCUS_ORDER);
     for section in LIBRARY_TOOLBAR_ORDER {
         match section {
@@ -362,20 +367,32 @@ fn spawn_toolbar_sections(controls: &mut ChildSpawnerCommands, view: LibraryView
                 controls
                     .spawn(library_toolbar_group_node())
                     .with_children(|search| {
-                        // One line, never wrapped: the text is cut to fit
-                        // it, and the field clips it besides.
-                        spawn_library_button_with_layout(
-                            search,
-                            view,
-                            LibraryAction::FocusSearch,
-                            &search_label,
-                            Node {
-                                overflow: Overflow::clip(),
-                                ..library_button_node(view.layout.search_width, 40.0)
-                            },
-                            TextLayout::new(Justify::Center, LineBreak::NoWrap),
-                            ring.next(),
-                        );
+                        if search_cut {
+                            // One line, never wrapped: the text is cut to
+                            // fit it, and the field clips it besides.
+                            spawn_library_button_with_layout(
+                                search,
+                                view,
+                                LibraryAction::FocusSearch,
+                                &search_label,
+                                Node {
+                                    overflow: Overflow::clip(),
+                                    ..library_button_node(view.layout.search_width, 40.0)
+                                },
+                                TextLayout::new(Justify::Center, LineBreak::NoWrap),
+                                ring.next(),
+                            );
+                        } else {
+                            spawn_library_button(
+                                search,
+                                view,
+                                LibraryAction::FocusSearch,
+                                &search_label,
+                                view.layout.search_width,
+                                40.0,
+                                ring.next(),
+                            );
+                        }
                         spawn_library_button(
                             search,
                             view,
@@ -938,7 +955,7 @@ fn delete_confirmation_question(label: &str) -> String {
     format!("Permanently delete \"{label}\"?")
 }
 
-/// How many characters of a button's text the search field's one line
+/// How many characters of a button's text a line of the search field
 /// holds when the field is `width` px wide. The font is monospaced, so this
 /// is known before layout (`ui::text_metrics`).
 fn search_field_chars(width: f32) -> usize {
@@ -946,29 +963,49 @@ fn search_field_chars(width: f32) -> usize {
     (inside / line_width(1, BUTTON_TEXT_SIZE)).floor() as usize
 }
 
-/// The search field's `label` as it is shown on its one line of `chars`
-/// characters: whole where it fits, and otherwise as a field scrolls its
-/// text, with [`CUT_MARK`] at each end cut away. `caret` is the index, in
-/// characters, of the caret's mark in the label - or the label's length,
-/// with the field unfocused - and the caret is always shown: with the end of
-/// the label where the caret is among its last characters, as it is while
-/// a query is typed; otherwise with the start, where the caret is among the
-/// first; and otherwise with the run of the label that ends at the caret.
-fn shown_search_label(label: &str, caret: usize, chars: usize) -> String {
-    let all: Vec<char> = label.chars().collect();
-    if all.len() <= chars {
-        return label.to_owned();
+/// How many lines of a button's text the search field holds: two of its
+/// 15 px text in its 40 px, as it always has.
+const SEARCH_FIELD_LINES: usize = 2;
+
+/// The search field's text, and whether it was cut to one line.
+struct SearchLabel {
+    text: String,
+    cut: bool,
+}
+
+/// The search field's `label` as it is shown, for a field whose lines hold
+/// `chars` characters. Where the label fits the field's
+/// [`SEARCH_FIELD_LINES`] lines, wrapped between words, it is shown whole
+/// and `bevy_ui` wraps it, as it always has. Otherwise - a longer label, or
+/// a word longer than a line, which would run past the field's sides - it
+/// is cut to one line, as a field scrolls its text, with [`CUT_MARK`] at
+/// each end cut away. `caret` is the index, in characters, of the caret's
+/// mark in the label - or the label's length, with the field unfocused -
+/// and the caret is always shown: with the end of the label where the caret
+/// is among its last characters, as it is while a query is typed; otherwise
+/// with the start, where the caret is among the first; and otherwise with
+/// the run of the label that ends at the caret.
+fn shown_search_label(label: &str, caret: usize, chars: usize) -> SearchLabel {
+    let fits = wrap_lines(label, chars).len() <= SEARCH_FIELD_LINES
+        && label.split(' ').all(|word| word.chars().count() <= chars);
+    if fits {
+        return SearchLabel {
+            text: label.to_owned(),
+            cut: false,
+        };
     }
+    let all: Vec<char> = label.chars().collect();
     let run = |from: usize, to: usize| all[from..to].iter().collect::<String>();
     let room = chars - CUT_MARK.len();
-    if caret >= all.len() - room {
+    let text = if caret >= all.len().saturating_sub(room) {
         format!("{CUT_MARK}{}", run(all.len() - room, all.len()))
     } else if caret < room {
         format!("{}{CUT_MARK}", run(0, room))
     } else {
         let room = room - CUT_MARK.len();
         format!("{CUT_MARK}{}{CUT_MARK}", run(caret + 1 - room, caret + 1))
-    }
+    };
+    SearchLabel { text, cut: true }
 }
 
 fn spawn_library_button(
@@ -1292,46 +1329,64 @@ mod tests {
         assert!(error.starts_with("Could not delete replay:"));
     }
 
-    /// The indicator counts by the page as it is: which cards are shown,
-    /// however many a page holds, and the last page full.
-    /// The search field's text cut to its one line, on texts whose cuts are
-    /// worked out by hand: whole where it fits; with its end, where the
-    /// caret is among its last characters or the field is unfocused; with
-    /// its start, where the caret is among its first; and otherwise with the
-    /// run that ends at the caret. A cut text is exactly a line long, and
-    /// always shows the caret.
+    /// The search field's text, on texts worked out by hand: whole where it
+    /// fits the field's two lines, wrapped between words; and otherwise - a
+    /// longer text, or a word longer than a line - cut to one line, with its
+    /// end, where the caret is among its last characters or the field is
+    /// unfocused; with its start, where the caret is among its first; and
+    /// otherwise with the run that ends at the caret. A cut text is exactly a
+    /// line long, and always shows the caret.
     #[test]
-    fn the_search_fields_text_is_cut_to_its_line_around_the_caret() {
+    fn the_search_fields_text_is_whole_in_two_lines_or_cut_around_the_caret() {
         assert_eq!(search_field_chars(250.0), 25);
         assert_eq!(search_field_chars(500.0), 53);
-        assert_eq!(shown_search_label("Search: abc|", 11, 12), "Search: abc|");
+        let shown = |label: &str, caret: usize, chars: usize| {
+            let shown = shown_search_label(label, caret, chars);
+            (shown.text, shown.cut)
+        };
+        assert_eq!(
+            shown("Search: abc|", 11, 12),
+            ("Search: abc|".to_string(), false)
+        );
+        // "Search: abcd" and "efghijkl|": two lines of 12.
+        let two_lines = "Search: abcd efghijkl|";
+        assert_eq!(shown(two_lines, 20, 12), (two_lines.to_string(), false));
         let typed = "Search: abcdefghijklmnopqrstuvwxyz|";
         let caret = typed.len() - 1;
-        assert_eq!(shown_search_label(typed, caret, 12), "...stuvwxyz|");
+        assert_eq!(shown(typed, caret, 12), ("...stuvwxyz|".to_string(), true));
+        let three_lines = "Search: abcdefgh ijklmnop qrstuvwx|";
+        assert_eq!(
+            shown(three_lines, three_lines.len() - 1, 12),
+            ("...qrstuvwx|".to_string(), true)
+        );
         let unfocused = "Search: abcdefghijklmnopqrstuvwxyz";
         assert_eq!(
-            shown_search_label(unfocused, unfocused.len(), 12),
-            "...rstuvwxyz"
+            shown(unfocused, unfocused.len(), 12),
+            ("...rstuvwxyz".to_string(), true)
         );
         let at_start = "Search: |abcdefghijklmnopqrstuvwxyz";
-        assert_eq!(shown_search_label(at_start, 8, 12), "Search: |...");
+        assert_eq!(shown(at_start, 8, 12), ("Search: |...".to_string(), true));
         let inside = "Search: abcdefghijk|lmnopqrstuvwxyz";
-        assert_eq!(shown_search_label(inside, 19, 12), "...ghijk|...");
+        assert_eq!(shown(inside, 19, 12), ("...ghijk|...".to_string(), true));
         for (label, caret) in [(typed, caret), (at_start, 8), (inside, 19)] {
-            let shown = shown_search_label(label, caret, 12);
-            assert_eq!(shown.len(), 12, "{shown:?}");
-            assert!(shown.contains('|'), "{shown:?}");
+            let (text, cut) = shown(label, caret, 12);
+            assert!(cut);
+            assert_eq!(text.len(), 12, "{text:?}");
+            assert!(text.contains('|'), "{text:?}");
         }
     }
 
-    /// A query of the 60 characters a label can have - in words, and as one
-    /// word - stays on the search field's one line, inside it, whether the
-    /// field is being typed in or not, with the header on one row at
-    /// 1150x768, where the field is 250 px, and on two at 1040x900, where it
-    /// is 500: nothing runs under Clear or over the title, and no two texts
-    /// meet. Under real layout.
+    /// A query of the 60 characters a label can have, and a shorter one, in
+    /// words and as one word, typed in and not, with the header on two rows
+    /// at 1040x900, where the field is 500 px, and on one at 1150x768, where
+    /// it is 250. Where the field's two lines hold the query, wrapped between
+    /// words, it is drawn whole on them, as it always was; where they do
+    /// not, or a word is longer than a line, it is drawn on one line, cut
+    /// around the caret. Either way it stays inside the field, nothing runs
+    /// under Clear or over the title, and no two texts meet. Under real
+    /// layout.
     #[test]
-    fn a_long_query_stays_on_the_search_fields_line() {
+    fn a_long_query_stays_inside_the_search_field() {
         use super::super::LibraryAction;
         use super::super::geometry::library_layout;
         use crate::app::visuals::WindowSize;
@@ -1340,64 +1395,81 @@ mod tests {
 
         const WORDS: &str = "Club night game with an early capture and a long ending race";
         const ONE_WORD: &str = "Clubnightgamewithanearlycaptureandalongendingracetothefinish";
+        const SHORT: &str = "Club night game with an early";
         let one_row = Vec2::new(1150.0, 768.0);
         assert!(library_layout(one_row, 0).one_row_header);
         assert!(!library_layout(WindowSize::OPENING.0, 0).one_row_header);
-        for window in [one_row, WindowSize::OPENING.0] {
-            for query in [WORDS, ONE_WORD] {
-                for focused in [true, false] {
-                    let context = format!("{window}, {query:?}, focused {focused}");
-                    let mut app = library_entered_at(window, 4, None, false);
-                    {
-                        let mut ui = app.world_mut().resource_mut::<ReplayLibraryUiState>();
-                        ui.search = crate::ui::text_input::TextEditor::new(query.into());
-                        ui.search_focused = focused;
-                        ui.dirty = true;
-                    }
-                    app.update();
-                    app.update();
-                    let world = app.world_mut();
-                    let field = world
-                        .query::<(Entity, &LibraryAction)>()
-                        .iter(world)
-                        .find(|(_, action)| matches!(action, LibraryAction::FocusSearch))
-                        .map(|(entity, _)| entity)
-                        .unwrap();
-                    let text = app.world().get::<Children>(field).unwrap()[0];
-                    let lines = app
-                        .world()
-                        .get::<TextLayoutInfo>(text)
-                        .unwrap()
-                        .glyphs
-                        .iter()
-                        .map(|glyph| glyph.line_index)
-                        .max()
-                        .unwrap()
-                        + 1;
+        // The query, the window, and whether it is drawn whole there.
+        let cases = [
+            (WORDS, WindowSize::OPENING.0, true),
+            (ONE_WORD, WindowSize::OPENING.0, false),
+            (SHORT, one_row, true),
+            (WORDS, one_row, false),
+            (ONE_WORD, one_row, false),
+        ];
+        for (query, window, whole) in cases {
+            for focused in [true, false] {
+                let context = format!("{window}, {query:?}, focused {focused}");
+                let mut app = library_entered_at(window, 4, None, false);
+                {
+                    let mut ui = app.world_mut().resource_mut::<ReplayLibraryUiState>();
+                    ui.search = crate::ui::text_input::TextEditor::new(query.into());
+                    ui.search_focused = focused;
+                    ui.dirty = true;
+                }
+                app.update();
+                app.update();
+                let world = app.world_mut();
+                let field = world
+                    .query::<(Entity, &LibraryAction)>()
+                    .iter(world)
+                    .find(|(_, action)| matches!(action, LibraryAction::FocusSearch))
+                    .map(|(entity, _)| entity)
+                    .unwrap();
+                let text = app.world().get::<Children>(field).unwrap()[0];
+                let drawn_text = app.world().get::<Text>(text).unwrap().0.clone();
+                let label = format!("Search: {query}{}", if focused { "|" } else { "" });
+                let lines = app
+                    .world()
+                    .get::<TextLayoutInfo>(text)
+                    .unwrap()
+                    .glyphs
+                    .iter()
+                    .map(|glyph| glyph.line_index)
+                    .max()
+                    .unwrap()
+                    + 1;
+                if whole {
+                    assert_eq!(drawn_text, label, "{context}: drawn whole");
+                    assert!((1..=2).contains(&lines), "{context}: {lines} lines");
+                } else {
+                    assert_ne!(drawn_text, label, "{context}: cut");
                     assert_eq!(lines, 1, "{context}");
-                    let field = node_rect(&app, field);
-                    let drawn = drawn_texts(&mut app);
-                    let (_, shown, ink) = drawn
-                        .iter()
-                        .find(|(entity, _, _)| *entity == text)
-                        .expect("the field's text is drawn");
-                    assert!(
-                        field.contains(ink.min) && field.contains(ink.max),
-                        "{context}: {shown:?} inked {ink:?} leaves the field {field:?}"
-                    );
-                    for (index, (_, a_text, a)) in drawn.iter().enumerate() {
-                        for (_, b_text, b) in &drawn[index + 1..] {
-                            assert!(
-                                a.intersect(*b).is_empty(),
-                                "{context}: {a_text:?} meets {b_text:?}"
-                            );
-                        }
+                }
+                let field = node_rect(&app, field);
+                let drawn = drawn_texts(&mut app);
+                let (_, shown, ink) = drawn
+                    .iter()
+                    .find(|(entity, _, _)| *entity == text)
+                    .expect("the field's text is drawn");
+                assert!(
+                    field.contains(ink.min) && field.contains(ink.max),
+                    "{context}: {shown:?} inked {ink:?} leaves the field {field:?}"
+                );
+                for (index, (_, a_text, a)) in drawn.iter().enumerate() {
+                    for (_, b_text, b) in &drawn[index + 1..] {
+                        assert!(
+                            a.intersect(*b).is_empty(),
+                            "{context}: {a_text:?} meets {b_text:?}"
+                        );
                     }
                 }
             }
         }
     }
 
+    /// The indicator counts by the page as it is: which cards are shown,
+    /// however many a page holds, and the last page full.
     #[test]
     fn page_indicator_reports_visible_replay_range() {
         assert_eq!(page_indicator_text(0, 0, 4), "0 of 0");

@@ -272,9 +272,9 @@ impl LibraryLayout {
     /// The first card a page may start at, in a list of `count`: its own
     /// index rounded down to a row's first card, and no further down the
     /// list than the page that ends with the last card, so that a scroll
-    /// never leaves room for cards the list does not have. In two columns
-    /// the page moves a row of two at a time, so the last page may end with
-    /// a row of one.
+    /// leaves no room for cards the list does not have - but for one place:
+    /// in two columns the page moves a row of two at a time, so its last
+    /// row may hold one card beside an empty place.
     pub(super) fn first_card(&self, wanted: usize, count: usize) -> usize {
         let last = count
             .saturating_sub(self.cards_per_page())
