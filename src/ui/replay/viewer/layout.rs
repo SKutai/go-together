@@ -13,8 +13,10 @@
 //!
 //! # Where things stand
 //!
-//! [`super::geometry`] decides it, as a pure function of the window's size.
-//! Every node whose place depends on the window carries a
+//! [`super::geometry`] decides it, as a pure function of the window's size
+//! and of the room the Replay's label needs in tall ([`TallLabelRoom`]),
+//! which cannot change while the screen is open. Every node whose place
+//! depends on the window carries a
 //! [`ViewerPlacement`] naming its place, and [`place`] is the one function
 //! that writes a place into a node, used both at spawn and by
 //! [`place_viewer_furniture`], so the two cannot disagree. That system also

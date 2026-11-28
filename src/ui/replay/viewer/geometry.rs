@@ -2,8 +2,8 @@
 //! and where everything stands on its board.
 //!
 //! Nothing here touches the ECS. Every item is a constant or a pure
-//! calculation over the window's size, a [`Point`], a player or a recorded
-//! frame. That is what lets the tests run [`viewer_layout`] at every size
+//! calculation over the window's size, the room a Replay's label needs, a
+//! [`Point`], a player or a recorded frame. That is what lets the tests run [`viewer_layout`] at every size
 //! from the minimum to 2560x1440 in steps of 20 px, at the named sizes and
 //! at a few larger windows, and check that nothing overlaps and nothing
 //! leaves the window, and check that the board's marks fit their cell and

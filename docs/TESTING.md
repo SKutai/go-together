@@ -432,9 +432,10 @@ tested at several:
 and the Match screen, Home and the Replay Viewer run their real-layout
 tests at all of them - every button reached by the pointer, every text
 inside the window, and on the Match and the Viewer nothing drawn meeting
-anything else. Their layouts are pure functions of the size as well
+anything else. Their layouts are pure functions as well
 (`ui::match_screen::geometry`, `ui::home::geometry`,
-`ui::replay::viewer::geometry`), so their own tests run every size in
+`ui::replay::viewer::geometry`) - of the size, and the Viewer's of the
+room its Replay's label needs too - so their own tests run every size in
 `app::visuals::layout_sweep` - every 20 px from the minimum to 2560x1440,
 the named sizes, a few fractional ones and a few larger windows - and
 check the same things from the layout's own boxes. The two halves

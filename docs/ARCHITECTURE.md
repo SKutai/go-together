@@ -527,7 +527,9 @@ size, kept equal to it by `track_window_size` in `PreUpdate` and written
 only when the size really changes. A screen's layout is a pure function of
 `WindowSize::layout()`, which is that size raised to the 1040x600 minimum,
 so a window or a browser page smaller than the minimum is laid out as the
-minimum would be. `WINDOW_WIDTH` and `WINDOW_HEIGHT` are only the opening
+minimum would be. The Replay Viewer's reads one thing more, which cannot
+change while it is open: whether its Replay's label may need a third line
+in its header. `WINDOW_WIDTH` and `WINDOW_HEIGHT` are only the opening
 size; nothing adapted positions itself from them.
 
 **Text never changes size.** Interface nodes are laid out in the window's
