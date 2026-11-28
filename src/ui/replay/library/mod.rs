@@ -739,7 +739,10 @@ enum LibraryTextTarget {
 
 fn capture_library_text(
     mut keyboard_events: MessageReader<KeyboardInput>,
-    keys: Res<ButtonInput<KeyCode>>,
+    (keys, chord): (
+        Res<ButtonInput<KeyCode>>,
+        Option<Res<crate::app::window::FullscreenChord>>,
+    ),
     mut ui: ResMut<ReplayLibraryUiState>,
     mut library: ResMut<ReplayLibrary>,
     mut audio: ResMut<AudioCueQueue>,
@@ -774,7 +777,14 @@ fn capture_library_text(
         || keys.pressed(KeyCode::SuperLeft)
         || keys.pressed(KeyCode::SuperRight);
     for event in keyboard_events.read() {
-        if event.state != ButtonState::Pressed {
+        // The F of Control-Command-F, on a Mac, is the fullscreen chord's,
+        // and so are its repeats once Control and Command are let go
+        // (`app::window`).
+        if event.state != ButtonState::Pressed
+            || chord
+                .as_ref()
+                .is_some_and(|chord| chord.takes(event.key_code, &keys))
+        {
             continue;
         }
         let rename_outcome =

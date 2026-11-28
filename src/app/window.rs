@@ -101,7 +101,7 @@
 use std::time::Duration;
 
 use bevy::ecs::system::NonSendMarker;
-use bevy::input::keyboard::KeyboardInput;
+use bevy::input::keyboard::{KeyboardFocusLost, KeyboardInput};
 use bevy::input::{ButtonState, InputSystems};
 use bevy::prelude::*;
 use bevy::window::{
@@ -257,7 +257,8 @@ impl Plugin for GameWindowPlugin {
             );
             if self.fullscreen_chord {
                 app.init_resource::<FullscreenChord>()
-                    .add_message::<KeyboardInput>();
+                    .add_message::<KeyboardInput>()
+                    .add_message::<KeyboardFocusLost>();
             }
         }
     }
@@ -450,10 +451,13 @@ impl FullscreenChord {
 /// systems have pressed its F: an F pressed - not a repeat - with the
 /// chord's modifiers held asks for the switch, once, and from that press
 /// until F is let go `ButtonInput` holds no F, so no binding, capture or
-/// ring sees it, not even for a press and release within one frame.
+/// ring sees it, not even for a press and release within one frame. A
+/// window that loses the keyboard may never hear F let go, so a loss of
+/// focus ends the hold too, as it releases every key in `ButtonInput`.
 fn take_the_fullscreen_chord(
     mut chord: ResMut<FullscreenChord>,
     mut messages: MessageReader<KeyboardInput>,
+    mut focus_lost: MessageReader<KeyboardFocusLost>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
 ) {
     let mut pressed_now = false;
@@ -470,6 +474,9 @@ fn take_the_fullscreen_chord(
             ButtonState::Released => chord.f_held = false,
             ButtonState::Pressed => {}
         }
+    }
+    if focus_lost.read().count() > 0 {
+        chord.f_held = false;
     }
     if chord.f_held || pressed_now {
         keys.reset(KeyCode::KeyF);
@@ -1112,6 +1119,28 @@ mod tests {
         app.update();
         assert!(keys(&app).just_pressed(KeyCode::KeyF), "F alone is F");
         assert_eq!(mode(&mut app), fullscreen, "and switches nothing");
+    }
+
+    /// A window that loses the keyboard mid-chord may never hear its F let
+    /// go. The loss ends the chord's hold, as it releases `ButtonInput`'s
+    /// keys, so the next F, once the window has the keyboard again, is an
+    /// F.
+    #[test]
+    fn a_loss_of_focus_ends_the_chords_hold() {
+        let mut app = fullscreen_app(&with_the_chord(true));
+        hold(&mut app, &[KeyCode::ControlLeft, KeyCode::SuperLeft]);
+        f_key(&mut app, ButtonState::Pressed, false);
+        app.update();
+        assert!(!keys(&app).pressed(KeyCode::KeyF), "the chord's");
+        app.world_mut().write_message(KeyboardFocusLost);
+        // What Bevy's input systems do with the same message.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release_all();
+        app.update();
+        f_key(&mut app, ButtonState::Pressed, false);
+        app.update();
+        assert!(keys(&app).just_pressed(KeyCode::KeyF), "an F again");
     }
 
     /// The chord's F never reaches the action bound to F - Player Two's

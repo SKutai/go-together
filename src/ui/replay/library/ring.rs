@@ -1279,6 +1279,43 @@ mod tests {
         assert_eq!(mode(&mut app), fullscreen, "and switches nothing");
         type_key(&mut app, KeyCode::Backspace, Key::Backspace);
         assert_eq!(ui(&app).search.text, "3");
+
+        // Control and Command let go before F: F's repeats are still the
+        // chord's, and type nothing either.
+        let f_message = |app: &mut App, state: ButtonState, repeat: bool| {
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::KeyF,
+                logical_key: f(),
+                state,
+                text: None,
+                repeat,
+                window: Entity::PLACEHOLDER,
+            });
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            match state {
+                ButtonState::Pressed => keys.press(KeyCode::KeyF),
+                ButtonState::Released => keys.release(KeyCode::KeyF),
+            }
+            app.update();
+        };
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.press(KeyCode::ControlLeft);
+            keys.press(KeyCode::SuperLeft);
+        }
+        f_message(&mut app, ButtonState::Pressed, false);
+        assert_eq!(mode(&mut app), WindowMode::Windowed, "the chord again");
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.release(KeyCode::ControlLeft);
+            keys.release(KeyCode::SuperLeft);
+        }
+        for _ in 0..3 {
+            f_message(&mut app, ButtonState::Pressed, true);
+        }
+        assert_eq!(ui(&app).search.text, "3", "nor do its repeats");
+        f_message(&mut app, ButtonState::Released, false);
+        shows(&mut app, false);
         enter(&mut app);
 
         // The rename dialog.
@@ -1287,7 +1324,7 @@ mod tests {
         enter(&mut app);
         let before = editor_text(&app).expect("the rename dialog is open");
         chord(&mut app);
-        assert_eq!(mode(&mut app), WindowMode::Windowed, "and back");
+        assert_eq!(mode(&mut app), fullscreen, "the chord asks again");
         assert_eq!(editor_text(&app), Some(before), "nothing typed");
         std::fs::remove_dir_all(root).unwrap();
     }
