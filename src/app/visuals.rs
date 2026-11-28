@@ -789,11 +789,15 @@ mod tests {
     /// translation, and nothing else does; a change of screen puts the
     /// framing back to a scale of 1 over the origin, and the camera with it.
     /// The plugin is the production one, so the schedule positions are the
-    /// game's.
+    /// game's, and Bevy's transform propagation runs after it: the camera's
+    /// global transform, which is what the frame is drawn from, takes a
+    /// framing the same frame it is written, and would be a frame behind if
+    /// the framing were applied after propagation.
     #[test]
     fn the_main_camera_takes_the_framing_and_a_change_of_screen_puts_it_back() {
         let mut app = App::new();
         app.add_plugins(bevy::state::app::StatesPlugin)
+            .add_plugins(bevy::transform::TransformPlugin)
             .init_state::<AppScreen>()
             .add_plugins(WindowLayoutPlugin);
         let orthographic = || Projection::Orthographic(OrthographicProjection::default_2d());
@@ -820,8 +824,15 @@ mod tests {
                 app.world().get::<Transform>(entity).unwrap().translation,
             )
         };
+        let drawn_from = |app: &App, entity: Entity| {
+            app.world()
+                .get::<GlobalTransform>(entity)
+                .unwrap()
+                .translation()
+        };
         app.update();
         assert_eq!(camera(&app, main), (1.0, Vec3::new(0.0, 0.0, 999.0)));
+        assert_eq!(drawn_from(&app, main), Vec3::new(0.0, 0.0, 999.0));
 
         *app.world_mut().resource_mut::<WorldFraming>() = WorldFraming {
             zoom: 2.0,
@@ -829,6 +840,11 @@ mod tests {
         };
         app.update();
         assert_eq!(camera(&app, main), (0.5, Vec3::new(30.0, -40.0, 999.0)));
+        assert_eq!(
+            drawn_from(&app, main),
+            Vec3::new(30.0, -40.0, 999.0),
+            "drawn from its new place the frame the framing was written"
+        );
         assert_eq!(
             camera(&app, other),
             (1.0, Vec3::ZERO),
@@ -844,5 +860,6 @@ mod tests {
             WorldFraming::IDENTITY
         );
         assert_eq!(camera(&app, main), (1.0, Vec3::new(0.0, 0.0, 999.0)));
+        assert_eq!(drawn_from(&app, main), Vec3::new(0.0, 0.0, 999.0));
     }
 }

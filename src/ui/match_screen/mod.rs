@@ -845,10 +845,11 @@ mod tests {
 
     /// A Match under real `bevy_ui` layout and the production graph - the
     /// focus core, the HUD, the whole gameplay pipeline with semantic fusion
-    /// in front of it, and this screen's own plugin - entered through a real
-    /// state transition and advanced until play is live, in a window of
-    /// `window` logical pixels. Returns the app and the temporary Replay
-    /// root, which the caller removes.
+    /// in front of it, the window layout, and this screen's own plugin -
+    /// entered through a real state transition and advanced until play is
+    /// live, in a window of `window` logical pixels, with the camera framing
+    /// the board where the layout puts it. Returns the app and the temporary
+    /// Replay root, which the caller removes.
     fn live_match_app(window: Vec2) -> (App, std::path::PathBuf) {
         use crate::app::configure_app_systems;
         use crate::app::visuals::WindowLayoutPlugin;
@@ -905,6 +906,7 @@ mod tests {
             .resource_mut::<NextState<AppScreen>>()
             .set(AppScreen::Match);
         advance_test_app(&mut app, 0.1);
+        assert_match_frames_its_board(&app, window, "on entry");
         // Screen entry armed the gate; nothing is held, so this frame
         // releases every action and play is live.
         advance_test_app(&mut app, 0.1);
@@ -914,6 +916,48 @@ mod tests {
         );
         assert!(!app.world().resource::<InputGate>().any_gated());
         (app, root)
+    }
+
+    /// The camera's framing in `app` is the one the Match's layout gives
+    /// the board in a window of `window` logical pixels.
+    fn assert_match_frames_its_board(app: &App, window: Vec2, context: &str) {
+        assert_eq!(
+            *app.world().resource::<WorldFraming>(),
+            match_layout(WindowSize(window).layout()).framing(),
+            "{window} {context}"
+        );
+    }
+
+    /// Through the game's own schedule, at every named size: the Match
+    /// frames its board on entry, a change of screen puts the framing back,
+    /// and coming back frames the board again. The layout pass writes the
+    /// framing on every frame of the Match, so it holds even on an entry
+    /// where the window's size has not changed since the last; a pass run
+    /// only when the size changes, or not at all, would leave the board
+    /// drawn at its own size over the origin.
+    #[test]
+    fn leaving_the_match_and_coming_back_frames_the_board_again() {
+        use crate::test_support::advance_test_app;
+
+        for window in NAMED_WINDOW_SIZES {
+            let (mut app, root) = live_match_app(window);
+            assert_match_frames_its_board(&app, window, "in play");
+            app.world_mut()
+                .resource_mut::<NextState<AppScreen>>()
+                .set(AppScreen::ReplayLibrary);
+            advance_test_app(&mut app, 0.1);
+            assert_eq!(
+                *app.world().resource::<WorldFraming>(),
+                WorldFraming::IDENTITY,
+                "{window} off the Match"
+            );
+            app.world_mut()
+                .resource_mut::<NextState<AppScreen>>()
+                .set(AppScreen::Match);
+            advance_test_app(&mut app, 0.1);
+            assert_match_frames_its_board(&app, window, "back on the Match");
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     /// The one button carrying `wanted`, on the Match HUD or in the
@@ -1750,10 +1794,12 @@ mod tests {
     /// can hold, nothing the screen draws meets anything else and nothing
     /// leaves the window - measured from what `bevy_ui` laid out: glyphs
     /// for text, and boxes for the buttons, the control-hint cards, the
-    /// Round 0 dot rows, the countdown card and the bars. A text inside one
-    /// of those boxes is that box's, and is not counted again. The capture
-    /// counts, which only their own pass writes, are written here, longest
-    /// first.
+    /// Round 0 dot rows, the countdown card and the bars; and the board,
+    /// where the camera's framing draws it. A text inside one of those
+    /// boxes is that box's, and is not counted again. The countdown card is
+    /// the one thing meant to stand over another, the board, and it stands
+    /// inside it. The capture counts, which only their own pass writes, are
+    /// written here, longest first.
     #[test]
     fn nothing_the_match_screen_draws_meets_anything_else_at_the_named_sizes() {
         use super::geometry::StackItem;
@@ -1864,6 +1910,18 @@ mod tests {
                         items.push((format!("{text:?}"), ink));
                     }
                 }
+                // The board's wood, where the framing the layout pass wrote
+                // has the camera draw it.
+                let framing = *app.world().resource::<WorldFraming>();
+                let (centre, half) = (
+                    Vec2::new(0.0, BOARD_CENTER_Y),
+                    Vec2::splat(BOARD_OUTER_SIZE / 2.0),
+                );
+                let board = Rect::from_corners(
+                    framing.window_point(centre - half, window),
+                    framing.window_point(centre + half, window),
+                );
+                items.push(("board".into(), board));
                 // Both buttons always; both control-hint cards until they are
                 // dismissed; both dot rows in Round 0; the countdown card in
                 // the countdown; and the round-time bar while Round Time
@@ -1885,14 +1943,27 @@ mod tests {
                         "{context}: {label} at {rect:?} leaves the window"
                     );
                 }
+                let mut card_over_board = false;
                 for (index, (label, rect)) in items.iter().enumerate() {
                     for (other, other_rect) in &items[index + 1..] {
+                        let pair = [label.as_str(), other.as_str()];
+                        if pair.contains(&"board") && pair.contains(&"countdown card") {
+                            let card = if label == "board" { other_rect } else { rect };
+                            assert!(
+                                board.contains(card.min) && board.contains(card.max),
+                                "{context}: the countdown card {card:?} stands over the board \
+                                 {board:?}"
+                            );
+                            card_over_board = true;
+                            continue;
+                        }
                         assert!(
                             rect.intersect(*other_rect).is_empty(),
                             "{context}: {label} {rect:?} meets {other} {other_rect:?}"
                         );
                     }
                 }
+                assert_eq!(card_over_board, state == "countdown", "{context}");
             }
         }
     }
@@ -2029,8 +2100,8 @@ mod tests {
     }
 
     /// The control-hint cards stand on their own players' sides - White's
-    /// from the left edge, Black's from the right - at least their gap
-    /// from the board, at every size.
+    /// from the left edge, Black's from the right, mirroring each other -
+    /// at least their gap from the board, at every size.
     #[test]
     fn control_hints_align_white_left_and_black_right_without_board_overlap() {
         for window in layout_sweep() {
@@ -2039,6 +2110,10 @@ mod tests {
             let (black, _) = control_hint_node(Player::One, &layout);
             assert_eq!(white.right, Val::Auto, "{window}");
             assert_eq!(black.left, Val::Auto, "{window}");
+            assert_eq!(
+                white.left, black.right,
+                "{window}: the two mirror each other"
+            );
             let (Val::Px(left), Val::Px(right)) = (white.left, black.right) else {
                 panic!("{window}: placed in pixels from the sides");
             };
@@ -2644,9 +2719,8 @@ mod tests {
             round_panel_text(3, Some(90), Lines::Two),
         ] {
             assert!(
-                text.lines().all(|line| line
-                    .chars()
-                    .all(|character| (' '..='~').contains(&character))),
+                text.chars()
+                    .all(|character| character == '\n' || (' '..='~').contains(&character)),
                 "{text:?} is not printable ASCII"
             );
         }
@@ -2699,14 +2773,14 @@ mod tests {
         );
         let round = usize::from(ROUND_LIMIT_MAX);
         let hour = u64::from(DURATION_MAX_SECONDS);
+        // The two-line form's longest line, with Round Time running or not.
+        let two_lines = longest_line(&round_panel_text(round, Some(hour), Lines::Two))
+            .max(longest_line(&round_panel_text(round, None, Lines::Two)));
         assert_eq!(
+            ROUND_PANEL_MAX_CHARS,
             [
                 round_panel_text(round, Some(hour), Lines::One).len(),
-                longest_line(&round_panel_text(round, Some(hour), Lines::Two)),
-            ],
-            [
-                ROUND_PANEL_MAX_CHARS[0],
-                ROUND_PANEL_MAX_CHARS[1].max(longest_line("Round 9999"))
+                two_lines
             ]
         );
         assert_eq!(timer_text((999 * 60 + 59) as f64).len(), TIMER_MAX_CHARS);
