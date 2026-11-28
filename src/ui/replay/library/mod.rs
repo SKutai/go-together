@@ -10,11 +10,11 @@
 //! This module owns that state and the systems that move it: the plugin, the
 //! [`LibraryAction`] a widget carries, and the click, keystroke and scroll
 //! handlers that read them. [`layout`] spawns the furniture those systems then
-//! ask to be rebuilt, and [`modals`] the two dialogs over it. The two texts that describe a replay to the player -
-//! [`replay_summary_text`] and [`replay_match_id_text`] - stay here rather than
-//! in [`layout`] because the Replay Viewer's tests format catalog entries with
-//! them too; [`replay_summary_text`]'s own docs say why that fixes the
-//! placement.
+//! ask to be rebuilt, and [`modals`] the two dialogs over it. The two texts
+//! that describe a replay to the player - [`replay_summary_text`] and
+//! [`replay_match_id_text`] - stay here rather than in [`layout`] because the
+//! Replay Viewer's tests format catalog entries with them too;
+//! [`replay_summary_text`]'s own docs say why that fixes the placement.
 //!
 //! # Respawn model
 //!
