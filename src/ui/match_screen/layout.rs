@@ -238,6 +238,11 @@ fn round_panel_justify(layout: &MatchLayout) -> Justify {
 /// frame the window's size changed or new furniture appeared, which is the
 /// screen's first; their spawners place them already, through the same
 /// [`place`].
+///
+/// It runs in `AppSystems::ScreenLayout`, before the display passes, which
+/// write other parts of some of the same nodes: the HUD's shows and hides
+/// four of them, and this screen's write their text and which hints and
+/// dot rows are drawn.
 pub(super) fn place_match_furniture(
     window: Res<WindowSize>,
     added: Query<(), Added<MatchPlacement>>,

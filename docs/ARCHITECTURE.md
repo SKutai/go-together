@@ -253,6 +253,9 @@ flowchart TD
     DeviceInput --> MatchUpdate
     MatchUpdate --> MatchDisplay["MatchDisplay"]
     MatchUpdate --> HudDisplay["HudDisplay"]
+    Audio --> ScreenLayout["ScreenLayout"]
+    ScreenLayout --> MatchDisplay
+    ScreenLayout --> HudDisplay
 ```
 
 Each edge exists for a specific reason, documented in full on `AppSystems`
@@ -282,6 +285,15 @@ itself:
   `GameState` (for the Round and Countdown panels' visibility and the
   return-home modal's body text) in addition to HUD and binding state, so it
   needs this frame's Match state too.
+* `ScreenLayout -> MatchDisplay` and `ScreenLayout -> HudDisplay`: the
+  Match screen's layout pass writes where its nodes stand, and both display
+  passes write other parts of some of the same nodes - the HUD's which of
+  the timer, round, end-reason and countdown panels are shown, the Match's
+  what its texts say and which hints and dot rows are drawn. Placing first
+  means a display pass always sees its nodes where this frame's window puts
+  them, without either pass having to keep to the fields the other leaves
+  alone. `ScreenLayout` holds Home's layout pass too, which shares nothing
+  with either.
 
 Every other pair of sets is deliberately left unordered. This project does
 not enable Bevy's system-order-ambiguity diagnostics, so two unordered
@@ -296,8 +308,10 @@ several screens.
 
 So for `HudDisplay` that safety has to be argued rather than read off a
 gate: its one system, `update_shared_display`, is live alongside
-`SettingsDisplay` and `MatchDisplay` and ordered against neither. It stays
-disjoint from them in two ways. The text it fills carries a `UiRole`, as the
+`SettingsDisplay` and `MatchDisplay` and ordered against neither. (The
+Match screen's layout pass writes the four HUD panels' nodes it shows and
+hides, and is ordered before it for that reason.) It stays disjoint from
+the two display stages in two ways. The text it fills carries a `UiRole`, as the
 Match screen's does, and the two passes divide the roles between them. And
 the buttons it styles are those carrying a `HudAction` - every frame it sets
 their fill from the pointer state and switches their click cue on, or draws
@@ -638,10 +652,11 @@ instead of frame count:
   `a_new_replay_at_the_same_boundary_index_is_never_mistaken_for_a_cached_one`
   during development).
 * **Size-gated placement**, for where things stand. The Match screen's
-  `place_match_furniture` and Home's `place_home_furniture` move their nodes
-  only on a frame the window's size changed - or, on the Match, the frame its
-  furniture was spawned, which its spawners have already placed - and then
-  only the nodes that moved, compared as above. The Match's camera framing
+  `place_match_furniture` and Home's `place_home_furniture`, both in the
+  `ScreenLayout` stage, move their nodes only on a frame the window's size
+  changed - or, on the Match, the frame its furniture was spawned, which its
+  spawners have already placed - and then only the nodes that moved,
+  compared as above. The Match's camera framing
   is the one placement compared every frame, because a change of screen
   resets it and the screen's first frame has to take it back. See
   [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it).

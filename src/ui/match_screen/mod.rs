@@ -105,12 +105,18 @@ impl Plugin for MatchScreenPlugin {
             )
             .add_systems(
                 Update,
+                place_match_furniture
+                    .run_if(in_state(AppScreen::Match))
+                    .in_set(AppSystems::ScreenLayout),
+            )
+            .add_systems(
+                Update,
                 // Unordered against each other: they share no entity, and
                 // all only read the Match. See `capture`'s and
-                // `opening_dots`' module docs.
+                // `opening_dots`' module docs. The layout pass that places
+                // some of their nodes runs before all three.
                 (
                     update_match_display,
-                    place_match_furniture,
                     capture::update_capture_indication,
                     opening_dots::update_opening_dots,
                 )
@@ -1511,11 +1517,14 @@ mod tests {
             .add_systems(
                 Update,
                 (
-                    update_match_display,
-                    update_shared_display,
                     place_match_furniture,
-                    opening_dots::update_opening_dots,
-                ),
+                    (
+                        update_match_display,
+                        update_shared_display,
+                        opening_dots::update_opening_dots,
+                    ),
+                )
+                    .chain(),
             );
         app.update();
         app.update();

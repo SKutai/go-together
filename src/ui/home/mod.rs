@@ -49,7 +49,7 @@ impl Plugin for HomePlugin {
                 place_home_furniture
                     .run_if(in_state(AppScreen::Home))
                     .run_if(resource_changed::<WindowSize>)
-                    .in_set(AppSystems::HomeEasterEgg),
+                    .in_set(AppSystems::ScreenLayout),
             )
             .add_systems(OnExit(AppScreen::Home), reset_home_screen_resources);
     }
