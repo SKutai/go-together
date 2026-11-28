@@ -3120,14 +3120,17 @@ for why each step is the way it is.
 4. Mark every node whose place depends on the window with a placement
    component, and write places through one function that both the spawner
    and a placement pass call - the pass running when `WindowSize` changes,
-   and when the furniture first appears. Have each arrangement set every
-   field it owns, so a node moved into one arrangement and back is the node
-   it was, and test that a change of size moves every node to where a fresh
-   entry at the new size puts it.
+   and when the furniture first appears, in the `ScreenLayout` stage, so it
+   runs before the display passes that show and hide the same nodes. Have
+   each arrangement set every field it owns, so a node moved into one
+   arrangement and back is the node it was, and test that a change of size
+   moves every node to where a fresh entry at the new size puts it.
 5. Place a world-space board through the main camera: write
    `WorldFraming::placing(board_centre_in_world, board_centre_in_window,
    size, zoom)` from the screen's first frame on, since every change of
    screen puts the framing back, and never move the board's sprites to fit.
+   Test it through the game's own schedule, entering the screen from
+   another and coming back, in a window whose framing is not the identity.
    Text drawn in world space is scaled by the camera too, so counter-scale
    it or move it into `bevy_ui`. A Round 0 countdown card takes its board's
    place in the window and its zoom (`CountdownCard::overlay_node`).
