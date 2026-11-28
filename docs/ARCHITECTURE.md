@@ -527,11 +527,12 @@ Every other screen relies on the automatic mechanism exclusively.
 
 ## The window's size, and what answers to it
 
-The window opens at 1040x900 logical pixels, and every screen was first
-laid out for exactly that. Every screen - the Match screen, Home,
-Settings, both Replay screens and the Help modal - is now laid out for any
-size from 1040x600 up, while the window itself is still fixed at the
-opening size (`resizable: false`).
+The window opens at 1040x900 logical pixels where the screen has room for
+it, and every screen was first laid out for exactly that. A player can
+resize it down to 1040x600, maximise it and make it fullscreen, and the
+browser build's canvas fills its page; every screen - the Match screen,
+Home, Settings, both Replay screens and the Help modal - is laid out for
+any size from 1040x600 up.
 
 **One input.** `app::visuals::WindowSize` is the primary window's logical
 size, kept equal to it by `track_window_size` in `PreUpdate` and written
@@ -548,8 +549,78 @@ which are laid out from the size in their turn. `WINDOW_WIDTH` and
 `WINDOW_HEIGHT` are only the opening size; nothing adapted positions itself
 from them.
 
+**The window itself** (`app::window`). `primary_window` makes it from what
+the two hosts do differently, `platform::WindowPlatformConfig`, and what
+they share: it can be resized, and no smaller than 1040x600 logical pixels,
+which winit asks the platform to hold it to and, in a browser, writes on the
+canvas as its CSS `min-width` and `min-height`. A desktop window opens at
+1040x900 centred on the primary monitor where that monitor's logical size
+is at least 1040x1060, and maximised where it is not: winit reports no work
+area - no taskbar, Dock or menu bar - only each monitor's size, so the room
+a window needs is its own size plus an allowance of 160 px down for those
+bars, an estimate whose sources `OPENING_ALLOWANCE` gives. It is twice the
+bars' height, because Bevy centres the window's inside on the whole screen,
+leaving half the spare height on each side of it. Bevy makes the
+window before it knows the monitors, so the window opens hidden and
+`place_the_opening_window` places it on the first frame and then shows it:
+at once when centred, and when maximised once the maximised size has
+arrived, half a second later at most, so no frame is drawn at a size the
+window is about to leave. With no primary monitor known the window is shown
+at 1040x900 where the platform puts it: on Wayland, which names no primary
+monitor and lets no window be placed; on an X server whose RandR lists no
+monitor; and on a Mac whose display is asleep as the game starts, when
+macOS lists no active display (measured 2026-11-28; macOS then centres the
+window itself). Nothing about the window is remembered from one run to the
+next.
+
+**Fullscreen.** F11 switches a desktop window to borderless fullscreen on
+the monitor it is on, and back to the window as it was, on every screen and
+whatever holds the keys. It is a reserved key, as F1 is, so it never binds,
+types or plays a note, and it is read as `just_pressed`, so a held key
+switches once. On macOS borderless fullscreen is the green button's own, a
+Space of its own, so F11 and the button are one fullscreen. Bevy never
+writes `Window::mode` back from the system, so the system's own state is
+read from winit every frame into `SystemFullscreen`, `Window::mode` is kept
+in step with it when it changes - after a green-button entry as after F11's
+- and F11 asks for the other of the system's two states. Only a change is
+followed, not a difference: a compositor slow to confirm a change goes on
+reporting the old state for a frame or two, and following that would undo
+what F11 asked for. A browser keeps F11 for its own fullscreen: `web/shell.js`
+stops the key at the page's window, before winit's handler on the canvas,
+which cancels every key's default action, can cancel this one's, and the
+game reads nothing of it there.
+
+**Below the minimum.** A window can still be smaller than 1040x600 -
+fullscreen on a smaller screen, or under a window manager that ignores the
+minimum - and it is drawn as `WindowSize::layout()` lays it out, scaled
+down by one factor until it fits and centred, the window's background
+around it (`app::visuals::Letterbox`). `frame_main_camera` applies the
+scale three ways at once: the main camera's viewport is the drawn
+rectangle, `UiScale` is the scale, so the interface lays itself out at the
+layout's size inside it, and the projection takes it on top of the
+framing's zoom, so the world-space scene shrinks with the interface. It is
+the one place text is drawn below the 14px floor, and `UiScale` is 1 for
+every window at least the minimum and never above 1. Picking reads the same
+viewport and scale, so a pointer lands on what is drawn under it. A window
+with no area, as Windows reports a minimised one, changes nothing: neither
+`WindowSize` nor the camera follows it.
+
+**The browser page.** `web/shell.js` gives the canvas the page's size less
+the status lines under it and the page's padding, in whole CSS pixels and
+never less than 1040x600 in either direction; a page smaller than that gets
+a canvas the minimum's size in that direction, scaled down by one factor
+with `transform: scale(...)` until it fits, as a desktop window below the
+minimum is drawn - so in a browser the scale in `frame_main_camera` stays 1.
+It does so while only the shell is running, and the web adapter opens the
+window at the canvas's size, read from the page, so the first frame is laid
+out for the canvas the player sees; winit reports each later change of the
+canvas's size as a resize, at the device pixel ratio. The canvas is sized
+by the shell rather than by `fit_canvas_to_parent`, because below the
+minimum it has to be laid out larger than the box it is drawn in.
+
 **Text never changes size.** Interface nodes are laid out in the window's
-own pixels at their own sizes, so the 14px floor holds at every size. What
+own pixels at their own sizes, so the 14px floor holds at every size from
+the minimum up. What
 grows and shrinks is the world-space scene - the Match board and the
 Replay Viewer's, each with every mark on it, and Home's diamond - and it
 is placed and scaled by the main camera, not by moving or resizing the
@@ -1464,30 +1535,31 @@ bindings would hand the menu to whichever player's bindings happened to
 contain them. Its output is not a `GameAction` either: activation is Bevy's
 `Activate` on the focused button, the event a pointer click on that button
 triggers too, so both reach the screens' button handlers as one
-`ButtonActivation` message (`ui::button`). A click activates on its release,
-a key or pad button on its press. The back keys are read the same raw
-way: Escape and a pad's Start everywhere, East as well on the menu screens,
-and during a Match Escape/Start open the Return Home confirmation and
-Enter/South confirm it. So is F1, the one fixed key that opens something:
-the Help modal, on Home and during a Match, closing it again on a second
-press. A screen whose own control is reading the raw
-devices - Settings during a binding capture or a numeric edit, the Replay
-Library while its search field or rename dialog is taking text - raises the
-focus module's `FocusYield` from its own `Update` chain, and the ring
+`ButtonActivation` message (`ui::button`). A click activates on its release, a
+key or pad button on its press. The back keys are read the same raw way:
+Escape and a pad's Start everywhere, East as well on the menu screens, and
+during a Match Escape/Start open the Return Home confirmation and Enter/South
+confirm it. So is F1, the one fixed key that opens something: the Help modal,
+on Home and during a Match, closing it again on a second press. F11, the third
+reserved key, is read raw too, but by `app::window` rather than here: it
+changes the window, not anything in it. A screen whose own control is reading
+the raw devices - Settings during a binding capture or a numeric edit, the
+Replay Library while its search field or rename dialog is taking text - raises
+the focus module's `FocusYield` from its own `Update` chain, and the ring
 neither moves nor presses on the next frame's read. During a Match the ring
-and its navigation keys are admitted only while a HUD modal is open - the
-same `modal_open` that `modal_pause_state` blocks gameplay input on, so the
-two are never live together - and nothing on the Match screen itself is
-focusable, so the ring there is the Help modal's three buttons and
-nothing else. The Match's fixed keys are the ones no gameplay binding can
-ever hold - Escape and F1 are the two reserved keys, absent from
-`KeyboardKey` so that neither a binding nor a settings file can hold them,
-Start is absent from `ControllerInput` altogether, and Enter/South are read
-only while the confirmation has already blocked gameplay; East, a gameplay
-binding, closes the Help modal there only because the dismissal
-reads it while that modal already blocks gameplay and re-arms the input
-gate on the way out - so during live play this diagram, plus those two
-reserved keys, remains the whole input story.
+and its navigation keys are admitted only while a HUD modal is open - the same
+`modal_open` that `modal_pause_state` blocks gameplay input on, so the two are
+never live together - and nothing on the Match screen itself is focusable, so
+the ring there is the Help modal's three buttons and nothing else. The Match's
+fixed keys are the ones no gameplay binding can ever hold - Escape, F1 and F11
+are the three reserved keys, absent from `KeyboardKey` so that neither a
+binding nor a settings file can hold them, Start is absent from
+`ControllerInput` altogether, and Enter/South are read only while the
+confirmation has already blocked gameplay; East, a gameplay binding, closes
+the Help modal there only because the dismissal reads it while that modal
+already blocks gameplay and re-arms the input gate on the way out - so during
+live play this diagram, plus those three reserved keys, remains the whole
+input story.
 
 Orchestration never mutates board/round/phase fields directly: it calls a
 narrowly-typed `MatchState` method and reacts to the outcome it returns (or
@@ -2531,12 +2603,13 @@ time. Replay loading isolates each file: a corrupt Replay becomes one
 warning and does not hide valid files.
 
 Schema numbers, serde names, enum names, UUID filenames, time semantics, and
-board cell count are compatibility boundaries. The one name ever withdrawn
-is the keyboard key `f1`, when F1 was reserved for the Help modal: no
-schema version can express a key no version may bind, so a file naming it
-loses its keyboard section with a warning - the outcome a file naming
-`escape` now shares; before the keyboard section became recoverable, either
-name cost the whole file.
+board cell count are compatibility boundaries. The two names ever
+withdrawn are keyboard keys, for the same reason: `f1`, when F1 was
+reserved for the Help modal, and `f11`, when F11 was reserved for
+fullscreen. No schema version can express a key no version may bind, so a
+file naming either loses its keyboard section with a warning - the outcome
+a file naming `escape` now shares; before the keyboard section became
+recoverable, `f1` or `escape` cost the whole file.
 
 ## Replay size
 
@@ -2916,13 +2989,19 @@ contract tests run natively against a mock backend; CI also lints, documents,
 and builds the real browser path for `wasm32-unknown-unknown`, all with
 warnings denied.
 
-The HTML shell supplies the fixed-aspect `#go-together` canvas. Bevy retains a
-1040x900 logical surface while CSS scales that surface visually, so fixed game
-geometry is not relaid out or clipped in a smaller iframe. The shell precompiles
-the downloaded module, then a canvas pointer or focused-key gesture instantiates
+The HTML shell supplies the `#go-together` canvas and sizes it to the page,
+less the status lines under it, and Bevy's window follows the canvas, so the
+game lays itself out at the page's size as it would in a desktop window of
+that size. A page or an iframe smaller than the smallest window the screens
+are laid out for, 1040x600 CSS px, gets a canvas that size in the short
+direction, which CSS scales down to fit, so the game is not relaid out below
+the minimum or clipped (see "The browser page" under [The window's size, and
+what answers to it](#the-windows-size-and-what-answers-to-it)). The shell
+passes F11 to the browser, for its own fullscreen. The shell precompiles the
+downloaded module, then a canvas pointer or focused-key gesture instantiates
 it asynchronously and starts the app - never synchronously, which Chromium
-refuses for a module this size. CPAL creates and resumes Web Audio a fraction of
-a second later, while the gesture's activation is still live, which Safari
+refuses for a module this size. CPAL creates and resumes Web Audio a fraction
+of a second later, while the gesture's activation is still live, which Safari
 requires ([Starting in a browser](DISTRIBUTION.md#starting-in-a-browser) has
 the measurements). Keyboard events then follow the same semantic input path as
 native input. Browser gamepads join that path only when the browser/device

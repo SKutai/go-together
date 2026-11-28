@@ -48,14 +48,28 @@ day, and this sentence goes once it is made. Until then opening the Help modal
 mid-match takes F1 or a pointer: the Match screen carries no focus ring during
 play, so a pad cannot reach the Help button either.
 
-**Resizable and fullscreen** is a documented constraint today, not an
-oversight: `resizable: false` in both platform adapters, and
-`CONTRIBUTING.md`'s UI section says to check text at "the normal fixed
-1040x900 window". Several tests assert that things fit that exact size. So this
-goal has to change the contributor contract, not just a window flag - and every
-fixed-pixel layout in `src/ui/` becomes a thing that must survive being
-stretched. The web shell already scales to fit but clamps at `Math.min(1, ...)`,
-so it shrinks and never grows.
+**Resizable and fullscreen**: as of 2026-11-28, **the goal is met.** The
+desktop window can be resized down to 1040x600, maximised and made
+fullscreen - by F11, which became a reserved key for it, and on macOS by the
+window's green button too - and the browser build's canvas fills its page.
+Every screen lays itself out for the window's size rather than being
+stretched: text keeps its size, and the boards and Home's diamond grow and
+shrink. A window smaller than the minimum, which only fullscreen on a smaller
+screen or a browser page can give, is drawn as the minimum's layout scaled
+down to fit. `docs/ARCHITECTURE.md`'s "The window's size, and what answers to
+it" says how. What the goal leaves for later is remembering the window's
+size, place and fullscreen state between runs, which nothing does yet, and
+text that grows with the window, which is goal 5's.
+
+Until then it was a documented constraint, not an oversight: the window was
+made with `resizable: false` in both platform adapters, `CONTRIBUTING.md`'s UI
+section said to check text at "the normal fixed 1040x900 window", and several
+tests asserted that things fitted that exact size. So it changed the
+contributor contract as well as the window - that section now asks for checks
+at the smallest window, the opening one and a large one - and every
+fixed-pixel layout in `src/ui/` was made a function of the window's size. The
+web shell, which used to scale a fixed canvas down to fit and never up, now
+sizes the canvas to the page.
 
 **Screen readers** are three problems that look like one.
 
@@ -122,16 +136,19 @@ in the Replay Viewer, whose Key modal names each mark's shape and then
 describes it by colour name.
 
 **Configurable text** is the largest. Every size in the UI is a hard-coded
-`FontSize::Px`, there is no `UiScale` anywhere, and Bevy's bundled fallback
-font does not cover non-ASCII - which is why `CONTRIBUTING.md` requires
-printable ASCII in game text. A configurable font means shipping one, which
-means a licensing and asset decision, not just a setting. Since 2026-10-07
-no size is below 14px, and `no_text_is_set_below_the_floor` in
-`src/architecture.rs` holds that by reading each `FontSize::Px` as a number
-where it is written. A scale applied on top - `UiScale`, or sizes computed
-from a preference - is invisible to that scan, so whoever builds this goal
-will need to say what the floor means once sizes vary: most likely that the
-unscaled sizes stay at or above it and the scale never goes below 1.
+`FontSize::Px`, and Bevy's bundled fallback font does not cover non-ASCII -
+which is why `CONTRIBUTING.md` requires printable ASCII in game text. A
+configurable font means shipping one, which means a licensing and asset
+decision, not just a setting. Since 2026-10-07 no size is below 14px, and
+`no_text_is_set_below_the_floor` in `src/architecture.rs` holds that by
+reading each `FontSize::Px` as a number where it is written. The game sets
+one `UiScale`, in one place - `frame_main_camera` in `app::visuals` - and
+only to draw a window smaller than the minimum scaled down: it is 1 for every
+window at least the minimum, and never above 1. A scale applied on top - that
+`UiScale`, or sizes computed from a preference - is invisible to that scan,
+so whoever builds this goal will need to say what the floor means once sizes
+vary: most likely that the unscaled sizes stay at or above it and that no
+scale but the below-minimum one goes below 1.
 
 ## Sequencing
 
@@ -143,5 +160,7 @@ largest identified finding and the first goal.
 
 Treat the rest of this file as the reason a finding-sized change should not be
 allowed to grow into a goal-sized one. If a change starts pulling in
-configurable colour or resizable layout, that is scope creep, and the answer is
-a separate change later rather than a bigger one now.
+configurable colour or text that grows with the window, that is scope creep,
+and the answer is a separate change later rather than a bigger one now. Goal
+2 was taken on its own, as a planned piece of work, once the findings it
+touched were done.

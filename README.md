@@ -111,7 +111,10 @@ button does. No controller button opens it during a match yet - Start is
 already the pad's back button there, and none of the other buttons a binding
 cannot claim has been given the job. A pad cannot press the Help button either,
 since the Match screen carries no focus ring during play, so opening it there
-takes F1 or a pointer. In
+takes F1 or a pointer. **F11** switches the game to fullscreen and back, on
+every screen, in the desktop builds; a browser keeps F11 for its own
+fullscreen. Neither F1 nor F11 can be bound, which is what keeps them working
+during a match. In
 Settings that includes rebinding: highlight a binding and press it, and the
 next key or controller input becomes the binding; a number field takes typed
 digits once pressed and **Enter** commits them. In the Replay Library the
@@ -259,7 +262,8 @@ The code demonstrates:
 - keeping platform storage and asset-location differences behind adapters;
 - keeping domain rules independent from Bevy for fast unit tests;
 - modeling Round 0 selection/reveal rules as a pure serialized domain type;
-- building fixed-window Bevy UI with reusable, role-based components;
+- building Bevy UI that lays itself out for any window size, with reusable,
+  role-based components;
 - queuing semantic audio cues instead of playing sounds from gameplay logic;
 - writing versioned JSON atomically and migrating older settings;
 - reconstructing deterministic Replays from timestamped frame snapshots; and
@@ -311,10 +315,11 @@ Replay is one `replays/<match-uuid>.json` file.
 
 Settings schemas v1-v6 and Replay schemas v1-v6 remain loadable. Treat serde
 field names, enum names, schema versions, Replay IDs, and filenames as a public
-compatibility contract. The one name ever withdrawn is the keyboard key `f1`,
-when F1 was reserved for the Help modal: a settings file that still names
-it keeps everything but its keyboard section, which falls back to defaults
-with a warning. Back up local data before experimenting with schema changes.
+compatibility contract. The two names ever withdrawn are the keyboard keys
+`f1`, when F1 was reserved for the Help modal, and `f11`, when F11 was
+reserved for fullscreen: a settings file that still names either keeps
+everything but its keyboard section, which falls back to defaults with a
+warning. Back up local data before experimenting with schema changes.
 
 Settings v5 adds the Game tab. Optional numeric rules use bounded whole values:
 round and no-board-change limits are 1-1000, point targets are 1-81, and

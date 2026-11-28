@@ -349,16 +349,16 @@ When a format must change:
 Moving a Rust type does not change JSON by itself, but changing serde names,
 defaults, validation, board cell count, or event timing does.
 
-One exception to rules 1 and 2 has been taken, once, and it is the only kind
-that should be: a key name withdrawn because the interface reserved the key
-for itself. `f1` left `KeyboardKey` when F1 became the Help key, so a
-settings file naming it loses its keyboard section to defaults with a
-warning. A file naming `escape` has always failed to parse, since that key
-never had a name; until the keyboard section was made recoverable, that
-failure cost the whole file. No schema version could have
-expressed the withdrawal - a key no version may bind is not a schema - and
-the per-section isolation of rule 4 is what makes the cost one section rather
-than the file.
+One kind of exception to rules 1 and 2 has been taken, twice, and it is the
+only kind that should be: a key name withdrawn because the interface reserved
+the key for itself. `f1` left `KeyboardKey` when F1 became the Help key, and
+`f11` when F11 became the fullscreen key, so a settings file naming either
+loses its keyboard section to defaults with a warning. A file naming `escape`
+has always failed to parse, since that key never had a name; until the
+keyboard section was made recoverable, that failure cost the whole file. No
+schema version could have expressed a withdrawal - a key no version may bind
+is not a schema - and the per-section isolation of rule 4 is what makes the
+cost one section rather than the file.
 
 Native storage keeps completed Replays until manual deletion. Browser storage
 keeps exactly the newest three completed Replays and may reject writes because
@@ -451,9 +451,14 @@ Select keys. This is a deliberate choice of the project owner's, made
 something false to be warm, but do not reach for the adversarial reading of
 a cooperative game.
 
-Check text at the normal fixed 1040x900 window. Keep labels readable, centered,
-and within their panels. Markdown documentation is not constrained by the
-in-game font, but plain text remains the most portable choice.
+Check text at the smallest window, 1040x600, at the 1040x900 window the game
+opens at, and at a large one such as 1920x1080: every screen is laid out for
+any window from the smallest up, and changes arrangement between those sizes.
+The real-layout tests already run at the sizes `NAMED_WINDOW_SIZES` names,
+and the capture probe in `docs/TESTING.md` shows a screen at any size. Keep
+labels readable, centered, and within their panels. Markdown documentation is
+not constrained by the in-game font, but plain text remains the most portable
+choice.
 
 No text in the game is smaller than **14px**. That is a floor, not a default:
 secondary copy - a description, a unit, a Match ID, a validation error - is
@@ -462,10 +467,11 @@ smaller. Until 2026-10-07 the smallest text in the game was an 11px
 validation error, set smaller than the description it explained, to a
 player who had just made a mistake. Raising text can wrap a line that used
 to fit, so measure the screen afterwards rather than assuming; `docs/TESTING.md`
-carries the probe that does it. The floor is in the game's own pixels: on
-the web the canvas is drawn smaller whenever the browser window is smaller
-than the game, which is a limit of the fixed window rather than of the
-floor, and is recorded in `docs/ideas/accessibility-findings.md`.
+carries the probe that does it. The floor is in the game's own pixels: a
+window smaller than the smallest one the screens are laid out for - a browser
+page under 1040x600, or fullscreen on a screen smaller than that - is drawn
+as that smallest window scaled down to fit, which is the one place text falls
+below 14px, and is recorded in `docs/ideas/accessibility-findings.md`.
 
 `cargo test` enforces the floor: `no_text_is_set_below_the_floor` in
 `src/architecture.rs` reads every `FontSize::Px` in production code and
