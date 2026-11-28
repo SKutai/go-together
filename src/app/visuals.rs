@@ -686,10 +686,12 @@ pub(crate) fn format_elapsed_time(elapsed_seconds: f64) -> String {
 /// smallest; the maximised and the fullscreen windows of a 1920x1080
 /// screen at Windows' 150% (1280x720 logical pixels) and of a 1366x768
 /// screen; the maximised window of a 1440x900 Mac; a 1920x1080 screen; and
-/// a large one. The maximised sizes are estimates, not measurements: the
-/// screen less Windows' default taskbar and a title bar for 1280x641 and
-/// 1366x689, and less macOS's standard 24 pt menu bar and 28 pt title bar,
-/// with the Dock hidden, for 1440x848. Every layout's tests run at these,
+/// a large one. The Windows maximised sizes are estimates: the screen less
+/// Windows' default taskbar and a title bar, for 1280x641 and 1366x689.
+/// The Mac's, 1440x844, is the screen less the 24 pt menu bar of a Mac
+/// without a camera housing and the 32 pt title bar macOS 26 gives a
+/// window, as measured on 2026-11-28, with the Dock hidden; before macOS
+/// 26 a 28 pt title bar gave 1440x848. Every layout's tests run at these,
 /// and a real-layout test that cannot afford the whole [`layout_sweep`]
 /// runs at some of them.
 #[cfg(test)]
@@ -700,7 +702,7 @@ pub(crate) const NAMED_WINDOW_SIZES: [Vec2; 9] = [
     Vec2::new(1280.0, 720.0),
     Vec2::new(1366.0, 689.0),
     Vec2::new(1366.0, 768.0),
-    Vec2::new(1440.0, 848.0),
+    Vec2::new(1440.0, 844.0),
     Vec2::new(1920.0, 1080.0),
     Vec2::new(2560.0, 1440.0),
 ];

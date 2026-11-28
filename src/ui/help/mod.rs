@@ -1966,7 +1966,7 @@ mod tests {
             let opening = help_frame(&mut app);
             for size in [
                 WindowSize::MINIMUM.0,
-                Vec2::new(1440.0, 848.0),
+                Vec2::new(1440.0, 844.0),
                 Vec2::new(1280.0, 641.0),
                 Vec2::new(1920.0, 1080.0),
             ] {
@@ -1994,8 +1994,9 @@ mod tests {
         app.update();
     }
 
-    /// A window smaller than the minimum - a browser's page can be - gets
-    /// the modal the minimum gets: at 800x400 the modal's own reading of the
+    /// A window smaller than the minimum - fullscreen on a smaller screen,
+    /// a window manager that ignores the minimum, or a program that sets
+    /// the size - gets the modal the minimum gets: at 800x400 the modal's own reading of the
     /// window raises it to 1040x600, over Home and over the Match, so every
     /// placed node and the page's two columns are what they are at 1040x600.
     #[test]
@@ -2046,14 +2047,14 @@ mod tests {
     /// A change of screen moves the open modal to where the new screen puts
     /// it, through real transitions, with the HUD's own plugin and the game's
     /// window tracking, the window never resized: from Home to the Match and
-    /// back, at 1440x848 and 1920x1080, where the two places differ - the
-    /// modal's top at 44 over Home and at 67.8 over the Match, and at 160 and
-    /// 172.8 - so a modal left where the last screen put it fails here. Each
-    /// time it is what opening it fresh over that screen makes, and stands
-    /// where `geometry` says.
+    /// back, at 1440x844 and 1920x1080, where the two places differ - the
+    /// modal's top at 42 over Home, centred, and at 67.8 over the Match,
+    /// under its heading, and at 160 and 172.8 - so a modal left where the
+    /// last screen put it fails here. Each time it is what opening it fresh
+    /// over that screen makes, and stands where `geometry` says.
     #[test]
     fn a_change_of_screen_moves_the_modal_to_the_new_screens_place() {
-        for size in [Vec2::new(1440.0, 848.0), Vec2::new(1920.0, 1080.0)] {
+        for size in [Vec2::new(1440.0, 844.0), Vec2::new(1920.0, 1080.0)] {
             let layout = help_layout(size);
             assert!(
                 (layout.modal_rect(None).min.y

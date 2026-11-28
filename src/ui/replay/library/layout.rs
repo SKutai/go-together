@@ -1853,8 +1853,9 @@ mod tests {
         }
     }
 
-    /// A window smaller than the minimum - a browser's page can be - is
-    /// built as the minimum is: at 800x400 the screen's own reading of the
+    /// A window smaller than the minimum - fullscreen on a smaller screen,
+    /// a window manager that ignores the minimum, or a program that sets
+    /// the size - is built as the minimum is: at 800x400 the screen's own reading of the
     /// window raises it to 1040x600, so the page is built from the
     /// minimum's layout, with the minimum's two cards, under real layout.
     /// Laid out for its own size, that window would hold one; at 800x480 it

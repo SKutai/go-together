@@ -26,8 +26,12 @@
 //!   the panel instead, on the right, its bars [`UPRIGHT_GAP`] clear of the
 //!   panel or of the diamond's right corner, whichever reaches further: its
 //!   low bars at the bottom, the way the upright instrument would stand,
-//!   and centred on the panel. The tests hold the switch to 848 px exactly,
-//!   and the inset to what `bevy_ui` lays out.
+//!   and centred on the panel. A maximised 1440x900 Mac on macOS 26 is such
+//!   a window - 1440x844, under a 24 pt menu bar and a 32 pt title bar - and
+//!   shows it upright beside the panel; before macOS 26, whose title bar
+//!   was 28 pt, it was 1440x848 and kept the opening window's place. The
+//!   tests hold the switch to 848 px exactly, and the inset to what
+//!   `bevy_ui` lays out.
 
 use bevy::prelude::*;
 

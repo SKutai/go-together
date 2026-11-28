@@ -333,7 +333,7 @@ mod tests {
     /// How many cards the named sizes show, with no notes: two
     /// cards at the minimum, three on the 1280x720 laptop's screens and in a
     /// maximised 1366x768 one, four at 1040x900, at 1366x768 and at
-    /// 1440x848, twelve at 1920x1080 and sixteen at 2560x1440; and which
+    /// 1440x844, twelve at 1920x1080 and sixteen at 2560x1440; and which
     /// gain theirs from the one header row.
     #[test]
     fn the_named_sizes_show_as_many_cards_as_they_have_room_for() {
@@ -344,7 +344,7 @@ mod tests {
             ("1280x720", 3, 1, false),
             ("1366x689", 3, 1, false),
             ("1366x768", 4, 1, true),
-            ("1440x848", 4, 1, false),
+            ("1440x844", 4, 1, false),
             ("1920x1080", 12, 2, true),
             ("2560x1440", 16, 2, false),
         ];

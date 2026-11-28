@@ -1383,8 +1383,9 @@ pub(super) mod tests {
         out
     }
 
-    /// A window smaller than the minimum - a browser's page can be - gets
-    /// the frame the minimum gets: at 800x400 the screen's own readings of
+    /// A window smaller than the minimum - fullscreen on a smaller screen,
+    /// a window manager that ignores the minimum, or a program that sets
+    /// the size - gets the frame the minimum gets: at 800x400 the screen's own readings of
     /// the window raise it to 1040x600, so every node of the frame, its text
     /// and its place are what they are at 1040x600 - entered there, where the
     /// frame is the spawner's own, and resized to it from the opening window
@@ -1467,7 +1468,7 @@ pub(super) mod tests {
         let mut seen_sidebar = false;
         for size in [
             WindowSize::MINIMUM.0,
-            Vec2::new(1440.0, 848.0),
+            Vec2::new(1440.0, 844.0),
             Vec2::new(1040.0, 853.0),
             Vec2::new(1040.0, 854.0),
             Vec2::new(1920.0, 1080.0),

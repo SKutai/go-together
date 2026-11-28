@@ -290,9 +290,9 @@ mod tests {
         assert_eq!(arrangement(1040.0, 783.0), HelpArrangement::TwoColumns);
         assert_eq!(arrangement(1040.0, 783.9), HelpArrangement::TwoColumns);
         assert_eq!(arrangement(2560.0, 783.0), HelpArrangement::TwoColumns);
-        // Below the minimum width only a browser page reaches; laid out at
-        // the minimum, it is never narrow enough to matter, but the rule
-        // reads both edges.
+        // Below the minimum width, which only a window smaller than the
+        // minimum reaches: laid out at the minimum, it is never narrow
+        // enough to matter, but the rule reads both edges.
         assert_eq!(arrangement(844.0, 900.0), HelpArrangement::OneColumn);
         assert_eq!(arrangement(843.0, 900.0), HelpArrangement::TwoColumns);
     }

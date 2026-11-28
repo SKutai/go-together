@@ -761,8 +761,10 @@ mod tests {
     /// to within 0.01 - tall at its own size in the opening window, and
     /// wide everywhere else, from 0.70 at the minimum to 1.98 at 2560x1440.
     /// The Mac's maximised window was designed for at an earlier estimate,
-    /// 1440x875 at 1.12; its figure for 1440x848, 1.08, is the layout's own
-    /// there.
+    /// 1440x875 at 1.12; its figure for 1440x844, 1.07, is the layout's own
+    /// there: the board takes the height between the title band and the
+    /// band under it, 844 - 84 - 58.4 = 701.6 px, of its 654 (at 1440x848,
+    /// the estimate before macOS 26, it was 1.08).
     #[test]
     fn each_named_window_gets_the_arrangement_and_zoom_it_was_designed_for() {
         let expected = [
@@ -772,7 +774,7 @@ mod tests {
             (Arrangement::Wide, 0.88),
             (Arrangement::Wide, 0.83),
             (Arrangement::Wide, 0.95),
-            (Arrangement::Wide, 1.08),
+            (Arrangement::Wide, 1.07),
             (Arrangement::Wide, 1.43),
             (Arrangement::Wide, 1.98),
         ];
