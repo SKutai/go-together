@@ -1812,14 +1812,15 @@ mod tests {
 
     /// The same in two columns, a row at a time: at 1920x1080, twelve
     /// cards in six rows of two, the ring on the twelfth card's Change
-    /// Label; in a window too short for six rows the first card moves on
-    /// by whole rows, until that card's row is the page's last, and the
-    /// ring stays on that Replay's Change Label.
+    /// Label, in the right column, or on the eleventh's, in the left; in a
+    /// window too short for six rows the first card moves on by whole rows
+    /// until that card's row is the page's last - the same page for both,
+    /// where only the twelfth is the page's last card - and the ring stays
+    /// on that Replay's Change Label.
     #[test]
     fn in_two_columns_the_ring_keeps_its_replay_a_row_at_a_time() {
         use super::super::geometry::library_layout;
 
-        let (mut app, root) = library_app(30);
         let larger = Vec2::new(1920.0, 1080.0);
         let shorter = Vec2::new(1920.0, 760.0);
         let (before, after) = (library_layout(larger, 0), library_layout(shorter, 0));
@@ -1828,24 +1829,31 @@ mod tests {
         let cards = after.cards_per_page();
         assert!(cards < 12 && cards % 2 == 0, "{cards}");
 
-        resize(&mut app, larger);
-        let target = control_at(&mut app, (FocusGroup::Screen, card_focus_order(11) + 1));
-        let replay = card_id(&app, target);
-        tab_to(&mut app, target);
-        resize(&mut app, shorter);
-        // The twelfth card's row, the eleventh and twelfth, is the last.
-        assert_eq!(ui(&app).scroll_offset, 12 - cards);
-        let now = focused(&app).expect("the ring is drawn");
-        assert_eq!(card_id(&app, now), replay);
-        assert!(matches!(
-            app.world().get::<LibraryAction>(now),
-            Some(LibraryAction::OpenRename(_))
-        ));
-        assert_eq!(
-            key_of(&app, now),
-            (FocusGroup::Screen, card_focus_order(cards - 1) + 1)
-        );
-        std::fs::remove_dir_all(root).unwrap();
+        for place in [11, 10] {
+            let (mut app, root) = library_app(30);
+            resize(&mut app, larger);
+            let target = control_at(&mut app, (FocusGroup::Screen, card_focus_order(place) + 1));
+            let replay = card_id(&app, target);
+            tab_to(&mut app, target);
+            resize(&mut app, shorter);
+            // The row of the eleventh and twelfth cards is the page's last.
+            assert_eq!(ui(&app).scroll_offset, 12 - cards, "card {place}");
+            let now = focused(&app).expect("the ring is drawn");
+            assert_eq!(card_id(&app, now), replay, "card {place}");
+            assert!(matches!(
+                app.world().get::<LibraryAction>(now),
+                Some(LibraryAction::OpenRename(_))
+            ));
+            assert_eq!(
+                key_of(&app, now),
+                (
+                    FocusGroup::Screen,
+                    card_focus_order(place - (12 - cards)) + 1
+                ),
+                "card {place}"
+            );
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     /// With the ring on the toolbar, a smaller page moves nothing for it:
