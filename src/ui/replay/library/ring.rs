@@ -1122,6 +1122,80 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// F11 switches fullscreen while the search field or the rename dialog
+    /// takes the keys, and is nothing else there: it types nothing, leaves
+    /// the field focused and the dialog open, and moves no ring. Through
+    /// the screen's own plugin and the game's window plugin, each press
+    /// asking for the other of what the system shows, which the test sets
+    /// as the system would.
+    #[test]
+    fn f11_switches_fullscreen_while_a_field_takes_the_keys_and_types_nothing() {
+        use crate::app::window::{GameWindowPlugin, SystemFullscreen};
+        use crate::platform::window_platform_config;
+        use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
+
+        let (mut app, root) = library_app(3);
+        app.add_plugins(GameWindowPlugin::new(&window_platform_config()));
+        app.update();
+        let mode = |app: &mut App| {
+            let world = app.world_mut();
+            world
+                .query_filtered::<&Window, With<PrimaryWindow>>()
+                .single(world)
+                .unwrap()
+                .mode
+        };
+        let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+        let shows = |app: &mut App, fullscreen: bool| {
+            app.world_mut()
+                .resource_mut::<SystemFullscreen>()
+                .set_if_neq(SystemFullscreen(fullscreen));
+            app.update();
+        };
+        let editor_text = |app: &App| match &ui(app).dialog {
+            Some(LibraryDialog::Rename { editor, .. }) => Some(editor.text.clone()),
+            _ => None,
+        };
+
+        // The search field.
+        let search = control_at(&mut app, (FocusGroup::Screen, TOOLBAR_FOCUS_ORDER));
+        tab_to(&mut app, search);
+        enter(&mut app);
+        type_text(&mut app, "3");
+        assert!(ui(&app).search_focused && yielded(&app));
+        assert_eq!(mode(&mut app), WindowMode::Windowed);
+        type_key(&mut app, KeyCode::F11, Key::F11);
+        assert_eq!(mode(&mut app), fullscreen, "F11 asks for fullscreen");
+        assert_eq!(ui(&app).search.text, "3", "and types nothing");
+        assert!(ui(&app).search_focused, "the field keeps the keys");
+        assert_eq!(
+            key_of(&app, focused(&app).unwrap()),
+            (FocusGroup::Screen, TOOLBAR_FOCUS_ORDER),
+            "the ring stays on Search"
+        );
+        shows(&mut app, true);
+        type_key(&mut app, KeyCode::F11, Key::F11);
+        assert_eq!(mode(&mut app), WindowMode::Windowed, "and back");
+        assert_eq!(ui(&app).search.text, "3");
+        shows(&mut app, false);
+        enter(&mut app);
+
+        // The rename dialog.
+        let target = control_at(&mut app, (FocusGroup::Screen, card_focus_order(0) + 1));
+        tab_to(&mut app, target);
+        enter(&mut app);
+        let before = editor_text(&app).expect("the rename dialog is open");
+        type_key(&mut app, KeyCode::F11, Key::F11);
+        assert_eq!(mode(&mut app), fullscreen);
+        assert_eq!(editor_text(&app), Some(before.clone()), "nothing typed");
+        assert!(yielded(&app), "the dialog keeps the keys");
+        shows(&mut app, true);
+        type_key(&mut app, KeyCode::F11, Key::F11);
+        assert_eq!(mode(&mut app), WindowMode::Windowed);
+        assert_eq!(editor_text(&app), Some(before));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// While the rename dialog is open its editor owns the keys: the ring is
     /// drawn on Save Label as a legend and does not move on Tab; Space and
     /// characters land in the field rather than pressing; every keystroke's

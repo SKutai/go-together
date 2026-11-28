@@ -464,7 +464,8 @@ pub(super) fn help_page(
                  itself, and in this window even mid-match; Enter or Space presses it. \
                  F1 opens and closes this window, mid-match too. Escape closes windows \
                  like this one, steps back from Settings, Replays and an open replay, and \
-                 during a match asks before returning; Enter confirms.",
+                 during a match asks before returning; Enter confirms. F11 switches the \
+                 game to fullscreen and back.",
                 bindings.key(GameAction::PlayerOneUp).display_name(),
                 bindings.key(GameAction::PlayerOneLeft).display_name(),
                 bindings.key(GameAction::PlayerOneDown).display_name(),
@@ -989,7 +990,9 @@ mod tests {
     /// destructive; the shared page carves out the binding capture, where
     /// East must bind rather than go back and Start is the pad's way to
     /// cancel, and names East as closing this window during a match, the
-    /// one thing East does there.
+    /// one thing East does there. The keyboard block ends on F11, the one
+    /// key that changes the window rather than anything in it, which a
+    /// player otherwise has no way to learn of.
     #[test]
     fn menu_and_back_keys_are_documented_with_their_scopes() {
         let bindings = KeyboardBindings::default();
@@ -1008,7 +1011,8 @@ mod tests {
              match itself, and in this window even mid-match; Enter or Space presses it. \
              F1 opens and closes this window, mid-match too. Escape closes windows like \
              this one, steps back from Settings, Replays and an open replay, and during \
-             a match asks before returning; Enter confirms."
+             a match asks before returning; Enter confirms. F11 switches the game to \
+             fullscreen and back."
         ));
 
         let shared = help_page(
@@ -1737,7 +1741,7 @@ mod tests {
         (
             "1040x600",
             [
-                (29, 12, 16, true),
+                (30, 12, 17, true),
                 (35, 17, 17, true),
                 (37, 19, 18, false),
                 (34, 15, 18, true),
@@ -1753,7 +1757,7 @@ mod tests {
         (
             "1280x641",
             [
-                (25, 11, 13, true),
+                (26, 11, 14, true),
                 (29, 14, 14, true),
                 (31, 18, 12, true),
                 (28, 13, 14, true),
@@ -1830,8 +1834,8 @@ mod tests {
         // with `textwrap` too.
         let (keyboard, controller) = longest_bindings();
         for (name, longest_keyboard_controls) in [
-            ("1040x600", (31, 13, 17, true)),
-            ("1280x641", (27, 12, 14, true)),
+            ("1040x600", (32, 13, 18, true)),
+            ("1280x641", (28, 12, 15, true)),
         ] {
             let (w, h) = name.split_once('x').unwrap();
             let layout = help_layout(Vec2::new(w.parse().unwrap(), h.parse().unwrap()));

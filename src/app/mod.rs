@@ -53,11 +53,11 @@
 pub(crate) mod motion;
 pub(crate) mod startup_log;
 pub(crate) mod visuals;
+pub(crate) mod window;
 
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::ui_widgets::ButtonPlugin;
-use bevy::window::WindowResolution;
 
 use crate::audio::{GameAudioPlugin, UiAudioSet};
 use crate::diagnostics::{self, Diagnostics};
@@ -75,7 +75,8 @@ use crate::settings::{ControlsConfig, SettingsStore, load_user_controls};
 use crate::ui::UiPlugin;
 use motion::{MotionPolicy, read_platform_motion_signal};
 use startup_log::{DeferredStartupWarnings, emit_deferred_startup_warnings};
-use visuals::{WINDOW_HEIGHT, WINDOW_WIDTH, WindowLayoutPlugin, setup_app};
+use visuals::{WindowLayoutPlugin, setup_app};
+use window::{GameWindowPlugin, primary_window};
 
 /// Loads persisted settings, builds the Bevy app and blocks until the window
 /// closes.
@@ -316,9 +317,11 @@ impl Plugin for AppPlugin {
                 .resource_mut::<DeferredStartupWarnings>()
                 .push(warning);
         }
+        let game_window = GameWindowPlugin::new(&platform_window);
         app.add_plugins(engine_plugins(asset_path, platform_window))
             .init_state::<AppScreen>()
             .add_plugins(WindowLayoutPlugin)
+            .add_plugins(game_window)
             .init_resource::<MotionPolicy>();
         configure_app_systems(app);
         app.add_systems(
@@ -345,7 +348,8 @@ impl Plugin for AppPlugin {
 }
 
 /// Bevy's `DefaultPlugins` as the game runs them: its asset root, its
-/// window, and without `bevy_ui_widgets`' own `ButtonPlugin`.
+/// window as [`window::primary_window`] makes it, and without
+/// `bevy_ui_widgets`' own `ButtonPlugin`.
 ///
 /// The crate's buttons are pressed by `ui::button` and the focus ring
 /// alone. Bevy's button behaviour would press them on a right click too,
@@ -359,15 +363,7 @@ fn engine_plugins(asset_path: String, platform_window: WindowPlatformConfig) -> 
             ..default()
         })
         .set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Go Together".into(),
-                resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
-                canvas: platform_window.canvas,
-                fit_canvas_to_parent: platform_window.fit_canvas_to_parent,
-                prevent_default_event_handling: platform_window.prevent_default_event_handling,
-                resizable: platform_window.resizable,
-                ..default()
-            }),
+            primary_window: Some(primary_window(&platform_window)),
             ..default()
         })
         .disable::<ButtonPlugin>()

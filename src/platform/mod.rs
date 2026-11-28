@@ -72,12 +72,50 @@ pub(crate) use native::{
 #[cfg(target_arch = "wasm32")]
 pub(crate) const BROWSER_REPLAY_LIMIT: usize = 3;
 
-/// Minimal host differences needed to construct Bevy's primary window.
+/// The host differences in Bevy's primary window: how it is made, and what
+/// the host leaves to the game once it exists. Everything the two hosts
+/// share - the title, that the window can be resized, and its smallest
+/// size - is the game's, in `crate::app::window`.
 pub(crate) struct WindowPlatformConfig {
+    /// The page's canvas a browser build draws into, by CSS selector;
+    /// `None` for a desktop window.
     pub(crate) canvas: Option<String>,
     pub(crate) fit_canvas_to_parent: bool,
     pub(crate) prevent_default_event_handling: bool,
-    pub(crate) resizable: bool,
+    /// The window's size as it opens, in logical pixels, where the host
+    /// decides it: in a browser, the size the page has already given the
+    /// canvas. `None` opens it at the game's own opening size.
+    pub(crate) opening_size: Option<(u32, u32)>,
+    /// Whether the game places the window on its monitor as it opens -
+    /// centred, or maximised where the monitor has no room for it - which
+    /// is why it opens hidden until it is placed. A desktop window is
+    /// placed; a browser's canvas stands where the page puts it.
+    pub(crate) placed_on_a_monitor: bool,
+    /// Whether F11 is the game's, to switch the window to fullscreen and
+    /// back. It is on a desktop; a browser keeps F11 for its own
+    /// fullscreen, and the page passes it to the browser before the game
+    /// sees it.
+    pub(crate) fullscreen_key: bool,
+}
+
+/// The browser adapter's window: drawn into the page's `#go-together`
+/// canvas, opening at `canvas_size`, the size the page has given it, with
+/// the browser's default actions kept off the canvas but for F11's, and
+/// neither placed on a monitor nor switched to fullscreen by the game.
+/// Compiled for native tests as well, so that the browser's window is
+/// checked beside the native one.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn browser_window_platform_config(
+    canvas_size: Option<(u32, u32)>,
+) -> WindowPlatformConfig {
+    WindowPlatformConfig {
+        canvas: Some("#go-together".into()),
+        fit_canvas_to_parent: false,
+        prevent_default_event_handling: true,
+        opening_size: canvas_size,
+        placed_on_a_monitor: false,
+        fullscreen_key: false,
+    }
 }
 
 /// Why a [`SettingsStorage`] operation failed.

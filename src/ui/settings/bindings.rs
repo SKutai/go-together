@@ -732,6 +732,91 @@ mod tests {
         assert!(saved.lock().unwrap().is_some());
     }
 
+    /// F11 during an armed capture switches fullscreen, through the game's
+    /// window plugin, and nothing else: the capture stays armed, nothing is
+    /// bound or written, and the next real key binds.
+    #[test]
+    fn f11_switches_fullscreen_during_an_armed_capture_and_binds_nothing() {
+        use crate::app::window::{GameWindowPlugin, primary_window};
+        use crate::platform::window_platform_config;
+        use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
+
+        let saved = Arc::new(Mutex::new(None));
+        let mut app = App::new();
+        app.add_plugins(UiButtonPlugin);
+        app.insert_resource(KeyboardBindings::default())
+            .insert_resource(ControllerBindings::default())
+            .insert_resource(GamePreferences::default())
+            .insert_resource(MatchSettings::default())
+            .insert_resource(SettingsStore::from_storage(RecordingSettingsStorage(
+                Arc::clone(&saved),
+            )))
+            .insert_resource(ControllerAssignments::default())
+            .insert_resource(ControlMappingState::new(None))
+            .insert_resource(AudioCueQueue::default())
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<crate::diagnostics::Diagnostics>()
+            .init_resource::<Time<bevy::time::Real>>()
+            .add_plugins(GameWindowPlugin::new(&window_platform_config()))
+            .add_systems(
+                Update,
+                (handle_mapping_buttons, capture_mapping_key).chain(),
+            );
+        app.world_mut()
+            .spawn((primary_window(&window_platform_config()), PrimaryWindow));
+        let pressed = app
+            .world_mut()
+            .spawn(MappingBinding(GameAction::PlayerOneSelect))
+            .id();
+        trigger_activation(&mut app, pressed);
+        app.update();
+        assert_eq!(
+            app.world().resource::<ControlMappingState>().capturing,
+            Some(GameAction::PlayerOneSelect)
+        );
+
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.clear();
+            keys.press(KeyCode::F11);
+        }
+        app.update();
+        let world = app.world_mut();
+        let mode = world
+            .query_filtered::<&Window, With<PrimaryWindow>>()
+            .single(world)
+            .unwrap()
+            .mode;
+        assert_eq!(
+            mode,
+            WindowMode::BorderlessFullscreen(MonitorSelection::Current)
+        );
+        let mapping = app.world().resource::<ControlMappingState>();
+        assert_eq!(mapping.capturing, Some(GameAction::PlayerOneSelect));
+        assert!(mapping.error.is_empty());
+        assert_eq!(
+            app.world()
+                .resource::<KeyboardBindings>()
+                .key(GameAction::PlayerOneSelect),
+            KeyboardKey::M
+        );
+        assert!(saved.lock().unwrap().is_none());
+
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.release(KeyCode::F11);
+            keys.clear();
+            keys.press(KeyCode::F8);
+        }
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<KeyboardBindings>()
+                .key(GameAction::PlayerOneSelect),
+            KeyboardKey::F8
+        );
+    }
+
     #[test]
     fn control_mapping_orders_white_p2_left_and_black_p1_right() {
         assert_eq!(CONTROL_MAPPING_PLAYER_ORDER, [Player::Two, Player::One]);

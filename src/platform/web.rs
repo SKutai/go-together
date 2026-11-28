@@ -229,13 +229,24 @@ pub(crate) fn prefers_reduced_motion() -> bool {
         .is_some_and(|query| query.matches())
 }
 
+/// The page's canvas, opening at the size `web/shell.js` has already given
+/// it - the page less the status lines under it, and never less than the
+/// smallest window the layouts are made for - so that the first frame is
+/// laid out for the canvas the player sees. The shell keeps the canvas that
+/// size from then on, and winit reports each change as a resize.
 pub(crate) fn window_platform_config() -> WindowPlatformConfig {
-    WindowPlatformConfig {
-        canvas: Some("#go-together".into()),
-        fit_canvas_to_parent: false,
-        prevent_default_event_handling: true,
-        resizable: false,
-    }
+    super::browser_window_platform_config(canvas_css_size())
+}
+
+/// The canvas's size in CSS pixels, which are the browser window's logical
+/// pixels, or `None` if the page has no laid-out canvas to measure.
+fn canvas_css_size() -> Option<(u32, u32)> {
+    let canvas = web_sys::window()?
+        .document()?
+        .query_selector("#go-together")
+        .ok()??;
+    let (width, height) = (canvas.client_width(), canvas.client_height());
+    (width > 0 && height > 0).then(|| (width.unsigned_abs(), height.unsigned_abs()))
 }
 
 /// The browser build serves assets from a fixed relative path and has no
