@@ -3,14 +3,15 @@
 //!
 //! Nothing here touches the ECS. Every item is a constant or a pure
 //! calculation over the window's size, the room a Replay's label needs, a
-//! [`Point`], a player or a recorded frame. That is what lets the tests run [`viewer_layout`] at every size
-//! from the minimum to 2560x1440 in steps of 20 px, at the named sizes and
-//! at a few larger windows, and check that nothing overlaps and nothing
-//! leaves the window, and check that the board's marks fit their cell and
-//! one another, without building an app. [`super::layout`] spawns the
-//! furniture where this says and moves it whenever the window's size
-//! changes, and [`super::display`] moves the marks on the board with it
-//! whenever playback crosses a recorded event boundary.
+//! [`Point`], a player or a recorded frame. That is what lets the tests
+//! run [`viewer_layout`] at every size from the minimum to 2560x1440 in
+//! steps of 20 px, at the named sizes and at a few larger windows, and
+//! check that nothing overlaps and nothing leaves the window, and check
+//! that the board's marks fit their cell and one another, without building
+//! an app. [`super::layout`] spawns the furniture where this says and moves
+//! it whenever the window's size changes, and [`super::display`] puts the
+//! marks on the board where this says whenever playback crosses a recorded
+//! event boundary, the window's size changes or the board is spawned.
 //!
 //! The viewer keeps its own, tighter grid constants rather than reusing the
 //! live board's, because its window also holds a header, transport controls
@@ -64,18 +65,22 @@
 //! * **Wide's column** holds any label - up to 60 characters, set at 26 px
 //!   and wrapped at a word, or within a word too long for a line - over the
 //!   longest timer, round and result lines, and stands clear of the
-//!   transport row under it at every size. The column is narrow, so all
-//!   but the shortest labels wrap: a recorded Replay's default label, about
-//!   31 characters, takes three lines in the smallest window.
+//!   transport row under it at every size. The column is narrowest in the
+//!   smallest wide windows, where most labels wrap: a recorded Replay's
+//!   default label, about 31 characters, takes three lines at 1040x600. In
+//!   a large window it holds such a label on one.
 //! * **Tall's header** gives the label the middle half of its row, as it
 //!   always has: 498 px in the narrowest window, where every label the game
 //!   writes by itself, and most a player writes, takes two lines at most.
-//!   One that may take a third ([`TallLabelRoom`]) is given room for it:
-//!   the lines under it, the board and the transport row stand a line
-//!   lower, which for such a Replay makes 1040 px wide windows wide up to
-//!   809 px tall, and past the cap turns the choice at about 1.17 times as
-//!   wide as tall. Until this was made room for, such a label's last line
-//!   ran over the timer.
+//!   One that takes a third there ([`TallLabelRoom`]) is given room for it,
+//!   a line more above the board. Where the height limits the board, as at
+//!   1040x900, that draws the board a line smaller, its bottom and the
+//!   transport row where they were; where the window has height to spare,
+//!   the header row rises half a line and the board and the transport row
+//!   drop half a line. For such a Replay 1040 px wide windows are wide up
+//!   to 809 px tall, and past the cap the choice turns at about 1.17 times
+//!   as wide as tall. Until this was made room for, such a label's last
+//!   line ran over the timer.
 //! * **The score badges** are text drawn on the board, so the camera's zoom
 //!   would scale them too, and the floor on text size reads the sizes text
 //!   is set at, not the camera. Each is drawn at its own size whatever the
@@ -111,6 +116,7 @@
 use bevy::prelude::*;
 
 use super::player_index;
+use super::wrap::wrapped_lines;
 use crate::app::visuals::{MIN_WINDOW_WIDTH, WorldFraming, cursor_visual_style};
 use crate::replay::ReplayFrame;
 use crate::rules::{BOARD_SIZE, Player, Point};
@@ -182,7 +188,6 @@ pub(super) const VIEWER_RESULT_HEIGHT: f32 = 17.0;
 pub(super) const VIEWER_CONTROL_BOTTOM: f32 = 22.0;
 pub(super) const VIEWER_CONTROL_HEIGHT: f32 = 38.0;
 pub(super) const VIEWER_MATCH_SETTINGS_MODAL_WIDTH: f32 = 620.0;
-pub(super) const VIEWER_MATCH_SETTINGS_MODAL_MAX_HEIGHT: f32 = 760.0;
 
 /// The room tall keeps around the board, which is the 1040x900 layout's.
 /// Above it, the row of Back, the label and Match Settings, the three lines
@@ -232,19 +237,22 @@ pub(super) const KEY_ONE_COLUMN_WIDTH: f32 = 720.0;
 pub(super) const KEY_TWO_COLUMN_WIDTH: f32 = MIN_WINDOW_WIDTH as f32 - 2.0 * KEY_EDGE;
 /// The gap between the Key's two columns.
 pub(super) const KEY_COLUMN_GAP: f32 = 24.0;
-/// What the Key's panel holds inside its border and padding: its width,
-/// less 2 px of border and 24 px of padding either side.
+/// The Key's panel's border and padding across: 2 px of border and 24 px
+/// of padding either side, which its rows stand inside.
 pub(super) const KEY_PANEL_FRAME: f32 = 2.0 * (2.0 + 24.0);
 /// The height of the Key's panel in one column, as `bevy_ui` lays it out
 /// at a scale factor of 1: 698 px, measured on 2026-11-28 with
 /// `the_key_stands_inside_the_window_in_either_form` in `super`, which
-/// holds it there. It is the tallest at any scale factor, because text is
-/// rounded up to whole physical pixels, and 1 is the coarsest: on a
-/// display at twice the scale it is 695 px.
+/// holds it there. It is what the layout chooses the Key's form by. At a
+/// scale factor of 2 it measured 695 px, on that day's captures: text is
+/// rounded up to whole physical pixels, which a finer scale makes smaller.
+/// A scale factor below 1, as a zoomed-out browser has, was not measured,
+/// and could round it up further.
 pub(super) const KEY_ONE_COLUMN_HEIGHT: f32 = 698.0;
 /// The height of the Key's panel in two columns, measured the same way
 /// and held by the same test: 494 px, which leaves the smallest window 53
-/// px above and below it.
+/// px above and below it. Nothing chooses by it; the test holds the panel
+/// inside the window.
 #[cfg(test)]
 pub(super) const KEY_TWO_COLUMN_HEIGHT: f32 = 494.0;
 
@@ -254,16 +262,19 @@ pub(super) const KEY_TWO_COLUMN_HEIGHT: f32 = 494.0;
 const LABEL_MAX_CHARS: usize = 60;
 /// The longest timer, round and result lines that wide's column makes room
 /// for, as the display pass writes them: a Replay under 1,000 minutes, a
-/// round under 10,000 with an hour of Round Time left, and scores under
-/// 1,000 with a four-digit year. `super`'s tests hold each to the text the
-/// screen writes there.
+/// round under 10,000 with Round Time on, and scores under 1,000 with a
+/// winner and a four-digit year. `super::display`'s tests build each with
+/// the screen's own functions and hold it to these, character for
+/// character but for which digit stands where - a line breaks alike
+/// whichever digits a number has - and `super`'s hold the screen to them
+/// as it draws them.
 #[cfg(test)]
 pub(super) const LONGEST_TIMER: &str = "999:59 / 999:59";
 #[cfg(test)]
 pub(super) const LONGEST_ROUND: &str = "Round 9999 - 60:00 remaining";
 #[cfg(test)]
 pub(super) const LONGEST_RESULT: &str =
-    "White | Black 999 - White 999 | completed 2026-11-27 23:59";
+    "Black | Black 999 - White 998 | completed 2026-11-27 23:59";
 
 pub(super) fn viewer_cursor_position(frame: &ReplayFrame, player: Player) -> Vec2 {
     viewer_board_position(frame.cursors[player_index(player)])
@@ -393,8 +404,13 @@ pub(super) fn viewer_selection_position(point: Point, player: Player, shared: bo
 /// 498 px, 31 characters at 26 px, in the narrowest window. Every label the
 /// game writes by itself takes two lines there at most, as do most a player
 /// writes, and two lines are what the row has always had room for. A label
-/// that may take a third gets a line's more room: tall's three lines under
-/// it, the board and the transport row stand that much lower.
+/// that takes three gets a line's more room above the board. Where the
+/// window's height limits the board, as at 1040x900, the board is drawn
+/// that much smaller - 0.949 of its size there - with the header row, the
+/// board's bottom and the transport row where they were, and the lines
+/// under the label a line lower; where the window has height to spare, the
+/// header row rises half a line and everything under the label drops half
+/// a line; and in between, a little of each.
 ///
 /// It is decided once, for the narrowest window, so that a Replay keeps it
 /// at every size; a wider window can only wrap the label onto fewer lines.
@@ -405,12 +421,12 @@ pub(super) enum TallLabelRoom {
 }
 
 impl TallLabelRoom {
-    /// The room `label` needs: two lines unless it may take three, judged
-    /// by [`label_fits_two_lines`], which never says it fits when it may
-    /// not.
+    /// The room `label` needs: the lines `bevy_ui` sets it on in the
+    /// narrowest window's header, as [`super::wrap`] works them out.
     pub(super) fn for_label(label: &str) -> Self {
         let width = (MIN_WINDOW_WIDTH as f32 - 2.0 * VIEWER_HEADER_INSET) / 2.0;
-        if label_fits_two_lines(label, chars_per_line(width, VIEWER_LABEL_SIZE)) {
+        let chars = chars_per_line(width, VIEWER_LABEL_SIZE);
+        if wrapped_lines(label, chars, true) <= 2 {
             Self::TwoLines
         } else {
             Self::ThreeLines
@@ -434,47 +450,6 @@ fn chars_per_line(width: f32, font_px: f32) -> usize {
     ((width - 0.01) / line_width(1, font_px)).floor().max(1.0) as usize
 }
 
-/// Whether `label` is sure to take at most two lines `chars` characters
-/// wide, as `bevy_ui` wraps a label: at the last place a line may break
-/// before it is full, or within a word too long for a line.
-///
-/// It answers yes only for a label that fits on one line, or that has a
-/// break between two words where each part fits on a line of its own; then
-/// the first line can break there or later, and either way what is left
-/// fits on the second. Not every space is a place a line may break: in the
-/// Unicode line-breaking rules a line does not break before a closing
-/// bracket, `!`, `?`, `,`, `.`, `:`, `;` or `/`, even after a space, nor
-/// after an opening bracket. So only a space before a letter or a digit,
-/// and not after an opening bracket, is counted, which can only make the
-/// answer no where a looser count would say yes. A label is printable
-/// ASCII, which `crate::replay::validate_label` holds every Replay to, so a
-/// byte is a character.
-fn label_fits_two_lines(label: &str, chars: usize) -> bool {
-    let label = label.trim_end_matches(' ').as_bytes();
-    if label.len() <= chars {
-        return true;
-    }
-    let mut index = 0;
-    while index < label.len() {
-        if label[index] != b' ' {
-            index += 1;
-            continue;
-        }
-        let first_end = index;
-        while index < label.len() && label[index] == b' ' {
-            index += 1;
-        }
-        let breaks = first_end > 0
-            && index < label.len()
-            && label[index].is_ascii_alphanumeric()
-            && !b"([{".contains(&label[first_end - 1]);
-        if breaks && first_end <= chars && label.len() - index <= chars {
-            return true;
-        }
-    }
-    false
-}
-
 /// The most lines any label takes `chars` characters wide. Each line but
 /// the last ends where what follows would not fit on it, so a line and the
 /// one after it hold more than `chars` characters between them, counting
@@ -484,42 +459,6 @@ fn label_fits_two_lines(label: &str, chars: usize) -> bool {
 #[cfg(test)]
 fn longest_label_lines(chars: usize) -> usize {
     (2 * (LABEL_MAX_CHARS / chars) + 1).min(LABEL_MAX_CHARS)
-}
-
-/// The lines `text` takes `chars` characters wide, breaking only at a space
-/// before a letter or a digit, as [`label_fits_two_lines`] counts a break,
-/// for the screen's own timer, round and result lines: single spaces, no
-/// brackets, and no run of words between two such breaks longer than a
-/// line. A line may break in more places than these, which can only make
-/// each line end later, and so take fewer lines.
-#[cfg(test)]
-fn wrapped_lines(text: &str, chars: usize) -> usize {
-    // Runs of words that a line cannot break between, by their lengths.
-    let mut runs: Vec<usize> = Vec::new();
-    for word in text.split(' ') {
-        let breaks_before = word.as_bytes()[0].is_ascii_alphanumeric();
-        match runs.last_mut() {
-            Some(run) if !breaks_before => *run += 1 + word.len(),
-            _ => runs.push(word.len()),
-        }
-    }
-    let mut lines = 1;
-    let mut line = 0;
-    for run in runs {
-        assert!(
-            run <= chars,
-            "{text:?} has more than a line between two breaks"
-        );
-        if line == 0 {
-            line = run;
-        } else if line + 1 + run <= chars {
-            line += 1 + run;
-        } else {
-            lines += 1;
-            line = run;
-        }
-    }
-    lines
 }
 
 /// The two arrangements' margins and the board's cap, for a Replay whose
@@ -725,9 +664,9 @@ pub(super) fn score_badge_scale(layout: &ViewerLayout) -> Vec3 {
 /// the result line, the Replay Library's summary and a recorded Replay's
 /// default name. (The Match screen's end scores are not a row: each stands
 /// beside its own player's name, in that player's corner.) Read left to
-/// right, the pair agrees with the line that gives the same two numbers
-/// over the board. What the order lacked was being said, and the Key now
-/// says it, in a sentence and a swatch that
+/// right, the pair agrees with the result line, which gives the same two
+/// numbers. What the order lacked was being said, and the Key now says it,
+/// in a sentence and a swatch that
 /// `the_keys_badge_row_names_the_order_the_board_draws` in
 /// [`super::modals`] holds to this function, so the two cannot drift.
 pub(super) fn score_badge_position(
@@ -776,6 +715,7 @@ pub(super) fn score_badge_position(
 
 #[cfg(test)]
 mod tests {
+    use super::super::wrap::for_each_line;
     use super::*;
     use crate::app::visuals::{
         CursorVisualStyle, NAMED_WINDOW_SIZES, OUTLINE_ARM, STAR_POINT_RADIUS, STONE_RADIUS,
@@ -1284,11 +1224,12 @@ mod tests {
 
     /// Where the arrangement turns, pinned on both sides: a window 1040 px
     /// wide is wide up to 778 px tall and tall from 779, or for a label
-    /// that needs a third line in tall, wide up to 809 and tall from 810.
+    /// that takes a third line in tall, wide up to 809 and tall from 810.
     /// The opening shape is tall at every size. Past the cap the shape
-    /// alone decides, at about 1.20 times as wide as tall, or 1.17 for such
-    /// a label: a little narrower is tall, a little wider wide, however
-    /// large the window.
+    /// alone decides, at about 1.197 times as wide as tall, or 1.172 for
+    /// such a label: 0.002 narrower is tall and 0.002 wider wide, however
+    /// large the window; and shape by shape past the cap, the choice is the
+    /// one [`expected_wide`] works out for itself.
     #[test]
     fn the_arrangement_turns_where_the_module_docs_say() {
         for (label, last_wide, first_tall, boundary) in [
@@ -1307,9 +1248,25 @@ mod tests {
             for height in [2_000.0, 3_000.0, 5_000.0, 10_000.0] {
                 let (tall, wide) = rooms(Vec2::new(height * boundary, height), label);
                 assert!(tall.max(wide) > CAP, "{height} is past the cap");
-                assert_eq!(at(height * (boundary - 0.005), height), Arrangement::Tall);
-                assert_eq!(at(height * (boundary + 0.005), height), Arrangement::Wide);
+                assert_eq!(at(height * (boundary - 0.002), height), Arrangement::Tall);
+                assert_eq!(at(height * (boundary + 0.002), height), Arrangement::Wide);
             }
+            let mut both = [false, false];
+            for step in 0..=2_400 {
+                let aspect = 0.8 + step as f32 * 0.0005;
+                for height in [2_000.0, 6_000.0] {
+                    let size = Vec2::new(height * aspect, height);
+                    let wide = expected_wide(size, label);
+                    let expected = if wide {
+                        Arrangement::Wide
+                    } else {
+                        Arrangement::Tall
+                    };
+                    assert_eq!(at(size.x, size.y), expected, "{label:?} {size}");
+                    both[usize::from(wide)] = true;
+                }
+            }
+            assert_eq!(both, [true, true], "{label:?}: the shapes reach both");
         }
         for (size, arrangement) in [
             (Vec2::new(2560.0, 1440.0), Arrangement::Wide),
@@ -1397,52 +1354,74 @@ mod tests {
         assert!((narrow.controls_bottom() - 22.0 - 36.0).abs() < 1e-3);
     }
 
-    /// A label that needs a third line in tall gets one: the lines under it,
-    /// the board and the transport row stand a 26 px line lower than they
-    /// would, and the header row where it was; in wide nothing moves.
+    /// A label that takes a third line in tall gets a line's more room, a
+    /// 26 px line of 31.2 px, between the header row and the board, the
+    /// lines under the label keeping their place above the board. Where the
+    /// window has height to spare - 1040x1100 and 1300x1300 here - the board
+    /// keeps its size and the piece is centred anew: the header row rises
+    /// half a line, and the board, the lines over it and the transport row
+    /// drop half a line. In the opening window, whose height limits the
+    /// board, the board is drawn a line smaller, its top a line lower and its
+    /// bottom where it was, with the header row and the transport row where
+    /// they were. In wide nothing moves.
     #[test]
-    fn a_label_that_needs_a_third_line_moves_tall_down_a_line() {
+    fn a_label_that_takes_a_third_line_gets_a_lines_more_room_in_tall() {
+        let line = 31.2;
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-3;
         for size in [Vec2::new(1040.0, 1100.0), Vec2::new(1300.0, 1300.0)] {
             let two = viewer_layout(size, TallLabelRoom::TwoLines);
             let three = viewer_layout(size, TallLabelRoom::ThreeLines);
             assert_eq!(two.arrangement, Arrangement::Tall, "{size}");
             assert_eq!(three.arrangement, Arrangement::Tall, "{size}");
-            let line = 31.2;
-            let moved = three.board.min.y - two.board.min.y;
-            // A board with room to spare stays its size and the piece moves
-            // half a line; a board that fills the height shrinks by a line.
+            assert!(
+                close(two.board.width(), three.board.width()),
+                "{size}: the board keeps its size"
+            );
+            assert!(
+                close(three.header_top(), two.header_top() - line / 2.0),
+                "{size}: the header row rises half a line"
+            );
+            assert!(
+                close(three.board.min.y, two.board.min.y + line / 2.0),
+                "{size}: the board drops half a line"
+            );
+            assert!(
+                close(three.controls_bottom(), two.controls_bottom() - line / 2.0),
+                "{size}: the transport row drops half a line"
+            );
             for line_name in LINES {
                 assert!(
-                    (three.tall_line_top(line_name)
-                        - three.board.min.y
-                        - (two.tall_line_top(line_name) - two.board.min.y))
-                        .abs()
-                        < 1e-3,
+                    close(
+                        three.board.min.y - three.tall_line_top(line_name),
+                        two.board.min.y - two.tall_line_top(line_name)
+                    ),
                     "{size}: {line_name:?} keeps its place above the board"
                 );
             }
-            assert!(
-                ((three.board.min.y - three.header_top())
-                    - (two.board.min.y - two.header_top())
-                    - line)
-                    .abs()
-                    < 1e-3,
-                "{size}: a line more between the header row and the board"
-            );
-            assert!(moved > 0.0, "{size}");
         }
         let wide = Vec2::new(1280.0, 641.0);
         assert_eq!(
             viewer_layout(wide, TallLabelRoom::ThreeLines),
             viewer_layout(wide, TallLabelRoom::TwoLines)
         );
-        let board = viewer_layout(WindowSize::OPENING.0, TallLabelRoom::ThreeLines).board;
+        let (two, three) = (
+            opening(),
+            viewer_layout(WindowSize::OPENING.0, TallLabelRoom::ThreeLines),
+        );
         let expected = Rect::new(228.6, 219.2, 811.4, 802.0);
         assert!(
-            (board.min - expected.min).abs().max_element() < 1e-3
-                && (board.max - expected.max).abs().max_element() < 1e-3,
-            "the opening window's board, a line shorter and a line lower: {board:?}"
+            (three.board.min - expected.min).abs().max_element() < 1e-3
+                && (three.board.max - expected.max).abs().max_element() < 1e-3,
+            "the opening window's board, a line smaller, its bottom where it was: {:?}",
+            three.board
         );
+        assert!(close(three.zoom(), 582.8 / 614.0), "{}", three.zoom());
+        assert_eq!(three.header_top(), two.header_top());
+        assert_eq!(three.controls_bottom(), two.controls_bottom());
+        assert!(close(
+            three.tall_line_top(HeaderLine::Timer),
+            two.tall_line_top(HeaderLine::Timer) + line
+        ));
     }
 
     /// A box from its left, top, width and height.
@@ -1464,12 +1443,31 @@ mod tests {
         )
     }
 
+    /// The lines `text` takes in wide's column, `chars` characters to a
+    /// line, as the column's timer, round and result line are set: never
+    /// broken inside a word. Every line's characters, but for the spaces
+    /// that hang past its end, fit it, so that none runs past the column.
+    fn column_lines(text: &str, chars: usize) -> usize {
+        let mut starts = Vec::new();
+        for_each_line(text.as_bytes(), chars, false, |start| starts.push(start));
+        let lines = starts.len();
+        starts.push(text.len());
+        for line in starts.windows(2) {
+            let shown = text[line[0]..line[1]].trim_end_matches(' ');
+            assert!(
+                shown.len() <= chars,
+                "{text:?} runs past a line of {chars}: {shown:?}"
+            );
+        }
+        lines
+    }
+
     /// The tallest wide's column grows: the longest label it can hold, the
     /// longest timer, round and result lines, and the gaps between them, at
     /// the column's width, with a pixel for each text that `bevy_ui` rounds
     /// up to whole pixels.
     fn column_height(width: f32) -> f32 {
-        let lines = |text: &str, font_px: f32| wrapped_lines(text, chars_per_line(width, font_px));
+        let lines = |text: &str, font_px: f32| column_lines(text, chars_per_line(width, font_px));
         let label = longest_label_lines(chars_per_line(width, VIEWER_LABEL_SIZE));
         text_height(label, VIEWER_LABEL_SIZE)
             + text_height(lines(LONGEST_TIMER, VIEWER_TIMER_SIZE), VIEWER_TIMER_SIZE)
@@ -1741,9 +1739,9 @@ mod tests {
         assert_eq!(smallest.column().2, 234.0, "the column at 1040x600");
     }
 
-    /// The model of wrapping that the column's budget is reckoned with, on
-    /// the screen's own longest lines, against counts worked out by hand:
-    /// a break is taken only at a space before a letter or a digit.
+    /// The column's budget wraps the screen's own longest lines as
+    /// `bevy_ui` does ([`super::super::wrap`]), against counts worked out by
+    /// hand, and does not count on a line that only just fits.
     #[test]
     fn the_budget_wraps_the_screens_lines_where_a_line_can_break() {
         // 234 px is 15 characters at 26 px exactly, and a line that only
@@ -1753,38 +1751,71 @@ mod tests {
         assert_eq!(chars_per_line(220.0, VIEWER_ROUND_SIZE), 22);
         assert_eq!(chars_per_line(498.0, VIEWER_LABEL_SIZE), 31);
         assert_eq!(chars_per_line(line_width(31, 26.0), VIEWER_LABEL_SIZE), 30);
-        // "Round 9999 - 60:00" and "remaining".
-        assert_eq!(wrapped_lines(LONGEST_ROUND, 22), 2);
-        assert_eq!(wrapped_lines(LONGEST_ROUND, 28), 1);
-        // "White | Black 999 -", "White 999 | completed",
-        // "2026-11-27 23:59": no break before "|" or "-" is counted.
-        assert_eq!(wrapped_lines(LONGEST_RESULT, 24), 3);
-        assert_eq!(wrapped_lines(LONGEST_RESULT, 58), 1);
-        assert_eq!(wrapped_lines(LONGEST_TIMER, 15), 1);
-        assert_eq!(wrapped_lines(LONGEST_TIMER, 14), 2);
+        // "Round 9999 - 60:00 " and "remaining".
+        assert_eq!(column_lines(LONGEST_ROUND, 22), 2);
+        assert_eq!(column_lines(LONGEST_ROUND, 28), 1);
+        // "Black | Black 999 - ", "White 998 | completed " and
+        // "2026-11-27 23:59": a line may start with "|" or "-" after a
+        // space, but a date does not break at its hyphens.
+        assert_eq!(column_lines(LONGEST_RESULT, 24), 3);
+        assert_eq!(column_lines(LONGEST_RESULT, 58), 1);
+        // "999:59 / " and "999:59": no line starts with "/".
+        assert_eq!(column_lines(LONGEST_TIMER, 15), 1);
+        assert_eq!(column_lines(LONGEST_TIMER, 14), 2);
         assert_eq!(longest_label_lines(15), 9);
         assert_eq!(longest_label_lines(31), 3);
         assert_eq!(longest_label_lines(61), 1);
     }
 
-    /// Which labels tall gives a third line to. Every label the game writes
-    /// by itself fits two lines of the narrowest header, its longest - a
-    /// winner and three-digit scores - included, and so does the label of
-    /// the Replay the Viewer's captures use; a label of 60 characters whose
-    /// words fall badly, or that has no space to break at, or whose only
-    /// spaces come before a character a line may not start with, gets a
-    /// third.
+    /// Which labels tall gives a third line to: the ones `bevy_ui` sets on
+    /// three lines of the narrowest header, 31 characters to a line, and
+    /// only those, with each label's lines worked out by hand. Every label
+    /// the game writes by itself takes two, at any score; so does a label
+    /// whose bracketed part, hyphenated words or quotation starts where a
+    /// line has to break, a word as long as a label, which breaks inside
+    /// itself, and a run of spaces at a break. A label whose words fall
+    /// badly takes three, as does one ending in spaces that the line before
+    /// has no room for, and one whose long word starts a line of its own and
+    /// then breaks inside itself. A real-layout test in `super` holds the
+    /// same judgement to what `bevy_ui` draws.
     #[test]
-    fn tall_gives_a_third_line_only_to_a_label_that_may_need_it() {
-        use crate::replay::validate_label;
+    fn tall_gives_a_third_line_only_to_a_label_set_on_three() {
+        use crate::replay::{default_replay_label, validate_label};
+        use crate::rules::Score;
 
-        for label in [
+        let mut two_lines: Vec<String> = [
             "Round zero",
-            "Black - 42-38 - 2024-01-01 00:00",
-            "White - 999-998 - 2026-11-27 23:59",
-            "Draw - 999-999 - 2026-11-27 23:59",
+            // "Saturday rematch with my sister " and "best of three,
+            // second game", the space after "sister" past the line's end.
             "Saturday rematch with my sister best of three, second game",
-        ] {
+            // "Friday night game with Alex " and "(rematch after the
+            // tournament)": a line may start with "(" after a space.
+            "Friday night game with Alex (rematch after the tournament)",
+            // "Practice game vs. Jordan " and "(handicap, teaching game)".
+            "Practice game vs. Jordan (handicap, teaching game)",
+            // "Rematch: best-of-three after " and "the long-awaited
+            // semi-final".
+            "Rematch: best-of-three after the long-awaited semi-final",
+            // "Club night 'friendly' game -- " and "\"no takebacks\" says
+            // Sam".
+            "Club night 'friendly' game -- \"no takebacks\" says Sam",
+            // "Thursday evening game with" and six spaces, the last past
+            // the line's end, and "lots of spaces here".
+            "Thursday evening game with      lots of spaces here",
+        ]
+        .map(String::from)
+        .into();
+        // 31 letters and 29.
+        two_lines.push(format!("A{}", "b".repeat(59)));
+        // "A ", 28 b's and a space, and "c".
+        two_lines.push(format!("A {} c", "b".repeat(28)));
+        for (black, white) in [(0, 0), (42, 38), (81, 80), (999, 998), (99_999, 99_998)] {
+            two_lines.push(default_replay_label(
+                Score { black, white },
+                "2026-11-27 23:59",
+            ));
+        }
+        for label in &two_lines {
             assert!(validate_label(label).is_ok(), "{label:?}");
             assert_eq!(
                 TallLabelRoom::for_label(label),
@@ -1793,10 +1824,18 @@ mod tests {
             );
         }
         for label in [
+            // "Saturday afternoon rematch ", "against my brother, best of "
+            // and "three".
             "Saturday afternoon rematch against my brother, best of three",
-            &format!("A{}", "b".repeat(59)),
-            &format!("A{} !{}", "a".repeat(28), "b".repeat(28)),
-            &format!("A{} ( {}", "a".repeat(28), "b".repeat(28)),
+            // Three lines of 28, 28 and 4.
+            "Thursday   evening   game   with   lots   of   spaces   here",
+            // "A ", 31 b's with a space past the line, and a space.
+            &format!("A {}  ", "b".repeat(31)),
+            // "A ", 31 b's with a space past the line, and an empty line.
+            &format!("A {} ", "b".repeat(31)),
+            // "Ab ", and a word of 57 letters, which a line cannot hold:
+            // broken inside itself after 31, it takes a second and a third.
+            &format!("Ab {}", "c".repeat(57)),
         ] {
             assert!(validate_label(label).is_ok(), "{label:?}");
             assert_eq!(

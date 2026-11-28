@@ -16,22 +16,23 @@
 //! off their cursors, so where they stand in the world moves with the
 //! board's framing. [`update_viewer_display`] caches the last-drawn
 //! `(replay_id, boundary key, window size)` and only calls
-//! [`update_viewer_board_visuals`] when that changes, redrawing immediately
-//! (no one-frame lag) on any crossing, including a silent seek, and on any
-//! change of the window's size. See
+//! [`update_viewer_board_visuals`] when that changes or the board has just
+//! been spawned, redrawing immediately (no one-frame lag) on any crossing,
+//! including a silent seek, on any change of the window's size, and on
+//! every entry to the screen. See
 //! [Presentation: continuous vs change-driven display](../../../../docs/ARCHITECTURE.md#presentation-continuous-vs-change-driven-display)
 //! for the full reasoning, including why `replay_id` has to be part of the
-//! cache key.
+//! cache key and why a new board has to be drawn whatever the key.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
 
 use super::geometry::{
-    TallLabelRoom, ViewerLayout, score_badge_position, score_badge_scale, viewer_board_position,
-    viewer_cursor_position, viewer_layout, viewer_selection_position,
+    ViewerLayout, score_badge_position, score_badge_scale, viewer_board_position,
+    viewer_cursor_position, viewer_selection_position,
 };
-use super::layout::speed_label;
+use super::layout::{current_layout, speed_label};
 use super::{
     REPLAY_FIELD_SEPARATOR, ReplayViewerState, ViewerAction, ViewerButtonLabel, ViewerCountdown,
     ViewerCursor, ViewerIntersection, ViewerKeyModal, ViewerMarker, ViewerMatchSettingsModal,
@@ -167,6 +168,9 @@ pub(super) struct ViewerBoard<'w, 's> {
     badge_texts: Query<'w, 's, &'static mut Text2d>,
     markers: ViewerMarkers<'w, 's>,
     selections: ViewerSelections<'w, 's>,
+    /// Matches on the frame the board was spawned, which spawns its marks
+    /// with it: see [`ViewerBoardBoundary`].
+    spawned: Query<'w, 's, (), Added<ViewerScoreBadge>>,
 }
 
 /// Transport buttons, including the child label whose colour tracks the
@@ -227,14 +231,19 @@ pub(super) struct ViewerOverlay<'w, 's> {
 /// instant playback actually crosses one, including on a silent seek, or
 /// the window changes size.
 ///
-/// The cached key includes `replay_id`, not just the event index: the Viewer
-/// only runs while `AppScreen::ReplayViewer` is active, so leaving the screen
-/// (which clears `ReplayViewerState`) does not itself run this system again
-/// to reset the cache. Without `replay_id` in the key, opening a *different*
-/// Replay that happens to land on the same event index as whatever was last
-/// drawn would incorrectly keep showing the previous Replay's board.
+/// The Viewer only runs while `AppScreen::ReplayViewer` is active, so
+/// leaving the screen (which clears `ReplayViewerState`) does not itself run
+/// this system again to reset the cache, and two things follow from that.
+/// The cached key includes `replay_id`, not just the event index: without
+/// it, opening a *different* Replay that happens to land on the same event
+/// index as whatever was last drawn would keep showing the previous
+/// Replay's board. And a board just spawned is drawn whatever the key:
+/// every entry spawns the board afresh, its cursors and badges at the
+/// world's origin, so opening the *same* Replay again, at the start where
+/// it was left, would otherwise match the key and leave them there until
+/// playback crossed an event.
 ///
-/// The comparison borrows this cached pair rather than rebuilding it, so the
+/// The comparison borrows this cached key rather than rebuilding it, so the
 /// steady-state frame allocates nothing; `replay_id` is cloned only when the
 /// key actually changes and is stored. The gate saves 180 entity iterations:
 /// 81 intersections and their 81 rings, two cursors, two score badges, two
@@ -261,25 +270,26 @@ pub(super) fn update_viewer_display(
     let frame = replay.playback_frame_at(position);
     let boundary = replay.playback_boundary_key(position);
     let size = window.layout();
-    let unchanged = last_boundary
-        .0
-        .as_ref()
-        .is_some_and(|(id, index, drawn_at)| {
-            id.as_deref() == viewer.replay_id.as_deref() && *index == boundary && *drawn_at == size
-        });
+    let unchanged = board.spawned.is_empty()
+        && last_boundary
+            .0
+            .as_ref()
+            .is_some_and(|(id, index, drawn_at)| {
+                id.as_deref() == viewer.replay_id.as_deref()
+                    && *index == boundary
+                    && *drawn_at == size
+            });
     if !unchanged {
         last_boundary.0 = Some((viewer.replay_id.clone(), boundary, size));
-        let layout = viewer_layout(size, TallLabelRoom::for_label(&replay.label));
+        let layout = current_layout(&window, replay);
         update_viewer_board_visuals(replay, &frame, &palette, &layout, &mut board);
     }
     for (role, mut text) in &mut overlay.texts {
         let value = match role {
             ViewerText::Label => replay.label.clone(),
-            ViewerText::Timer => format!(
-                "{} / {}",
-                format_elapsed_time(viewer.controller.position_seconds),
-                format_elapsed_time(replay.duration_seconds)
-            ),
+            ViewerText::Timer => {
+                viewer_timer_text(viewer.controller.position_seconds, replay.duration_seconds)
+            }
             ViewerText::Round => viewer_round_text(replay, &frame),
             ViewerText::Result => replay_result_text(replay),
             ViewerText::Countdown => viewer_countdown_text(&frame).into(),
@@ -415,7 +425,8 @@ fn viewer_button_colors(
 /// The discrete board visuals: stones, cursors, score badges, teleport
 /// markers and hidden selections, the badges placed and scaled for
 /// `layout`. Called only when [`Replay::playback_boundary_key`] or the
-/// window's size changes - see [`ViewerBoardBoundary`].
+/// window's size changes, or the board has just been spawned - see
+/// [`ViewerBoardBoundary`].
 fn update_viewer_board_visuals(
     replay: &Replay,
     frame: &ReplayFrame,
@@ -520,6 +531,16 @@ fn update_viewer_board_visuals(
     }
 }
 
+/// The timer under the label: how far into the Replay playback stands, and
+/// how long it is.
+fn viewer_timer_text(position_seconds: f64, duration_seconds: f64) -> String {
+    format!(
+        "{} / {}",
+        format_elapsed_time(position_seconds),
+        format_elapsed_time(duration_seconds)
+    )
+}
+
 fn viewer_round_text(replay: &Replay, frame: &ReplayFrame) -> String {
     let base = format!("Round {}", frame.current_round);
     if replay.version < MATCH_RULES_REPLAY_SCHEMA_VERSION
@@ -588,6 +609,85 @@ mod tests {
 
     use crate::opening::OpeningCountdownStage;
     use crate::replay::MatchRecorder;
+
+    /// Each longest text the Viewer's layout makes room for in its header
+    /// is one this pass writes, built here with the screen's own functions:
+    /// the timer at 999:59 of 999:59, the round line in round 9,999 with
+    /// Round Time on, and the result line for a winner with three-digit
+    /// scores and a four-digit year - character for character but for
+    /// which digit stands where, since the result's timestamp is local
+    /// time. The round line is as long however much of the round is left,
+    /// and as short with Round Time off or in a Replay from before it was
+    /// recorded; the result line is no longer for a draw or for the other
+    /// winner. And each grows past what the layout names its assumptions
+    /// at: 1,000 minutes, round 10,000 and a score of 1,000.
+    #[test]
+    fn the_layouts_longest_texts_are_the_screens_longest_texts() {
+        use super::super::geometry::{LONGEST_RESULT, LONGEST_ROUND, LONGEST_TIMER};
+        use crate::match_settings::DURATION_MAX_SECONDS;
+
+        let as_nines = |text: &str| -> String {
+            text.chars()
+                .map(|c| if c.is_ascii_digit() { '9' } else { c })
+                .collect()
+        };
+        assert_eq!(viewer_timer_text(59_999.0, 59_999.0), LONGEST_TIMER);
+        assert!(viewer_timer_text(60_000.0, 60_000.0).len() > LONGEST_TIMER.len());
+
+        let mut replay = fixed_metadata_replay();
+        assert!(replay.version >= MATCH_RULES_REPLAY_SCHEMA_VERSION);
+        replay.match_settings.set_value(
+            MatchSettingField::RoundTime,
+            u64::from(DURATION_MAX_SECONDS),
+        );
+        replay
+            .match_settings
+            .set_enabled(MatchSettingField::RoundTime, true);
+        let playing = |round: usize, elapsed: f64| ReplayFrame {
+            phase: ReplayPhase::Playing,
+            current_round: round,
+            round_elapsed_seconds: elapsed,
+            ..default()
+        };
+        assert_eq!(
+            viewer_round_text(&replay, &playing(9_999, 0.0)),
+            LONGEST_ROUND
+        );
+        for elapsed in [0.5, 59.5, 3_599.5, 3_600.0] {
+            let round = viewer_round_text(&replay, &playing(9_999, elapsed));
+            assert_eq!(as_nines(&round), as_nines(LONGEST_ROUND), "{elapsed}");
+        }
+        assert!(viewer_round_text(&replay, &playing(10_000, 0.0)).len() > LONGEST_ROUND.len());
+        let mut no_round_time = replay.clone();
+        no_round_time
+            .match_settings
+            .set_enabled(MatchSettingField::RoundTime, false);
+        let mut before_round_time = replay.clone();
+        before_round_time.version = MATCH_RULES_REPLAY_SCHEMA_VERSION - 1;
+        for shorter in [no_round_time, before_round_time] {
+            let round = viewer_round_text(&shorter, &playing(9_999, 0.0));
+            assert!(round.len() < LONGEST_ROUND.len(), "{round:?}");
+        }
+
+        replay.completed_at_ms = 1_795_000_000_000;
+        replay.score = Score {
+            black: 999,
+            white: 998,
+        };
+        assert_eq!(
+            as_nines(&replay_result_text(&replay)),
+            as_nines(LONGEST_RESULT)
+        );
+        for (black, white) in [(998, 999), (999, 999)] {
+            replay.score = Score { black, white };
+            assert!(replay_result_text(&replay).len() <= LONGEST_RESULT.len());
+        }
+        replay.score = Score {
+            black: 1_000,
+            white: 999,
+        };
+        assert!(replay_result_text(&replay).len() > LONGEST_RESULT.len());
+    }
 
     #[test]
     fn round_zero_viewer_exposes_all_hidden_selections_and_countdown_while_live_play_does_not() {

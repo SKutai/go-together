@@ -7,10 +7,12 @@
 //! so opening one never spawns anything. The Key is also set out for the
 //! window's size by [`super::layout`]'s placement pass: in one column, as it
 //! has always been, or in a window too short for that, in two (see
-//! [`super::geometry`]). Only its panel and the two columns its rows stand
-//! in are placed; the display pass shows and hides its root. That they are
-//! mutually exclusive and that either one pauses playback are transport
-//! rules, and stay with the transport systems in [`super`].
+//! [`super::geometry`]). Its panel, the body that holds its rows, the two
+//! columns they stand in and the wording of the one sentence that says
+//! where something on the screen stands are placed; the display pass shows
+//! and hides its root. That they are mutually exclusive and that either one
+//! pauses playback are transport rules, and stay with the transport systems
+//! in [`super`].
 //!
 //! They are a separate module from [`super::layout`] for their size rather
 //! than their kind: between them they are nearly half of the viewer's spawn
@@ -18,9 +20,7 @@
 
 use bevy::prelude::*;
 
-use super::geometry::{
-    VIEWER_MATCH_SETTINGS_MODAL_MAX_HEIGHT, VIEWER_MATCH_SETTINGS_MODAL_WIDTH, ViewerLayout,
-};
+use super::geometry::{VIEWER_MATCH_SETTINGS_MODAL_WIDTH, ViewerLayout};
 use super::layout::{ViewerPlacement, placed, spawn_viewer_button};
 use super::{
     ViewerAction, ViewerKeyModal, ViewerMatchSettingsModal, format_setting_duration, player_index,
@@ -34,13 +34,26 @@ use crate::presentation::{
 };
 use crate::replay::{EndReason, Replay};
 use crate::rules::{Cell, Player};
+use crate::ui::arrangement::Arrangement;
 
 /// The gap between one thing on the Key's panel and the next: the title,
 /// the introduction, each row, and Close.
 pub(super) const KEY_ROW_GAP: f32 = 13.0;
 
 /// One row of the Key: what it shows and what it says.
-type KeyRow = (KeySwatch, &'static str);
+type KeyRow = (KeySwatch, KeySentence);
+
+/// What a Key row says: one sentence, or, for a row that says where
+/// something on the screen stands, a wording for each arrangement, of which
+/// the placement pass shows the one for the window's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum KeySentence {
+    Fixed(&'static str),
+    ByArrangement {
+        tall: &'static str,
+        wide: &'static str,
+    },
+}
 
 /// The Key's ten rows, in the order they are read: White / P2 before
 /// Black / P1 for the cursors and for each Replay-only mark, the score
@@ -52,43 +65,45 @@ const KEY_ROWS: [KeyRow; 10] = [
             fill: player_accent(Player::Two),
             border: WHITE_STONE,
         },
-        "White / P2 cursor: blue with a white border.",
+        KeySentence::Fixed("White / P2 cursor: blue with a white border."),
     ),
     (
         KeySwatch::Cursor {
             fill: player_accent(Player::One),
             border: BLACK_STONE,
         },
-        "Black / P1 cursor: red with a black border.",
+        KeySentence::Fixed("Black / P1 cursor: red with a black border."),
     ),
-    (KeySwatch::ScoreBadges, KEY_SCORE_BADGE_SENTENCE),
+    (KeySwatch::ScoreBadges, KEY_SCORE_BADGE_SENTENCES),
     (
         KeySwatch::Marker(Player::Two),
-        KEY_MARKER_SENTENCES[player_index(Player::Two)],
+        KeySentence::Fixed(KEY_MARKER_SENTENCES[player_index(Player::Two)]),
     ),
     (
         KeySwatch::Marker(Player::One),
-        KEY_MARKER_SENTENCES[player_index(Player::One)],
+        KeySentence::Fixed(KEY_MARKER_SENTENCES[player_index(Player::One)]),
     ),
     (
         KeySwatch::HiddenChoice(Player::Two),
-        KEY_HIDDEN_CHOICE_SENTENCES[player_index(Player::Two)],
+        KeySentence::Fixed(KEY_HIDDEN_CHOICE_SENTENCES[player_index(Player::Two)]),
     ),
     (
         KeySwatch::HiddenChoice(Player::One),
-        KEY_HIDDEN_CHOICE_SENTENCES[player_index(Player::One)],
+        KeySentence::Fixed(KEY_HIDDEN_CHOICE_SENTENCES[player_index(Player::One)]),
     ),
     (
         KeySwatch::Stone(Cell::Black),
-        "Black stones belong to Black / P1.",
+        KeySentence::Fixed("Black stones belong to Black / P1."),
     ),
     (
         KeySwatch::Stone(Cell::White),
-        "White stones have a dark ring and belong to White / P2.",
+        KeySentence::Fixed("White stones have a dark ring and belong to White / P2."),
     ),
     (
         KeySwatch::Stone(Cell::Gray),
-        "Gray stones are smaller, with a dark ring. They are neutral and permanent, and provide no liberties - like the board edge.",
+        KeySentence::Fixed(
+            "Gray stones are smaller, with a dark ring. They are neutral and permanent, and provide no liberties - like the board edge.",
+        ),
     ),
 ];
 
@@ -174,7 +189,7 @@ pub(super) fn spawn_viewer_key_modal(parent: &mut ChildSpawnerCommands, layout: 
                                 ))
                                 .with_children(|column| {
                                     for (swatch, sentence) in rows {
-                                        spawn_key_row(column, *swatch, sentence);
+                                        spawn_key_row(column, *swatch, *sentence, layout);
                                     }
                                 });
                             }
@@ -219,7 +234,6 @@ pub(super) fn spawn_viewer_match_settings_modal(
                 .spawn((
                     Node {
                         width: px(VIEWER_MATCH_SETTINGS_MODAL_WIDTH),
-                        max_height: px(VIEWER_MATCH_SETTINGS_MODAL_MAX_HEIGHT),
                         padding: UiRect::all(px(28)),
                         border: UiRect::all(px(2)),
                         flex_direction: FlexDirection::Column,
@@ -397,10 +411,15 @@ const KEY_HIDDEN_CHOICE_SENTENCES: [&str; 2] = [
 /// a player who cannot see hue - so their order is what tells them apart,
 /// and this is where the game says what that order is. It names the order
 /// [`super::geometry::score_badge_position`] draws, which is the order the
-/// result line at the top of the screen names the players in;
-/// `the_keys_badge_row_names_the_order_the_board_draws` holds the sentence
-/// and the swatch beside it to the board.
-const KEY_SCORE_BADGE_SENTENCE: &str = "Score badges show each player's score beside their cursor. When both cursors share a point, Black / P1's is on the left, as in the score at the top.";
+/// result line names the players in, and points to that line: at the top
+/// of the screen in tall, beside the board in wide.
+/// `the_keys_badge_row_names_the_order_the_board_draws` holds both wordings
+/// and the swatch beside them to the board. The two wrap alike at either
+/// width the Key gives them, so the Key is as tall with either.
+const KEY_SCORE_BADGE_SENTENCES: KeySentence = KeySentence::ByArrangement {
+    tall: "Score badges show each player's score beside their cursor. When both cursors share a point, Black / P1's is on the left, as in the score at the top.",
+    wide: "Score badges show each player's score beside their cursor. When both cursors share a point, Black / P1's is on the left, as in the score beside the board.",
+};
 
 /// What a Key row shows beside its sentence.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -476,7 +495,12 @@ fn key_stone_swatch(cell: Cell) -> (Color, f32, f32) {
     }
 }
 
-fn spawn_key_row(parent: &mut ChildSpawnerCommands, swatch: KeySwatch, label: &str) {
+fn spawn_key_row(
+    parent: &mut ChildSpawnerCommands,
+    swatch: KeySwatch,
+    sentence: KeySentence,
+    layout: &ViewerLayout,
+) {
     parent
         .spawn(Node {
             width: percent(100),
@@ -507,20 +531,41 @@ fn spawn_key_row(parent: &mut ChildSpawnerCommands, swatch: KeySwatch, label: &s
                 KeySwatch::HiddenChoice(player) => spawn_key_hidden_choice(row, player),
                 KeySwatch::ScoreBadges => spawn_key_score_badges(row),
             }
-            row.spawn((
-                Text::new(label),
-                TextFont {
-                    font_size: FontSize::Px(16.0),
-                    ..default()
-                },
-                TextColor(TEXT_PRIMARY),
-                TextLayout::justify(Justify::Left).with_linebreak(LineBreak::WordOrCharacter),
-                Node {
-                    min_width: px(0),
-                    flex_grow: 1.0,
-                    ..default()
-                },
-            ));
+            let text = |words: &'static str| {
+                (
+                    Text::new(words),
+                    TextFont {
+                        font_size: FontSize::Px(16.0),
+                        ..default()
+                    },
+                    TextColor(TEXT_PRIMARY),
+                    TextLayout::justify(Justify::Left).with_linebreak(LineBreak::WordOrCharacter),
+                )
+            };
+            let node = Node {
+                min_width: px(0),
+                flex_grow: 1.0,
+                ..default()
+            };
+            match sentence {
+                KeySentence::Fixed(words) => {
+                    row.spawn((text(words), node));
+                }
+                KeySentence::ByArrangement { tall, wide } => {
+                    for (arrangement, words) in
+                        [(Arrangement::Tall, tall), (Arrangement::Wide, wide)]
+                    {
+                        row.spawn((
+                            text(words),
+                            placed(
+                                layout,
+                                ViewerPlacement::KeySentence(arrangement),
+                                node.clone(),
+                            ),
+                        ));
+                    }
+                }
+            }
         });
 }
 
@@ -1014,7 +1059,8 @@ mod tests {
         world.flush();
 
         // The rows stand in two columns, which are read one after the other:
-        // every swatch-and-sentence row, in the order of the tree.
+        // every row of a swatch and its sentences, in the order of the
+        // tree, read by the sentence it shows.
         let root = world
             .query_filtered::<Entity, With<ViewerKeyModal>>()
             .single(&world)
@@ -1025,10 +1071,18 @@ mod tests {
             let Some(children) = world.get::<Children>(node) else {
                 continue;
             };
-            if children.len() == 2
-                && let Some(sentence) = world.get::<Text>(children[1])
+            if children.len() >= 2
+                && children[1..]
+                    .iter()
+                    .all(|child| world.get::<Text>(*child).is_some())
             {
-                rows.push(sentence.0.clone());
+                let shown: Vec<String> = children[1..]
+                    .iter()
+                    .filter(|child| world.get::<Node>(**child).unwrap().display != Display::None)
+                    .map(|child| world.get::<Text>(*child).unwrap().0.clone())
+                    .collect();
+                assert_eq!(shown.len(), 1, "a row shows one sentence: {shown:?}");
+                rows.push(shown[0].clone());
                 continue;
             }
             stack.extend(children.iter().rev());
@@ -1053,10 +1107,11 @@ mod tests {
 
     /// The Key's row for the score badges, read back from the spawned world
     /// and held to the board rather than to a constant: whichever badge
-    /// [`score_badge_position`] puts on the left of a shared point, the
-    /// sentence names that player as the left one and the swatch draws
-    /// their frame first. So the board's order cannot change without the
-    /// Key, which is the only place the game states it, changing with it.
+    /// [`score_badge_position`] puts on the left of a shared point, both of
+    /// the row's wordings name that player as the left one and the swatch
+    /// draws their frame first. So the board's order cannot change without
+    /// the Key, which is the only place the game states it, changing with
+    /// it.
     #[test]
     fn the_keys_badge_row_names_the_order_the_board_draws() {
         let shared = Vec2::ZERO;
@@ -1083,27 +1138,33 @@ mod tests {
             .with_children(|parent| spawn_viewer_key_modal(parent, &opening()));
         world.flush();
 
-        let rows: Vec<(String, Entity)> = world
+        let rows: Vec<(Vec<String>, Entity)> = world
             .query::<&Children>()
             .iter(&world)
-            .filter(|children| children.len() == 2)
+            .filter(|children| children.len() >= 2)
             .filter_map(|children| {
-                let sentence = world.get::<Text>(children[1])?.0.clone();
-                Some((sentence, children[0]))
+                let sentences = children[1..]
+                    .iter()
+                    .map(|child| Some(world.get::<Text>(*child)?.0.clone()))
+                    .collect::<Option<Vec<String>>>()?;
+                Some((sentences, children[0]))
             })
-            .filter(|(sentence, _)| sentence.starts_with("Score badges"))
+            .filter(|(sentences, _)| sentences[0].starts_with("Score badges"))
             .collect();
         assert_eq!(rows.len(), 1, "the Key has one row for the score badges");
-        let (sentence, chip) = &rows[0];
+        let (sentences, chip) = &rows[0];
+        assert_eq!(sentences.len(), 2, "a wording for each arrangement");
         let says = format!("{}'s is on the left", name(left));
-        assert!(
-            sentence.contains(&says),
-            "{sentence:?} does not say {says:?}"
-        );
-        assert!(
-            !sentence.contains(&format!("{}'s is on the left", name(right))),
-            "{sentence:?}"
-        );
+        for sentence in sentences {
+            assert!(
+                sentence.contains(&says),
+                "{sentence:?} does not say {says:?}"
+            );
+            assert!(
+                !sentence.contains(&format!("{}'s is on the left", name(right))),
+                "{sentence:?}"
+            );
+        }
 
         assert_eq!(world.get::<BackgroundColor>(*chip).unwrap().0, BOARD_WOOD);
         let chip_node = world.get::<Node>(*chip).unwrap();

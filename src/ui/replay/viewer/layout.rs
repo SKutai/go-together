@@ -16,10 +16,12 @@
 //! [`super::geometry`] decides it, as a pure function of the window's size
 //! and of the room the Replay's label needs in tall ([`TallLabelRoom`]),
 //! which cannot change while the screen is open. Every node whose place
-//! depends on the window carries a
-//! [`ViewerPlacement`] naming its place, and [`place`] is the one function
-//! that writes a place into a node, used both at spawn and by
-//! [`place_viewer_furniture`], so the two cannot disagree. That system also
+//! depends on the window carries a [`ViewerPlacement`] naming its place,
+//! and [`place`] is the one function that writes a place into a node, used
+//! by [`place_viewer_furniture`] and, through [`placed`], at spawn, so the
+//! two cannot disagree. The countdown card's row is the one node spawned
+//! another way, through the shared card's own `overlay_node`, which
+//! [`place`] keeps to: both read the same `overlay_top`. That system also
 //! gives the main camera the board's framing, which is how the board, and
 //! everything drawn on it, is placed and scaled; the score badges, which
 //! are drawn at their own size whatever the board does, are placed with
@@ -114,6 +116,7 @@ use crate::presentation::{
 };
 use crate::replay::Replay;
 use crate::rules::{BOARD_SIZE, Cell, Player, Point};
+use crate::ui::arrangement::Arrangement;
 use crate::ui::countdown_card::CountdownCard;
 use crate::ui::focus::{FocusGroup, Focusable};
 /// The speed buttons, as (multiplier, label).
@@ -196,6 +199,10 @@ pub(super) enum ViewerPlacement {
     KeyBody,
     /// One of the Key's two columns of rows.
     KeyColumn,
+    /// The wording of a Key sentence for one arrangement, shown in that
+    /// arrangement only: the score badges' sentence points to where the
+    /// result line stands.
+    KeySentence(Arrangement),
 }
 
 /// Writes into `node` the fields that `placement` decides in `layout`, and
@@ -247,6 +254,9 @@ pub(super) fn place(layout: &ViewerLayout, placement: ViewerPlacement, node: &mu
                 }
             };
         }
+        ViewerPlacement::KeySentence(arrangement) => {
+            node.display = shown(layout.arrangement == arrangement);
+        }
     }
 }
 
@@ -261,8 +271,9 @@ pub(super) fn placed(
     (node, placement)
 }
 
-/// The layout for the window's size and the open Replay's label.
-fn current_layout(window: &WindowSize, replay: &Replay) -> ViewerLayout {
+/// The layout for the window's size and the open Replay's label: what the
+/// placement pass places by, and the display pass the board's marks.
+pub(super) fn current_layout(window: &WindowSize, replay: &Replay) -> ViewerLayout {
     viewer_layout(window.layout(), TallLabelRoom::for_label(&replay.label))
 }
 
@@ -556,7 +567,10 @@ fn spawn_viewer_marker(commands: &mut Commands, player: Player) {
 /// centred, and for the label, wrapped within a word too long for a line.
 /// Each size is written where it is set, as a constant, so that the text
 /// size floor's scan can read it.
-fn header_text(role: ViewerText, content: String) -> (Text, TextFont, TextColor, TextLayout) {
+pub(super) fn header_text(
+    role: ViewerText,
+    content: String,
+) -> (Text, TextFont, TextColor, TextLayout) {
     let (font_size, color) = match role {
         ViewerText::Label => (FontSize::Px(VIEWER_LABEL_SIZE), TEXT_HEADING),
         ViewerText::Timer => (FontSize::Px(VIEWER_TIMER_SIZE), TEXT_HEADING),
@@ -1584,7 +1598,7 @@ mod tests {
         )
     }
 
-    const PLACEMENTS: [ViewerPlacement; 11] = [
+    const PLACEMENTS: [ViewerPlacement; 13] = [
         ViewerPlacement::HeaderRow,
         ViewerPlacement::TallLabel,
         ViewerPlacement::TallLine(HeaderLine::Timer),
@@ -1596,25 +1610,47 @@ mod tests {
         ViewerPlacement::KeyPanel,
         ViewerPlacement::KeyBody,
         ViewerPlacement::KeyColumn,
+        ViewerPlacement::KeySentence(Arrangement::Tall),
+        ViewerPlacement::KeySentence(Arrangement::Wide),
     ];
 
+    /// A node whose every field that [`place`] writes holds a value no
+    /// placement writes, so that a field one arm of [`place`] leaves alone
+    /// shows as this value rather than passing for a default.
+    fn sentinel() -> Node {
+        Node {
+            display: Display::Grid,
+            left: px(-1.5),
+            top: px(-2.5),
+            bottom: px(-3.5),
+            width: px(-4.5),
+            flex_direction: FlexDirection::RowReverse,
+            row_gap: px(-5.5),
+            column_gap: px(-6.5),
+            ..default()
+        }
+    }
+
     /// Every placement, moved into another window's layout and back, is
-    /// the node it was: each arrangement, and each form of the Key, sets
-    /// every field it owns. And moving it changes it, so each really is
-    /// placed from the window: every one between the opening window and
-    /// 1040x700, whose layout differs in arrangement, in the board's size,
-    /// in the piece's place down the window, and in the Key's form.
+    /// the node it was, starting from either layout: each arrangement, and
+    /// each form of the Key, sets every field that any of them sets. And
+    /// moving it changes it, so each really is placed from the window:
+    /// every one between the opening window and 1040x700, whose layout
+    /// differs in arrangement, in the board's size, in the piece's place
+    /// down the window, and in the Key's form.
     #[test]
     fn a_placed_node_moved_and_moved_back_is_the_node_it_was() {
         let opening = opening();
         let other = viewer_layout(Vec2::new(1040.0, 700.0), TallLabelRoom::TwoLines);
         for placement in PLACEMENTS {
-            let (start, _) = placed(&opening, placement, Node::default());
-            let mut moved = start.clone();
-            place(&other, placement, &mut moved);
-            assert_ne!(moved, start, "{placement:?} does not move");
-            place(&opening, placement, &mut moved);
-            assert_eq!(moved, start, "{placement:?}");
+            for (from, to) in [(&opening, &other), (&other, &opening)] {
+                let (start, _) = placed(from, placement, sentinel());
+                let mut moved = start.clone();
+                place(to, placement, &mut moved);
+                assert_ne!(moved, start, "{placement:?} does not move");
+                place(from, placement, &mut moved);
+                assert_eq!(moved, start, "{placement:?} from {}", from.window);
+            }
         }
     }
 
@@ -1640,5 +1676,13 @@ mod tests {
         }
         assert_eq!(display(&tall, ViewerPlacement::Column), Display::None);
         assert_eq!(display(&wide, ViewerPlacement::Column), Display::Flex);
+        for (arrangement, in_tall, in_wide) in [
+            (Arrangement::Tall, Display::Flex, Display::None),
+            (Arrangement::Wide, Display::None, Display::Flex),
+        ] {
+            let placement = ViewerPlacement::KeySentence(arrangement);
+            assert_eq!(display(&tall, placement), in_tall, "{placement:?}");
+            assert_eq!(display(&wide, placement), in_wide, "{placement:?}");
+        }
     }
 }

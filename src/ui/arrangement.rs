@@ -186,8 +186,8 @@ mod tests {
     fn past_the_cap_the_shape_alone_decides() {
         let boundary = 1400.0 / (1000.0 / WIDE_GAIN + 200.0);
         for (aspect, arrangement) in [
-            (boundary - 0.01, Arrangement::Tall),
-            (boundary + 0.01, Arrangement::Wide),
+            (boundary - 0.002, Arrangement::Tall),
+            (boundary + 0.002, Arrangement::Wide),
         ] {
             for height in [1400.0, 2000.0, 4000.0, 40_000.0] {
                 let window = Vec2::new(height * aspect, height);
@@ -202,5 +202,41 @@ mod tests {
         // the rooms', and they depend on the size.
         let small = Vec2::new(boundary + 0.01, 1.0) * 600.0;
         assert_eq!(SAMPLE.choose(small), Arrangement::Tall, "{small}");
+    }
+
+    /// Past the cap, shape by shape from 0.8 to 2 times as wide as tall,
+    /// the choice is the one the rooms make at the size where the larger of
+    /// them reaches the cap: found here by halving the window's scale until
+    /// it is there, not by the closed form the rule uses.
+    #[test]
+    fn past_the_cap_each_shape_is_decided_where_its_larger_room_reaches_the_cap() {
+        let larger = |window: Vec2| SAMPLE.tall.room(window).max(SAMPLE.wide.room(window));
+        let mut both = [false, false];
+        for step in 0..=2_400 {
+            let aspect = 0.8 + step as f32 * 0.0005;
+            for height in [2_000.0, 6_000.0] {
+                let window = Vec2::new(height * aspect, height);
+                assert!(larger(window) > SAMPLE.cap, "{window} is past the cap");
+                let (mut low, mut high) = (0.0_f32, 1.0_f32);
+                for _ in 0..48 {
+                    let middle = (low + high) / 2.0;
+                    if larger(window * middle) < SAMPLE.cap {
+                        low = middle;
+                    } else {
+                        high = middle;
+                    }
+                }
+                let at = window * high;
+                let wide = SAMPLE.wide.room(at) > SAMPLE.tall.room(at) * WIDE_GAIN;
+                let expected = if wide {
+                    Arrangement::Wide
+                } else {
+                    Arrangement::Tall
+                };
+                assert_eq!(SAMPLE.choose(window), expected, "{window}");
+                both[usize::from(wide)] = true;
+            }
+        }
+        assert_eq!(both, [true, true], "the shapes reach both");
     }
 }
