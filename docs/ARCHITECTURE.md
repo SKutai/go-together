@@ -3218,10 +3218,10 @@ for why each step is the way it is.
    components of those nodes needs no edge: Home's marimba is shown and
    hidden by its `Visibility`, in a stage of its own. Nor does one that
    writes only other nodes: Settings' display stage shows and hides only
-   nodes its pass does not place. Have each arrangement set every field it owns, so a node
-   moved into one arrangement and back is the node it was, and test that a
-   change of size moves every node to where a fresh entry at the new size
-   puts it.
+   nodes its pass does not place. Have each arrangement set every field it
+   owns, so a node moved into one arrangement and back is the node it was,
+   and test that a change of size moves every node to where a fresh entry
+   at the new size puts it.
 5. Place a world-space board through the main camera: write
    `WorldFraming::placing(board_centre_in_world, board_centre_in_window,
    size, zoom)` from the screen's first frame on, since every change of

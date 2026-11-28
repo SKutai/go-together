@@ -128,5 +128,5 @@ the persisted schema. See
 [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md#changing-persisted-data).
 
 Whatever is decided, `docs/GAME_RULES.md` is the document that must end up
-describing it, and the in-game help pages in `src/ui/help/mod.rs` are player-facing
-documentation subject to the same standard.
+describing it, and the in-game help pages in `src/ui/help/mod.rs` are
+player-facing documentation subject to the same standard.

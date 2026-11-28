@@ -37,10 +37,11 @@
 //! them the same frame. A page's text is also where the Help modal's two
 //! columns are set, in a window too small for its one: this pass wraps the
 //! page and divides it between them as it generates it ([`page_columns`]),
-//! so each column's text has this one writer. Neither is bindings-driven throughout - both also
-//! spell out the fixed three-second hold, and the confirmation's "starting in
-//! Round 1" qualifier is a rule rather than a binding - so the generated part
-//! is the key names, not the whole sentence. Both are generated only while
+//! so each column's text has this one writer. Neither is bindings-driven
+//! throughout - both also spell out the fixed three-second hold, and the
+//! confirmation's "starting in Round 1" qualifier is a rule rather than a
+//! binding - so the generated part is the key names, not the whole
+//! sentence. Both are generated only while
 //! their modal is open: the Help modal now exists on every screen,
 //! and its copy is the better part of a kilobyte of formatted text per frame
 //! that nobody could see. The frame a modal opens fills its text before

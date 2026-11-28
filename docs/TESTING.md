@@ -780,10 +780,11 @@ text above the pagination row, and `every_page_fits_two_columns_at_the_minimum`
 holds every page to the two columns of the 1040x600 window, line for line
 against a count worked out apart from the game. A page that outgrows its
 room fails them. The margins are still worth knowing, because they say how
-far a page can grow before it does. Measured from screenshots of the original nine pages at
-1040x900, and by the probe below for the two terms pages added on
-2026-10-05, as the gap between the last line of body text and the top of the
-pagination row, against a body line pitch of about 21.5 px:
+far a page can grow before it does. Measured from screenshots of the
+original nine pages at 1040x900, and by the probe below for the two terms
+pages added on 2026-10-05, as the gap between the last line of body text
+and the top of the pagination row, against a body line pitch of about
+21.5 px:
 
 | page | room left |
 | --- | --- |
