@@ -1381,9 +1381,11 @@ mod tests {
     /// the page moves down as many places, and the ring moves with them: it
     /// stays drawn on the same button of the same Replay, not on the same
     /// place on the page. Through the screen's own plugin, the focus core
-    /// and the game's own window tracking, the window itself resized; a
-    /// pass that left the ring's memory where it was would draw it on
-    /// another Replay's card.
+    /// and the game's own window tracking, the window itself resized, and
+    /// all of it in the first frame after the resize: a pass that left the
+    /// ring's memory where it was would draw it on another Replay's card,
+    /// and one that read the size a frame late would not have moved the
+    /// page yet.
     #[test]
     fn the_ring_stays_on_its_replay_when_a_taller_window_moves_the_page_back() {
         use super::super::geometry::library_layout;
@@ -1420,9 +1422,9 @@ mod tests {
             let mut window = windows.single_mut(world).unwrap();
             window.resolution.set(taller.x, taller.y);
         }
+        // One frame: the size, the page and the ring all follow in it.
         app.update();
         assert_eq!(app.world().resource::<WindowSize>().0, taller);
-        app.update();
         assert_eq!(ui(&app).scroll_offset, 10 - after);
         let now = focused(&app).expect("the ring is drawn");
         assert_ne!(now, target, "the page was rebuilt");

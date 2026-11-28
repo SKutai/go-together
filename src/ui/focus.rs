@@ -1016,9 +1016,13 @@ fn update_focus_indicator(
 /// itself out from it is laid out for that window; a test of a screen as
 /// it was first laid out, for the opening window, passes the opening size,
 /// `WindowSize::OPENING.0`. `window` is in whole pixels, as a physical
-/// window is. Keys are not part of it: a test presses them by
-/// writing `ButtonInput<KeyCode>` directly, which `InputPlugin` would clear
-/// before the ring could read it.
+/// window is. A test that resizes the primary window is laid out at the
+/// new size from that frame on, since the camera follows the window as the
+/// renderer's camera system would keep it; [`WindowSize`] follows only
+/// where the test adds the game's own window tracking
+/// (`app::visuals::WindowLayoutPlugin`). Keys are not part of it: a test
+/// presses them by writing `ButtonInput<KeyCode>` directly, which
+/// `InputPlugin` would clear before the ring could read it.
 ///
 /// [`WindowSize`]: crate::app::visuals::WindowSize
 #[cfg(test)]
@@ -1089,7 +1093,8 @@ pub(crate) fn engine_ui_app(window: Vec2) -> App {
     .add_systems(
         PreUpdate,
         (mouse_button_input_system, touch_screen_input_system).in_set(InputSystems),
-    );
+    )
+    .add_systems(PreUpdate, follow_the_primary_window);
     app.world_mut().spawn((
         Camera2d,
         Camera {
@@ -1108,6 +1113,29 @@ pub(crate) fn engine_ui_app(window: Vec2) -> App {
         },
     ));
     app
+}
+
+/// Keeps the camera of [`engine_ui_app`] the size of the primary window,
+/// render target and viewport, as the renderer's camera system keeps a real
+/// one: without it, a test that resized the window would have `bevy_ui` lay
+/// out, and picking hit-test, at the size the app was made with.
+#[cfg(test)]
+fn follow_the_primary_window(
+    windows: Query<&Window, (With<bevy::window::PrimaryWindow>, Changed<Window>)>,
+    mut cameras: Query<&mut Camera>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let physical_size = window.physical_size();
+    for mut camera in &mut cameras {
+        if let Some(target) = camera.computed.target_info.as_mut() {
+            target.physical_size = physical_size;
+        }
+        if let Some(viewport) = camera.viewport.as_mut() {
+            viewport.physical_size = physical_size;
+        }
+    }
 }
 
 /// Where one `Text` was drawn, read from a laid-out app by
@@ -1859,6 +1887,56 @@ mod tests {
              if it no longer does, the candidate collector needs an explicit \
              active-group resource instead of the zero-size test"
         );
+    }
+
+    /// The harness lays out at the size the primary window has now: a node
+    /// that fills the window fills the opening window, then, on the first
+    /// frame after the window is resized, the new one, with the pointer
+    /// reaching it at the new window's far corner - and the opening window
+    /// again when it is resized back.
+    #[test]
+    fn the_harness_lays_out_at_the_windows_new_size_after_a_resize() {
+        use crate::app::visuals::WindowSize;
+
+        let mut app = real_layout_app(WindowSize::OPENING.0);
+        let page = app
+            .world_mut()
+            .spawn((
+                Node {
+                    width: percent(100),
+                    height: percent(100),
+                    ..default()
+                },
+                Button,
+            ))
+            .id();
+        app.update();
+        let size = |app: &App| app.world().get::<ComputedNode>(page).unwrap().size();
+        assert_eq!(size(&app), WindowSize::OPENING.0);
+        for window in [Vec2::new(1920.0, 1080.0), WindowSize::OPENING.0] {
+            {
+                let world = app.world_mut();
+                let mut windows =
+                    world.query_filtered::<&mut Window, With<bevy::window::PrimaryWindow>>();
+                windows
+                    .single_mut(world)
+                    .unwrap()
+                    .resolution
+                    .set(window.x, window.y);
+            }
+            app.update();
+            assert_eq!(size(&app), window);
+            // Inside the new window and outside the old one, or the
+            // reverse: picking reaches the node there.
+            let corner = window - Vec2::splat(2.0);
+            crate::ui::button::move_pointer(&mut app, corner);
+            let hovered = app
+                .world()
+                .get::<bevy::picking::hover::Hovered>(page)
+                .unwrap()
+                .get();
+            assert!(hovered, "{window}: the pointer at {corner}");
+        }
     }
 
     /// The same premise through the production collector: under real layout

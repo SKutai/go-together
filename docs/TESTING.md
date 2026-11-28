@@ -425,7 +425,14 @@ screen's tests build on it.
 The size is the window's and the app's `WindowSize` alike, so a screen that
 lays itself out from the window's size is laid out for it. A test of a
 screen as it was first laid out passes the opening size,
-`WindowSize::OPENING.0`, 1040x900. A screen laid out for any size is
+`WindowSize::OPENING.0`, 1040x900. A test that resizes the primary window
+is laid out at the new size from that frame on: the harness's camera
+follows the window, as the renderer's camera system keeps a real one, and
+the game's own window tracking (`app::visuals::WindowLayoutPlugin`), where
+a test adds it, carries the size to `WindowSize` in the same frame. Before
+2026-11-28 the camera kept the size the app was made with, so a resize
+reached the screens' own passes but `bevy_ui` still laid out and
+hit-tested at the old size. A screen laid out for any size is
 tested at several:
 `app::visuals::NAMED_WINDOW_SIZES` names the ones that matter, from the
 1040x600 minimum and a 1280x720 laptop's maximised window up to 2560x1440,
