@@ -803,9 +803,13 @@ screen takes its width from the window by flex, its contents held to the
 list's widest and centred and two columns a grid of two equal tracks, so
 a change of width alone rebuilds nothing. The first card moves back where
 the larger page would run past the list's end, and in two columns to its
-row's first card, and the focus ring moves with the cards, so it stays on
-the Replay it was on; entering the screen does the same, for a window
-resized while another screen was shown.
+row's first card; and where the focus ring is on a card a smaller page
+would leave off its end, the first card moves on just far enough to keep
+it, the page's last, or its row the page's last in two columns. The ring
+moves with the cards each time, so it stays on the Replay it was on, on
+the same button; with the ring on the toolbar or the paging row nothing
+moves for it. Entering the screen does the same, for a window resized
+while another screen was shown.
 
 **The Help modal** (`ui::help::geometry`) keeps its 820x760 and its one
 column in every window at least 844x784. A smaller window gets two

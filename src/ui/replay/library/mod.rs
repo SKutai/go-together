@@ -355,9 +355,9 @@ fn refresh_library_screen(
 /// The page's first card moves to where the new layout lets it start, and
 /// the ring's remembered place with the cards ([`clamp_and_follow`]), so the
 /// ring stays on the Replay it was on rather than on the place on the page.
-/// A card a smaller page has no room for is no longer shown, and the ring
-/// falls back, as it does from a deleted card, to the last card that is
-/// (see [`ring`]).
+/// Where a smaller page would leave the ring's card off it, the first card
+/// moves on just far enough to keep that card shown, and the ring stays on
+/// its button (see [`ring`]).
 fn place_library_for_window(
     window: Res<WindowSize>,
     library: Res<ReplayLibrary>,
@@ -374,20 +374,34 @@ fn place_library_for_window(
 
 /// Moves the page's first card to where `layout` lets a page start
 /// ([`LibraryLayout::first_card`]), and the ring's remembered place on this
-/// screen down the page with the cards, so that the ring stays on the
-/// Replay it was on. The first card moves back in two cases: where a page
-/// from it would run past the list's end, and in two columns to the first
-/// card of its row, as when one column at an odd place becomes two. Either
-/// way every card on the page moves down by as many places.
+/// screen with the cards, so that the ring stays on the Replay it was on.
+/// The first card moves back in two cases: where a page from it would run
+/// past the list's end, and in two columns to the first card of its row, as
+/// when one column at an odd place becomes two; every card on the page then
+/// moves down by as many places. It moves on in one: where the ring is on a
+/// card that a smaller page would leave off its end, just far enough for
+/// that card to be the page's last - its row the page's last, in two
+/// columns - and every card moves up. With the ring on the toolbar or the
+/// paging row, or not yet anywhere on this screen, only the first two
+/// apply. On a change of the window's size and on entry alike.
 fn clamp_and_follow(
     ui: &mut ReplayLibraryUiState,
     focus: &mut UiFocusState,
     library: &ReplayLibrary,
     layout: &LibraryLayout,
 ) {
-    let first = layout.first_card(ui.scroll_offset, filtered_count(library, ui));
+    let count = filtered_count(library, ui);
+    let cards = layout.cards_per_page();
+    let mut first = layout.first_card(ui.scroll_offset, count);
+    if let Some(place) = ring::remembered_card(focus) {
+        let card = ui.scroll_offset + place;
+        if card >= first + cards {
+            let row = card - card % layout.columns;
+            first = layout.first_card(row + layout.columns - cards, count);
+        }
+    }
     if first != ui.scroll_offset {
-        ring::follow_cards_down_the_page(focus, ui.scroll_offset - first);
+        ring::follow_the_cards(focus, ui.scroll_offset, first);
         ui.scroll_offset = first;
     }
 }
