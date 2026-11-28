@@ -59,9 +59,7 @@
 
 use bevy::prelude::*;
 
-use crate::ui::text_metrics::line_width;
-#[cfg(test)]
-use crate::ui::text_metrics::text_height;
+use crate::ui::text_metrics::{line_width, text_height};
 
 /// The tabs-on-top panel, as the screen was first laid out, and the padding
 /// around its contents. The screen's root pads the panel off the window's
@@ -107,17 +105,16 @@ pub(super) const TAB_COLUMN_GAP: f32 = 12.0;
 /// [`NARROW_TAB_WIDTH`] has to hold.
 pub(super) const TAB_LABEL_SIZE: f32 = 17.0;
 
-/// The title's size, and the instruction's.
+/// The title's size, the instruction's, and the error line's.
 pub(super) const SETTINGS_TITLE_SIZE: f32 = 38.0;
 pub(super) const INSTRUCTION_SIZE: f32 = 16.0;
+pub(super) const ERROR_SIZE: f32 = 14.0;
 /// Reset Controls and Back: their widths, the gap between them and their
 /// height, from `ui::widgets`.
 pub(super) const RESET_BUTTON_WIDTH: f32 = 170.0;
 pub(super) const BACK_BUTTON_WIDTH: f32 = 110.0;
 pub(super) const FOOTER_GAP: f32 = 18.0;
-#[cfg(test)]
 const FOOTER_BUTTON_HEIGHT: f32 = 36.0;
-#[cfg(test)]
 const FOOTER_WIDTH: f32 = RESET_BUTTON_WIDTH + FOOTER_GAP + BACK_BUTTON_WIDTH;
 
 /// A player's binding column at its widest, and the gap between the two:
@@ -257,13 +254,11 @@ impl SettingsLayout {
     }
 
     /// The panel's box, border included: centred in the window.
-    #[cfg(test)]
     pub(super) fn panel_rect(&self) -> Rect {
         Rect::from_center_size(self.window / 2.0, self.panel_size)
     }
 
     /// The box inside the panel's border and padding.
-    #[cfg(test)]
     pub(super) fn content_rect(&self) -> Rect {
         let panel = self.panel_rect();
         let inset = self.panel_padding + Vec2::splat(PANEL_BORDER);
@@ -273,13 +268,11 @@ impl SettingsLayout {
     /// The height of the sidebar's top row: the title's line, which is the
     /// tallest thing in it while the instruction, or the message standing
     /// in its place, takes two lines or fewer.
-    #[cfg(test)]
     pub(super) fn head_height() -> f32 {
         text_height(1, SETTINGS_TITLE_SIZE)
     }
 
     /// The title's box in the sidebar's top row, at its left.
-    #[cfg(test)]
     pub(super) fn sidebar_title_rect(&self) -> Rect {
         let content = self.content_rect();
         let title = Vec2::new(
@@ -291,7 +284,6 @@ impl SettingsLayout {
 
     /// Reset Controls and Back together, in the sidebar's top row, at its
     /// right and centred down it.
-    #[cfg(test)]
     pub(super) fn sidebar_footer_rect(&self) -> Rect {
         let content = self.content_rect();
         let top = content.min.y + (Self::head_height() - FOOTER_BUTTON_HEIGHT) / 2.0;
@@ -305,7 +297,6 @@ impl SettingsLayout {
 
     /// The room between the title and the two buttons in the sidebar's top
     /// row, where the instruction, or a message in its place, wraps.
-    #[cfg(test)]
     pub(super) fn sidebar_notes_rect(&self) -> Rect {
         let title = self.sidebar_title_rect();
         let footer = self.sidebar_footer_rect();
@@ -315,6 +306,19 @@ impl SettingsLayout {
             footer.min.x - SIDEBAR_HEAD_GAP,
             title.max.y,
         )
+    }
+
+    /// The error line's width, and the lines the frame has room for: in the
+    /// sidebar the instruction's place beside the title, two lines; on top
+    /// the panel's width, one line under the instruction, which every tab
+    /// has room for as it always has. A longer message is cut to them (see
+    /// `super::display`).
+    pub(super) fn error_line(&self) -> (f32, usize) {
+        if self.sidebar() {
+            (self.sidebar_notes_rect().width(), 2)
+        } else {
+            (self.content_rect().width(), 1)
+        }
     }
 
     /// The sidebar's column of tabs, each tab's box in tab order.

@@ -9,7 +9,10 @@
 //! navigation, but the *error* is not cleared on entry, so a controls file
 //! that failed to load at startup is still reported the first time the player
 //! opens Settings. It is then dismissed like any other error - by a successful
-//! save, a tab switch, or starting or cancelling a capture.
+//! save, a tab switch, or starting or cancelling a capture. That report quotes
+//! what the file holds, so it can be far longer than the error line's place;
+//! the display pass cuts it to the lines there is room for
+//! (`display::shown_error`), and the log keeps it whole.
 //!
 //! # Data flow
 //!

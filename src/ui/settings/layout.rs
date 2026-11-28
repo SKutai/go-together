@@ -61,9 +61,9 @@ use bevy::ui_widgets::Button;
 use super::bindings::{spawn_controller_panel, spawn_keyboard_panel};
 use super::game::spawn_game_panel;
 use super::geometry::{
-    BACK_BUTTON_WIDTH, FOOTER_GAP, INSTRUCTION_SIZE, PANEL_BORDER, PANEL_GAP, RESET_BUTTON_WIDTH,
-    SETTINGS_TITLE_SIZE, SIDEBAR_BODY_GAP, SIDEBAR_HEAD_GAP, SettingsLayout, TAB_COLUMN_GAP,
-    TAB_HEIGHT, TAB_LABEL_SIZE, TAB_ROW_GAP, settings_layout,
+    BACK_BUTTON_WIDTH, ERROR_SIZE, FOOTER_GAP, INSTRUCTION_SIZE, PANEL_BORDER, PANEL_GAP,
+    RESET_BUTTON_WIDTH, SETTINGS_TITLE_SIZE, SIDEBAR_BODY_GAP, SIDEBAR_HEAD_GAP, SettingsLayout,
+    TAB_COLUMN_GAP, TAB_HEIGHT, TAB_LABEL_SIZE, TAB_ROW_GAP, settings_layout,
 };
 use super::ring::{
     FOOTER_FOCUS_ORDER, RingOrder, TAB_BAR_FOCUS_ORDER, panel_focus_order, reset_dialog_focusable,
@@ -417,7 +417,7 @@ pub(super) fn spawn_control_mapping_screen(mut commands: Commands, window: Res<W
                         notes.spawn((
                             Text::new(""),
                             TextFont {
-                                font_size: FontSize::Px(14.0),
+                                font_size: FontSize::Px(ERROR_SIZE),
                                 ..default()
                             },
                             TextColor(DANGER),
@@ -1728,6 +1728,167 @@ pub(super) mod tests {
             if sidebar {
                 let notes = settings_layout(window).sidebar_notes_rect();
                 assert!((instruction.min.x - notes.min.x).abs() <= 1.0, "{window}");
+            }
+        }
+    }
+
+    /// A settings storage whose every load fails with `message`, as the
+    /// platform's does when the file cannot be read.
+    struct FailingSettingsStorage(String);
+
+    impl crate::platform::SettingsStorage for FailingSettingsStorage {
+        fn load(&self) -> Result<Option<String>, crate::platform::SettingsStorageError> {
+            Err(crate::platform::SettingsStorageError::Failed(
+                self.0.clone(),
+            ))
+        }
+
+        fn save(&self, _json: &str) -> Result<(), crate::platform::SettingsStorageError> {
+            Ok(())
+        }
+    }
+
+    /// The longest warnings the settings loader writes, as it writes them:
+    /// every section of a file that fell back, five preferences each quoting
+    /// a value of 10,000 characters, and a file that could not be read from
+    /// a path with a home folder of 120 characters.
+    fn longest_load_warnings() -> [String; 2] {
+        use crate::settings::{ControlsConfig, SettingsStore, load_user_controls};
+
+        let long = "x".repeat(10_000);
+        let json = format!(
+            r#"{{"version": 6, "keyboard": "k", "controller": "c", "game": "g",
+                "preferences": {{"show_match_timer": "{long}", "show_round_number": "{long}",
+                "game_sound_effects": "{long}", "ui_sound_effects": "{long}",
+                "reduce_motion": "{long}"}}}}"#
+        );
+        let (_, sections) = ControlsConfig::from_json(&json).unwrap();
+        let path = format!(
+            "/Users/{}/Library/Application Support/go-together/controls.json",
+            "a".repeat(120)
+        );
+        let storage = FailingSettingsStorage(format!(
+            "Could not read settings from {path}: Permission denied (os error 13)"
+        ));
+        let (_, unread) = load_user_controls(&SettingsStore::from_storage(storage));
+        [sections.unwrap(), unread.unwrap()]
+    }
+
+    /// The error line held to its place, on cuts worked out by hand: a
+    /// message that fits is shown whole; a longer one keeps the lines there
+    /// is room for, wrapped at the characters a line holds a pixel short of
+    /// the place, the last ending with "..."; a word longer than a line is
+    /// split; and characters are counted, not bytes.
+    #[test]
+    fn the_error_line_is_cut_to_the_lines_it_has_room_for() {
+        use super::super::display::shown_error;
+        use crate::ui::text_metrics::line_width;
+
+        for window in [WindowSize::MINIMUM.0, WindowSize::OPENING.0] {
+            let layout = settings_layout(window);
+            let (width, room) = layout.error_line();
+            assert_eq!(room, if layout.sidebar() { 2 } else { 1 }, "{window}");
+            let chars = ((width - 1.0) / line_width(1, 14.0)).floor() as usize;
+            let short = "Keyboard bindings were missing; using keyboard defaults.";
+            assert_eq!(shown_error(short, &layout), short, "{window}");
+            for long in longest_load_warnings()
+                .into_iter()
+                .chain(["\u{e9}".repeat(5_000), "word ".repeat(5_000)])
+            {
+                let shown = shown_error(&long, &layout);
+                let lines: Vec<&str> = shown.lines().collect();
+                assert_eq!(lines.len(), room, "{window}: {shown:?}");
+                assert!(shown.ends_with("..."), "{window}: {shown:?}");
+                for line in &lines {
+                    assert!(line.chars().count() <= chars, "{window}: {line:?}");
+                }
+                let kept: String = lines.concat();
+                assert!(
+                    long.replace(' ', "")
+                        .starts_with(&kept.trim_end_matches('.').replace(' ', "")),
+                    "{window}: {shown:?} is not the message's start"
+                );
+            }
+        }
+    }
+
+    /// The longest warning the settings loader writes, on Preferences, the
+    /// tab Settings opens on, under real layout at 1040x600, either side of
+    /// 854 px and in the opening window, in both arrangements: cut to two
+    /// lines beside the title in the sidebar, which stays one title tall,
+    /// and to one under the instruction on top; every text inside the window
+    /// and no two meeting; the tab's contents clear of Reset Controls and
+    /// Back; and every control reached by the pointer. A warning that fits
+    /// is drawn as it is, so the opening window shows it as it always did.
+    #[test]
+    fn the_longest_load_warning_keeps_to_its_place_in_both_arrangements() {
+        use crate::ui::button::{covered_at_their_centres, reachable_buttons};
+        use crate::ui::focus::{drawn_texts, laid_out_texts, measure_drawn_lines};
+
+        let short = "Keyboard bindings were missing; using keyboard defaults.".to_string();
+        let mut warnings = longest_load_warnings().to_vec();
+        warnings.push(short.clone());
+        for window in [
+            WindowSize::MINIMUM.0,
+            Vec2::new(1040.0, 853.0),
+            Vec2::new(1040.0, 854.0),
+            WindowSize::OPENING.0,
+        ] {
+            let layout = settings_layout(window);
+            for warning in &warnings {
+                let context = format!("{window}, a warning of {} characters", warning.len());
+                let mut app = laid_out_settings(
+                    window,
+                    ControlMappingState::new(Some(warning.clone())),
+                    MatchSettings::default(),
+                );
+                let shown = super::super::display::shown_error(warning, &layout);
+                if *warning == short {
+                    assert_eq!(shown, short, "{context}: shown as it is");
+                }
+                let lines = measure_drawn_lines(&mut app, &shown);
+                let room = if layout.sidebar() { 2 } else { 1 };
+                assert!(
+                    (1..=room).contains(&lines.len()),
+                    "{context}: {} lines",
+                    lines.len()
+                );
+                let inside = Rect::from_corners(Vec2::ZERO, window);
+                for (text, rect) in laid_out_texts(&mut app) {
+                    assert!(
+                        inside.contains(rect.min) && inside.contains(rect.max),
+                        "{context}: {text:?} at {rect:?}"
+                    );
+                }
+                let drawn = drawn_texts(&mut app);
+                for (index, (_, a_text, a)) in drawn.iter().enumerate() {
+                    for (_, b_text, b) in &drawn[index + 1..] {
+                        assert!(
+                            a.intersect(*b).is_empty(),
+                            "{context}: {a_text:?} meets {b_text:?}"
+                        );
+                    }
+                }
+                let contents = placed_entity(&mut app, SettingsPlacement::Contents);
+                let contents = node_rect(&app, contents);
+                let footer = placed_entity(&mut app, SettingsPlacement::Footer);
+                let footer = node_rect(&app, footer);
+                assert!(contents.intersect(footer).is_empty(), "{context}");
+                assert!(
+                    inside.contains(footer.min) && inside.contains(footer.max),
+                    "{context}: {footer:?}"
+                );
+                if layout.sidebar() {
+                    let head = placed_entity(&mut app, SettingsPlacement::Head);
+                    let head = node_rect(&app, head);
+                    assert!((head.height() - 46.0).abs() < 0.5, "{context}: {head:?}");
+                }
+                let buttons = reachable_buttons(&mut app);
+                assert_eq!(
+                    covered_at_their_centres(&mut app, &buttons),
+                    [],
+                    "{context}"
+                );
             }
         }
     }

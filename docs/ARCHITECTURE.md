@@ -612,6 +612,11 @@ measured on 2026-11-28 - and
 the Keyboard tab's shared Restart Match binding stands on one line beside
 its heading. A binding error, which has no room for a line of its own
 there, stands in the instruction's place in the top row while it is shown.
+An error longer than its place - only the warning that the settings file
+could not be loaded can be, since it quotes what the file holds - is cut
+to the lines the place has room for, two in the sidebar and one on top,
+the last ending with "...", and the log keeps it whole. A message that
+fits is drawn as it always was.
 In both arrangements the two players' columns stand centred together, and
 the order of travel is the same: the tabs, the tab's controls, Reset
 Controls, then Back. The longest default row, the Controller tab's
