@@ -1266,7 +1266,8 @@ mod tests {
                     let mut app = laid_out_settings(window, mapping, settings);
                     let world = app.world_mut();
 
-                    // The error is really on screen, or a pass would say nothing.
+                    // The error is really on screen, or a pass would say
+                    // nothing.
                     let mut texts = world.query::<(&Text, &TextLayoutInfo)>();
                     let shown = texts
                         .iter(world)

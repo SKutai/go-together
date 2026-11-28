@@ -1,7 +1,7 @@
 //! Spawns the settings screen's frame - the title, the shared instruction and
 //! error lines, the tab strip, the four panel containers, the footer and the
-//! reset-confirmation modal - plus the Preferences panel itself, and keeps
-//! the frame where [`super::geometry`] puts it for the window's size.
+//! reset-confirmation modal - and keeps the frame where [`super::geometry`]
+//! puts it for the window's size.
 //!
 //! All four panels are spawned once here and then only shown or hidden by
 //! [`super::display`], so switching tabs never respawns entities. The
@@ -11,7 +11,7 @@
 //! frame a module of its own: it owns the containers, and each panel's
 //! contents come from whichever module owns that tab.
 //!
-//! Every control spawned here and in the two tab modules is marked
+//! Every control spawned here and in the three panel modules is marked
 //! [`Focusable`] in the order it is drawn, with the tab bar, each panel and
 //! the footer in the bands [`super::ring`] lays out; the reset
 //! confirmation's buttons are the modal group, and its full-screen overlay
@@ -19,12 +19,14 @@
 //! which a node does by being under it (`ui::button`) - so there is nothing
 //! there to mark.
 //!
-//! The Preferences panel stays here rather than earning a module of its own.
-//! Its widgets are plain toggles and volume stops with no state behind them -
-//! a press applies and persists immediately, and there is nothing to capture,
-//! parse or commit - so it is furniture in the same sense the frame is. The
-//! two tabs that do have state of their own are spawned by
-//! [`super::game`] and [`super::bindings`].
+//! Each panel's contents come from a module of their own. The two tabs that
+//! have state of their own are spawned by [`super::game`] and
+//! [`super::bindings`], beside the input rules that give their widgets
+//! meaning; the Preferences panel, whose plain toggles and volume stops have
+//! no state behind them, by [`super::preferences`], which is a module for
+//! its size rather than its kind. The frame still places that panel's
+//! surface and switches for the window's size, as it places every node
+//! whose place depends on it.
 //!
 //! # One frame, two arrangements
 //!
@@ -65,39 +67,28 @@ use super::geometry::{
     RESET_BUTTON_WIDTH, SETTINGS_TITLE_SIZE, SIDEBAR_BODY_GAP, SIDEBAR_HEAD_GAP, SettingsLayout,
     TAB_COLUMN_GAP, TAB_HEIGHT, TAB_LABEL_SIZE, TAB_ROW_GAP, settings_layout,
 };
-use super::ring::{
-    FOOTER_FOCUS_ORDER, RingOrder, TAB_BAR_FOCUS_ORDER, panel_focus_order, reset_dialog_focusable,
+use super::preferences::{
+    PREFERENCES_GAP, PREFERENCES_MAX_WIDTH, PREFERENCES_WIDTH, SWITCH_CARD_GAP,
+    spawn_preferences_panel,
 };
+use super::ring::{FOOTER_FOCUS_ORDER, RingOrder, TAB_BAR_FOCUS_ORDER, reset_dialog_focusable};
 use super::settings_tab_action_and_label;
 use super::{
-    MappingPanel, MappingTab, MappingUiRole, PREFERENCES_INSTRUCTION, PreferenceToggle,
-    PreferenceValue, RESET_MAPPINGS_BODY, RESET_MAPPINGS_TITLE, ResetMappingsModal,
-    SETTINGS_TAB_ORDER, SETTINGS_TITLE, SettingsTabButton, SettingsTabText, VolumeStop,
-    VolumeStopLabel,
+    MappingPanel, MappingTab, MappingUiRole, PREFERENCES_INSTRUCTION, RESET_MAPPINGS_BODY,
+    RESET_MAPPINGS_TITLE, ResetMappingsModal, SETTINGS_TAB_ORDER, SETTINGS_TITLE,
+    SettingsTabButton, SettingsTabText,
 };
 use crate::app::AppScreen;
 use crate::app::visuals::WindowSize;
-use crate::audio::{AudioChannel, UiCue, UiSound};
-use crate::platform::settings_storage_note;
+use crate::audio::UiSound;
 use crate::presentation::{
     BLUE_BORDER, BUTTON_BACKGROUND, DANGER, ORANGE, OVERLAY_BACKGROUND, PANEL_BACKGROUND,
-    SURFACE_BACKGROUND, TEXT_HEADING, TEXT_MUTED, TEXT_PRIMARY,
+    TEXT_HEADING, TEXT_MUTED, TEXT_PRIMARY,
 };
-use crate::settings::VolumeLevel;
 use crate::ui::focus::Focusable;
 use crate::ui::hud::{HudAction, ScreenStyled, hud_action_ui_cue};
 use crate::ui::widgets::spawn_child_button;
 
-/// The Preferences surface's width on top, and the most it takes in the
-/// sidebar, where it is otherwise as wide as the tab's contents.
-const PREFERENCES_WIDTH: f32 = 650.0;
-const PREFERENCES_MAX_WIDTH: f32 = 900.0;
-/// The gap between the Preferences surface's rows, and between its three
-/// switches when they stand side by side.
-const PREFERENCES_GAP: f32 = 14.0;
-/// The gap between a switch's words and its button, when the two are
-/// stacked in a card.
-const SWITCH_CARD_GAP: f32 = 8.0;
 /// The gap between the Keyboard tab's `SHARED` heading and its row, when
 /// the two stand on one line.
 const SHARED_INLINE_GAP: f32 = 18.0;
@@ -612,238 +603,6 @@ fn spawn_settings_tab_button(
             TextColor(TEXT_PRIMARY),
             SettingsTabText(tab),
         ));
-}
-
-fn spawn_preferences_panel(panel: &mut ChildSpawnerCommands, layout: &SettingsLayout) {
-    panel
-        .spawn((
-            placed(
-                layout,
-                SettingsPlacement::PreferencesSurface,
-                Node {
-                    padding: UiRect::all(px(24)),
-                    flex_direction: FlexDirection::Column,
-                    row_gap: px(PREFERENCES_GAP),
-                    ..default()
-                },
-            ),
-            BackgroundColor(SURFACE_BACKGROUND),
-        ))
-        .with_children(|preferences| {
-            let mut ring = RingOrder::starting_at(panel_focus_order(MappingTab::Preferences));
-            preferences
-                .spawn(placed(
-                    layout,
-                    SettingsPlacement::PreferenceSwitches,
-                    Node {
-                        width: percent(100),
-                        ..default()
-                    },
-                ))
-                .with_children(|switches| {
-                    spawn_preference_toggle(
-                        switches,
-                        layout,
-                        PreferenceToggle::MatchTimer,
-                        "Show Match Timer",
-                        "Display elapsed match time as MM:SS.",
-                        ring.next(),
-                    );
-                    spawn_preference_toggle(
-                        switches,
-                        layout,
-                        PreferenceToggle::RoundNumber,
-                        "Show Round Number",
-                        "Display the current round below the timer area.",
-                        ring.next(),
-                    );
-                    spawn_preference_toggle(
-                        switches,
-                        layout,
-                        PreferenceToggle::ReduceMotion,
-                        "Reduce Motion",
-                        "Show captures and other changes without animation.",
-                        ring.next(),
-                    );
-                });
-            spawn_volume_slider(
-                preferences,
-                AudioChannel::Game,
-                "Game Sound Effects",
-                "Countdown, captures, teleports, Match events, and Replays.",
-                &mut ring,
-            );
-            spawn_volume_slider(
-                preferences,
-                AudioChannel::Ui,
-                "UI Sound Effects",
-                "Buttons, navigation, dialogs, and Settings previews.",
-                &mut ring,
-            );
-            preferences.spawn((
-                Text::new(settings_storage_note()),
-                TextFont {
-                    font_size: FontSize::Px(14.0),
-                    ..default()
-                },
-                TextColor(TEXT_MUTED),
-                TextLayout::justify(Justify::Center),
-                Node {
-                    width: percent(100),
-                    margin: UiRect::top(px(4)),
-                    ..default()
-                },
-            ));
-        });
-}
-
-/// One Preferences switch: its words and its On/Off button, side by side
-/// in a row on top, and stacked in a card beside the other two in the
-/// sidebar.
-fn spawn_preference_toggle(
-    parent: &mut ChildSpawnerCommands,
-    layout: &SettingsLayout,
-    preference: PreferenceToggle,
-    label: &'static str,
-    description: &'static str,
-    focus: Focusable,
-) {
-    parent
-        .spawn(placed(
-            layout,
-            SettingsPlacement::PreferenceSwitch,
-            Node {
-                min_height: px(72),
-                padding: UiRect::axes(px(16), px(10)),
-                justify_content: JustifyContent::SpaceBetween,
-                ..default()
-            },
-        ))
-        .with_children(|row| {
-            row.spawn(Node {
-                flex_direction: FlexDirection::Column,
-                row_gap: px(4),
-                ..default()
-            })
-            .with_children(|copy| {
-                copy.spawn((
-                    Text::new(label),
-                    TextFont {
-                        font_size: FontSize::Px(19.0),
-                        ..default()
-                    },
-                    TextColor(TEXT_PRIMARY),
-                ));
-                copy.spawn((
-                    Text::new(description),
-                    TextFont {
-                        font_size: FontSize::Px(14.0),
-                        ..default()
-                    },
-                    TextColor(TEXT_MUTED),
-                ));
-            });
-            row.spawn((
-                Button,
-                preference,
-                UiSound::new(UiCue::Neutral),
-                focus,
-                Node {
-                    width: px(90),
-                    height: px(42),
-                    border: UiRect::all(px(1)),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-                BackgroundColor(BUTTON_BACKGROUND),
-                BorderColor::all(BLUE_BORDER),
-            ))
-            .with_child((
-                Text::new(""),
-                TextFont {
-                    font_size: FontSize::Px(17.0),
-                    ..default()
-                },
-                TextColor(TEXT_PRIMARY),
-                PreferenceValue(preference),
-            ));
-        });
-}
-
-fn spawn_volume_slider(
-    parent: &mut ChildSpawnerCommands,
-    channel: AudioChannel,
-    label: &'static str,
-    description: &'static str,
-    ring: &mut RingOrder,
-) {
-    parent
-        .spawn(Node {
-            width: percent(100),
-            min_height: px(94),
-            padding: UiRect::axes(px(16), px(8)),
-            flex_direction: FlexDirection::Column,
-            row_gap: px(7),
-            ..default()
-        })
-        .with_children(|row| {
-            row.spawn((
-                Text::new(label),
-                TextFont {
-                    font_size: FontSize::Px(19.0),
-                    ..default()
-                },
-                TextColor(TEXT_PRIMARY),
-            ));
-            row.spawn((
-                Text::new(description),
-                TextFont {
-                    font_size: FontSize::Px(14.0),
-                    ..default()
-                },
-                TextColor(TEXT_MUTED),
-            ));
-            row.spawn(Node {
-                width: percent(100),
-                height: px(38),
-                justify_content: JustifyContent::SpaceBetween,
-                align_items: AlignItems::Center,
-                ..default()
-            })
-            .with_children(|track| {
-                for level in VolumeLevel::ALL {
-                    let stop = VolumeStop { channel, level };
-                    track
-                        .spawn((
-                            Button,
-                            stop,
-                            UiSound::preview_only(),
-                            ring.next(),
-                            Node {
-                                width: px(120),
-                                height: px(32),
-                                border: UiRect::all(px(2)),
-                                border_radius: BorderRadius::all(px(16)),
-                                justify_content: JustifyContent::Center,
-                                align_items: AlignItems::Center,
-                                ..default()
-                            },
-                            BackgroundColor(BUTTON_BACKGROUND),
-                            BorderColor::all(BLUE_BORDER),
-                        ))
-                        .with_child((
-                            Text::new(level.label()),
-                            TextFont {
-                                font_size: FontSize::Px(14.0),
-                                ..default()
-                            },
-                            TextColor(TEXT_PRIMARY),
-                            VolumeStopLabel(stop),
-                        ));
-                }
-            });
-        });
 }
 
 pub(super) fn mapping_error_node() -> Node {

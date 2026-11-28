@@ -3259,8 +3259,9 @@ documentation, and tidies the guard away.
    `settings/display.rs` for the per-frame sync pass,
    `replay/viewer/geometry.rs` for where everything stands in a window of
    any size, which spawning, placing and drawing all depend on,
-   `replay/viewer/modals.rs` for two overlays that were a third of one
-   screen's spawn code.
+   `replay/viewer/modals.rs` and `replay/library/modals.rs` for a screen's
+   overlays or dialogs, which were a third of the Viewer's spawn code and a
+   fifth of the Library's.
 3. When a screen's *parts* differ from each other more than spawning differs
    from updating, cut by part instead. `ui/settings` is four tabs, and two of
    them carry state the others do not: `settings/game.rs` owns the
@@ -3268,6 +3269,8 @@ documentation, and tidies the guard away.
    fail - and `settings/bindings.rs` owns the Keyboard and Controller tabs -
    their rows and the live capture that fills them. Each keeps its spawning
    next to the input rules that give the spawned widgets meaning.
+   `settings/preferences.rs` holds the Preferences tab, whose switches have
+   no state to own, for its size: a quarter of the frame's module.
    `settings/layout.rs` is then the frame those panels hang in, and
    `settings/display.rs` stays whole because one frame's refresh runs as a
    single chained pass over every tab.
@@ -3387,7 +3390,7 @@ A local preference (display, audio or motion) touches `GamePreferences` in
 `settings::config`, a `load_preference_field` call in `settings::compat`
 gated on the settings schema version that introduced it, the
 `PreferenceToggle` variant, `toggle_preference` and `preference_enabled` in
-`ui::settings`, `spawn_preferences_panel` in `ui::settings::layout`, and
+`ui::settings`, `spawn_preferences_panel` in `ui::settings::preferences`, and
 the tests in `ui::settings::ring` that list every control in the focus
 ring and count the Preferences tab's. The refresh pass in
 `ui::settings::display` needs nothing: it reads `preference_enabled`. The
