@@ -343,8 +343,9 @@ mod tests {
     }
 
     /// When the window's size changes, Home moves with it: the diamond's
-    /// framing and the marimba's stance follow, and back in the opening
-    /// window every node is again the one a fresh entry spawns, so turning
+    /// framing and every node of the marimba become exactly what a fresh
+    /// entry at the new size gives them, and back in the opening window
+    /// every node is again the one a fresh entry spawns there, so turning
     /// the marimba upright and back leaves nothing of the turn behind.
     #[test]
     fn a_change_of_window_size_moves_home_and_moving_back_restores_it() {
@@ -358,52 +359,52 @@ mod tests {
                 .iter(world)
                 .cloned()
                 .collect();
-            nodes.extend(
-                world
-                    .query_filtered::<&Node, With<HomeMarimbaBar>>()
-                    .iter(world)
-                    .cloned(),
-            );
+            let mut bars: Vec<(usize, Node)> = world
+                .query::<(&HomeMarimbaBar, &Node)>()
+                .iter(world)
+                .map(|(bar, node)| (bar.0, node.clone()))
+                .collect();
+            bars.sort_by_key(|(index, _)| *index);
+            nodes.extend(bars.into_iter().map(|(_, node)| node));
             nodes
         }
+        /// Home entered in a window of `size`, with the pass that moves it
+        /// when the size changes.
+        fn home_app(size: WindowSize) -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin)
+                .init_state::<AppScreen>()
+                .insert_resource(size)
+                .init_resource::<WorldFraming>()
+                .add_systems(OnEnter(AppScreen::Home), spawn_home_screen)
+                .add_systems(
+                    Update,
+                    place_home_furniture
+                        .run_if(in_state(AppScreen::Home))
+                        .run_if(resource_changed::<WindowSize>),
+                );
+            app.update();
+            app
+        }
+        let framing = |app: &App| *app.world().resource::<WorldFraming>();
 
-        let mut app = App::new();
-        app.add_plugins(bevy::state::app::StatesPlugin)
-            .init_state::<AppScreen>()
-            .init_resource::<WindowSize>()
-            .init_resource::<WorldFraming>()
-            .add_systems(OnEnter(AppScreen::Home), spawn_home_screen)
-            .add_systems(
-                Update,
-                place_home_furniture
-                    .run_if(in_state(AppScreen::Home))
-                    .run_if(resource_changed::<WindowSize>),
-            );
-        app.update();
+        let mut app = home_app(WindowSize::OPENING);
         let opening = marimba_nodes(&mut app);
-        assert_eq!(
-            *app.world().resource::<WorldFraming>(),
-            WorldFraming::IDENTITY
-        );
+        assert_eq!(framing(&app), WorldFraming::IDENTITY);
 
         app.insert_resource(WindowSize::MINIMUM);
         app.update();
-        let smallest = home_layout(WindowSize::MINIMUM.0);
-        assert_eq!(*app.world().resource::<WorldFraming>(), smallest.framing());
+        let mut fresh = home_app(WindowSize::MINIMUM);
         let moved = marimba_nodes(&mut app);
         assert_ne!(moved, opening, "the marimba turned upright");
-        let geometry::MarimbaStance::Upright(top_left) = smallest.marimba else {
-            panic!("the smallest window stands the marimba upright");
-        };
-        assert_eq!(moved[0].left, px(top_left.x));
+        assert_eq!(moved, marimba_nodes(&mut fresh));
+        assert_eq!(framing(&app), framing(&fresh));
+        assert_eq!(framing(&app), home_layout(WindowSize::MINIMUM.0).framing());
 
         app.insert_resource(WindowSize::OPENING);
         app.update();
         assert_eq!(marimba_nodes(&mut app), opening);
-        assert_eq!(
-            *app.world().resource::<WorldFraming>(),
-            WorldFraming::IDENTITY
-        );
+        assert_eq!(framing(&app), WorldFraming::IDENTITY);
     }
 
     /// Home entered through its own plugin and the game's window layout,

@@ -6,27 +6,28 @@
 //! function of it:
 //!
 //! * **The diamond** behind the panel is world-space decoration, drawn by
-//!   the main camera, so a window shorter than the opening one shrinks it
-//!   through the camera's zoom ([`HomeLayout::framing`]) until its corners
-//!   stay [`EDGE`] inside the window - but never below the panel's own
-//!   height, so it still frames the panel. It never grows past its own
-//!   size.
+//!   the main camera. It stays at its own size down to a window about
+//!   709 px tall, and in a shorter one shrinks through the camera's zoom
+//!   ([`HomeLayout::framing`]) until its corners stay [`EDGE`] inside the
+//!   window - but never below the panel's own height, so it still frames
+//!   the panel. It never grows past its own size.
 //! * **The hidden marimba** stands under the panel where it always has
 //!   beside the panel and the diamond: its bars 17.7 px under the
-//!   diamond's bottom corner, which is where the opening window draws
-//!   them (measured under `bevy_ui`'s layout on 2026-11-27). The panel and the diamond are centred on the window, so in a
-//!   taller window the three move together, and the marimba keeps that
-//!   place in every window whose bottom leaves its bars [`EDGE`] to
-//!   spare there - every window at least 848 px tall, which [`home_layout`]
-//!   works out from where the bars are drawn in the instrument
-//!   ([`MARIMBA_DRAWN_INSET`]), not from the instrument's node, which draws
-//!   nothing. In a shorter window its bars would reach the bottom edge, so
-//!   there it stands upright beside the panel instead, on the right, its
-//!   bars [`UPRIGHT_GAP`] clear of the panel or of the diamond's right
-//!   corner, whichever reaches further: its low bars at the bottom, the way
-//!   the upright instrument would stand, and centred on the panel. The
-//!   tests hold the switch to 848 px, and the inset to what `bevy_ui` lays
-//!   out.
+//!   diamond's bottom corner, which is where the opening window draws them
+//!   (measured under `bevy_ui`'s layout on 2026-11-27). The panel and the
+//!   diamond are centred on the window, so in a taller window the three
+//!   move together, and the marimba keeps that place in every window whose
+//!   bottom leaves its bars [`EDGE`] below them there: every window at
+//!   least 848 px tall, where they stand 12 px or more above the window's
+//!   bottom. [`home_layout`] works that out from where the bars are drawn
+//!   in the instrument ([`MARIMBA_DRAWN_INSET`]), not from the instrument's
+//!   node, which draws nothing. In a shorter window its bars would come
+//!   closer to the bottom edge than that, so there it stands upright beside
+//!   the panel instead, on the right, its bars [`UPRIGHT_GAP`] clear of the
+//!   panel or of the diamond's right corner, whichever reaches further: its
+//!   low bars at the bottom, the way the upright instrument would stand,
+//!   and centred on the panel. The tests hold the switch to 848 px exactly,
+//!   and the inset to what `bevy_ui` lays out.
 
 use bevy::prelude::*;
 
@@ -322,13 +323,40 @@ mod tests {
         assert_eq!(stances, [true, true], "both stances occur");
     }
 
-    /// The diamond shrinks only in a window shorter than the opening one,
-    /// to 0.84 of its size in the smallest.
+    /// The switch itself, a pixel either side of it, which the sweep's
+    /// 20 px steps cannot pin: in a window 848 px tall the marimba stands
+    /// under the panel with its bars exactly [`EDGE`] above the window's
+    /// bottom, and in one 847 px tall it stands upright. The width does not
+    /// matter, so three are tried.
+    #[test]
+    fn the_marimba_turns_upright_below_848_px_with_its_bars_12_px_up() {
+        for width in [1040.0, 1440.0, 2560.0] {
+            let at = home_layout(Vec2::new(width, 848.0));
+            assert!(
+                matches!(at.marimba, MarimbaStance::UnderPanel(_)),
+                "{width}x848: {:?}",
+                at.marimba
+            );
+            assert_eq!(848.0 - at.marimba_bars_rect().max.y, EDGE, "{width}x848");
+            assert_eq!(EDGE, 12.0);
+            let below = home_layout(Vec2::new(width, 847.0));
+            assert!(
+                matches!(below.marimba, MarimbaStance::Upright(_)),
+                "{width}x847: {:?}",
+                below.marimba
+            );
+        }
+    }
+
+    /// The diamond shrinks only in a window shorter than about 709 px, the
+    /// height that holds it at its own size with its corners [`EDGE`]
+    /// inside, to 0.84 of its size in the smallest.
     #[test]
     fn the_diamond_shrinks_only_in_a_shorter_window() {
         let smallest = home_layout(WindowSize::MINIMUM.0).zoom;
         assert!((0.835..0.845).contains(&smallest), "{smallest}");
         let full_size_from = 2.0 * (DIAMOND_HALF_DIAGONAL + DIAMOND_CENTER_Y + EDGE);
+        assert_eq!(full_size_from.round(), 709.0, "{full_size_from}");
         for size in layout_sweep() {
             let zoom = home_layout(size).zoom;
             if size.y >= full_size_from {
