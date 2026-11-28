@@ -566,18 +566,27 @@ under it is half the spare height less the title bar. Bevy makes the
 window before it knows the monitors, so the window opens hidden and
 `place_the_opening_window` places it on the first frame and then shows it:
 at once when centred, and when maximised once the maximised size has
-arrived, half a second later at most, so no frame is drawn at a size the
-window is about to leave. With no primary monitor known the window is shown
-at 1040x900 where the platform puts it: on Wayland, which names no primary
-monitor and lets no window be placed; on an X server whose RandR lists no
-monitor; and on a Mac whose display is asleep as the game starts, when
-macOS lists no active display (measured 2026-11-28; macOS then centres the
-window itself). Nothing about the window is remembered from one run to the
-next.
+arrived, so that no frame is drawn at a size the window is about to leave.
+Where no maximised size comes within half a second - a desktop with no
+window manager sends none, and an X11 window manager ignores a request
+from a window not yet mapped - the window is shown at 1040x900 and asked
+again on the next frame, once it is shown, and is drawn at 1040x900 until
+the maximised size arrives, if it does. With no primary monitor known the
+window cannot be centred, but it is maximised where every monitor listed is
+short of room, and otherwise shown at 1040x900 where the platform puts it.
+That is Wayland, which names no primary monitor but lists its outputs, and
+lets a window be maximised though not positioned; Wayland has not been
+tried with the game. An X server whose RandR lists no monitor, and a Mac
+whose display is asleep as the game starts, when macOS lists no active
+display (seen 2026-11-28; macOS then centres the window itself), list
+none. Nothing about the window is remembered from one run to the next.
 
 **Fullscreen.** F11 switches a desktop window to borderless fullscreen on
-the monitor it is on, and back to the window as it was, on every screen and
-whatever holds the keys. It is a reserved key, as F1 is, so it never binds,
+the monitor it is on, and back, on every screen and whatever holds the
+keys. The way back restores the window as it was, which is the platform's
+to do: on macOS a 1280x720 window came back to its size and place from F11
+and from the green button, and on Windows a maximised one from F11, on
+2026-11-28. It is a reserved key, as F1 is, so it never binds,
 types or plays a note, and it is read as `just_pressed`, so a held key
 switches once. On macOS borderless fullscreen is the green button's own, a
 Space of its own, so F11 and the button are one fullscreen. Bevy never
@@ -585,18 +594,25 @@ writes `Window::mode` back from the system, so the system's own state is
 read from winit every frame into `SystemFullscreen`, `Window::mode` is kept
 in step with it when it changes - after a green-button entry as after F11's
 - and F11 asks for the other of the system's two states. Only a change is
-followed, not a difference: a compositor slow to confirm a change goes on
-reporting the old state for a frame or two, and following that would undo
-what F11 asked for. A browser keeps F11 for its own fullscreen: `web/shell.js`
+followed, not a difference: winit reports a fullscreen once the platform
+has taken it up, which on macOS came a frame after F11's request and, for
+the green button's way out, at the end of its animation, and following the
+old state meanwhile would undo what F11 asked for. A Mac with its default
+settings keeps the key from the game, though: the key alone sends volume
+down, and with fn it is Show Desktop's shortcut, which takes it first, so
+there the green button is the way in and out, and the game follows it. A
+browser keeps F11 for its own fullscreen: `web/shell.js`
 stops the key at the page's window, before winit's handler on the canvas,
 which cancels every key's default action, can cancel this one's, and the
 game reads nothing of it there.
 
 **Below the minimum.** A window can still be smaller than 1040x600 -
-fullscreen on a smaller screen, or under a window manager that ignores the
-minimum - and it is drawn as `WindowSize::layout()` lays it out, scaled
-down by one factor until it fits and centred, the window's background
-around it (`app::visuals::Letterbox`). `frame_main_camera` applies the
+fullscreen on a smaller screen, under a window manager that ignores the
+minimum, or sized by a program, which Windows allows past the minimum it
+holds a drag to - and it is drawn as `WindowSize::layout()` lays it out,
+the window raised to the minimum in each direction that falls short, scaled
+down by one factor until it fits and centred, the window's background around
+it (`app::visuals::Letterbox`). `frame_main_camera` applies the
 scale three ways at once: the main camera's viewport is the drawn
 rectangle, `UiScale` is the scale, so the interface lays itself out at the
 layout's size inside it, and the projection takes it on top of the
@@ -622,8 +638,7 @@ minimum it has to be laid out larger than the box it is drawn in.
 
 **Text never changes size.** Interface nodes are laid out in the window's
 own pixels at their own sizes, so the 14px floor holds at every size from
-the minimum up. What
-grows and shrinks is the world-space scene - the Match board and the
+the minimum up. What grows and shrinks is the world-space scene - the Match board and the
 Replay Viewer's, each with every mark on it, and Home's diamond - and it
 is placed and scaled by the main camera, not by moving or resizing the
 scene. A screen writes `WorldFraming`, a zoom and the world point at the

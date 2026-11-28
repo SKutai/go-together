@@ -403,10 +403,11 @@ the page's padding and the status line under the canvas, 16 px across and
 about 49 px down - measured in Chrome on 2026-11-28, where a 1056x949 frame
 gave the canvas the game's opening 1040x900 - and the game lays itself out at
 the canvas's size from 1040x600 up, so a frame of any shape at least that
-large is used whole. A smaller frame still works, with the canvas laid out at
-1040x600 and drawn scaled down to fit. Enable itch.io's fullscreen control and
-test both the embedded and fullscreen layouts. Do not require a top-level navigation or popup: the game is designed to
-remain inside the itch iframe. Keyboard play is supported; browser gamepads are
+large is used whole. A smaller frame still works: the canvas is laid out at
+the frame's size raised to the minimum and drawn scaled down to fit. Enable
+itch.io's fullscreen control and test both the embedded and fullscreen
+layouts. Do not require a top-level navigation or popup: the game is designed
+to remain inside the itch iframe. Keyboard play is supported; browser gamepads are
 best-effort and require the browser/device to expose a standard mapping.
 
 The web build stores settings and at most the newest three completed Replays in
@@ -605,8 +606,8 @@ trusted download channel.
 - [ ] Keyboard and two-controller behavior are tested where supported.
 - [ ] Native settings and Replays survive restart; corrupt data fails safely.
 - [ ] `dist/index.html` starts from an extracted HTML5 archive with no network CDN.
-- [ ] Embedded and fullscreen web layouts fill the frame, and a frame smaller
-      than 1056x650 shows the whole game scaled down.
+- [ ] Embedded and fullscreen web layouts fill the frame, and a frame too
+      small for a 1040x600 canvas shows the whole game scaled down.
 - [ ] Web keyboard input, supported standard-mapped gamepads, storage limits, and
       interaction-gated audio are tested in Chrome, Firefox, and Safari (see
       [Starting in a browser](#starting-in-a-browser)).

@@ -816,11 +816,12 @@ asset changes:
 9. press F11 on each screen, during a match, with a dialog open, during a
    binding capture and with the Replay Library's search field taking text,
    and confirm that it enters fullscreen and that F11 again leaves it, the
-   window back as it was, without the key doing anything else - on macOS F11
-   reaches the game only as a function key, which by default takes fn, and
-   only if Mission Control's Show Desktop shortcut does not take it first;
-   on macOS, also enter and leave with the window's green button, mixing
-   the two either way; and
+   window back as it was, without the key doing anything else. On a Mac
+   with its default settings F11 never reaches the game - alone the key
+   turns the volume down, and with fn Show Desktop's shortcut takes it
+   first, as seen on 2026-11-28 - so check F11 there only where that
+   shortcut has been changed; on macOS, enter and leave with the window's
+   green button, mixing it with F11 where F11 arrives; and
 10. close the window normally.
 
 Since 2026-11-28 the tests check help-page length as well:

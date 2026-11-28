@@ -468,10 +468,12 @@ validation error, set smaller than the description it explained, to a
 player who had just made a mistake. Raising text can wrap a line that used
 to fit, so measure the screen afterwards rather than assuming; `docs/TESTING.md`
 carries the probe that does it. The floor is in the game's own pixels: a
-window smaller than the smallest one the screens are laid out for - a browser
-page under 1040x600, or fullscreen on a screen smaller than that - is drawn
-as that smallest window scaled down to fit, which is the one place text falls
-below 14px, and is recorded in `docs/ideas/accessibility-findings.md`.
+window smaller than the smallest one the screens are laid out for, 1040x600
+- fullscreen on a smaller screen, a window manager that ignores the minimum,
+a program that sets the size, or a browser page under 1040x600 - is laid out
+as the window raised to the minimum and drawn scaled down to fit, which is
+the one place text falls below 14px, and is recorded in
+`docs/ideas/accessibility-findings.md`.
 
 `cargo test` enforces the floor: `no_text_is_set_below_the_floor` in
 `src/architecture.rs` reads every `FontSize::Px` in production code and

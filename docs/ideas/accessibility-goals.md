@@ -50,13 +50,15 @@ play, so a pad cannot reach the Help button either.
 
 **Resizable and fullscreen**: as of 2026-11-28, **the goal is met.** The
 desktop window can be resized down to 1040x600, maximised and made
-fullscreen - by F11, which became a reserved key for it, and on macOS by the
-window's green button too - and the browser build's canvas fills its page.
-Every screen lays itself out for the window's size rather than being
-stretched: text keeps its size, and the boards and Home's diamond grow and
-shrink. A window smaller than the minimum, which only fullscreen on a smaller
-screen or a browser page can give, is drawn as the minimum's layout scaled
-down to fit. `docs/ARCHITECTURE.md`'s "The window's size, and what answers to
+fullscreen - by F11, which became a reserved key for it, wherever the system
+lets the key through, and on macOS by the window's green button, since a Mac
+with its default settings keeps F11 for itself - and the browser build's
+canvas fills its page. Every screen lays itself out for the window's size
+rather than being stretched: text keeps its size, and the boards and Home's
+diamond grow and shrink. A window smaller than the minimum - fullscreen on a
+smaller screen, a window manager that ignores the minimum, a program that
+sets the size, or a browser page - is laid out as the window raised to the
+minimum and drawn scaled down to fit. `docs/ARCHITECTURE.md`'s "The window's size, and what answers to
 it" says how. What the goal leaves for later is remembering the window's
 size, place and fullscreen state between runs, which nothing does yet, and
 text that grows with the window, which is goal 5's.
@@ -162,5 +164,6 @@ Treat the rest of this file as the reason a finding-sized change should not be
 allowed to grow into a goal-sized one. If a change starts pulling in
 configurable colour or text that grows with the window, that is scope creep,
 and the answer is a separate change later rather than a bigger one now. Goal
-2 was taken on its own, as a planned piece of work, once the findings it
-touched were done.
+2 was taken on its own, as a planned piece of work, though the web canvas
+finding it touched was still open: it narrowed that finding to pages smaller
+than the minimum, where it still holds.

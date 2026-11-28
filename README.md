@@ -111,11 +111,8 @@ button does. No controller button opens it during a match yet - Start is
 already the pad's back button there, and none of the other buttons a binding
 cannot claim has been given the job. A pad cannot press the Help button either,
 since the Match screen carries no focus ring during play, so opening it there
-takes F1 or a pointer. **F11** switches the game to fullscreen and back, on
-every screen, in the desktop builds; a browser keeps F11 for its own
-fullscreen. Neither F1 nor F11 can be bound, which is what keeps them working
-during a match. In
-Settings that includes rebinding: highlight a binding and press it, and the
+takes F1 or a pointer. In Settings the same keys rebind: highlight a
+binding and press it, and the
 next key or controller input becomes the binding; a number field takes typed
 digits once pressed and **Enter** commits them. In the Replay Library the
 search field is typed once pressed, and **Enter** or **Escape** leaves it; a
@@ -136,6 +133,14 @@ carve-out: while Settings is capturing a controller binding, East is an
 input to bind rather than back, and Start is the controller's way to cancel
 the capture. These menu inputs are fixed rather than remappable and belong to
 neither player.
+
+**F11** switches the game to fullscreen and back, on every screen, wherever the
+system lets the key through to it, as Windows 11 does. A Mac with its default
+settings does not: the key alone turns the volume down, and with fn it is
+Show Desktop's shortcut, which takes it first. There the window's green button
+makes the game fullscreen, and the game follows it. A browser keeps F11 for
+its own fullscreen. Neither F1 nor F11 can be bound, which is what keeps them
+working during a match.
 
 ## Build and run locally
 
