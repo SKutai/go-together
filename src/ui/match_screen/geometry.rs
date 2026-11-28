@@ -30,22 +30,30 @@
 //!   stay under the board, where the Help pages say the bar is.
 //!
 //! Either arrangement keeps the same room around its board at every size,
-//! and its stacks the same distance from it. In a window that leaves more
-//! room than that - one taller than tall needs, a wide one whose width
-//! limits the board, or one past the size where the board reaches twice
-//! its own - the whole of it, board and interface together, stands centred
-//! down the window as one piece.
+//! and its stacks the same distance from it - except in the smallest wide
+//! windows, where the line of end reasons moves them out (see below). In a
+//! window that leaves more room than that - one taller than tall needs, a
+//! wide one whose width limits the board, or one past the size where the
+//! board reaches twice its own - the whole of it, board and interface
+//! together, stands centred down the window as one piece.
 //!
 //! Wide is used only where it would draw the board more than [`WIDE_GAIN`]
 //! times as large as tall would - 4% larger - so a window about the opening
 //! one's shape, or taller, keeps the familiar layout: 1040x900 is tall. The
-//! choice is made from the room each arrangement leaves the board before
-//! the board's cap, so it follows the window's shape alone: a window keeps
-//! its arrangement as it grows past the size where both boards would reach
-//! twice their size, and 2560x1600 and 3840x2160 are wide, as 2560x1440 is.
-//! Near the boundary a slightly larger window can get a board up to 4%
-//! smaller, as it crosses back into tall; the margin is what keeps the
-//! change of arrangement worth making.
+//! margins are fixed pixels, so below the cap the window's shape alone does
+//! not decide: 1200x1038, the opening shape 15% larger, is wide, because
+//! there wide's board is more than 4% larger. Near the boundary a slightly
+//! larger window can get a board up to 4% smaller, as it crosses back into
+//! tall; the margin is what keeps the change of arrangement worth making.
+//!
+//! Past the cap - in a window where the larger of the two rooms would draw
+//! the board at more than twice its size - the window's shape alone
+//! decides, so that a window keeps its arrangement however large it grows:
+//! the arrangement is the one the same shape gets at the size where that
+//! larger room just reaches the cap ([`wide_is_chosen`]). Worked out from
+//! the margins, a window past the cap is wide when it is more than about
+//! 1.12 times as wide as it is tall: 2560x1600, 3840x2160 and 5120x2880 are
+//! wide, as 2560x1440 is, and a portrait window is tall.
 //!
 //! # Making room
 //!
@@ -119,7 +127,7 @@ const TALL_OVERLAY_BOTTOM: f32 = 18.0;
 /// the window's whenever the board fills the height, and the least it keeps
 /// at the sides.
 const EDGE: f32 = 12.0;
-/// The title row: the heading's one line, at the window's top margin.
+/// The title row: the heading's one line, at its piece's top margin.
 pub(super) const TITLE_ROW_HEIGHT: f32 = text_height(1, HEADING_SIZE);
 const END_REASONS_LINE: f32 = text_height(1, END_REASONS_SIZE);
 /// The gap between the board and the bands of interface above and below it.
@@ -254,19 +262,42 @@ pub(super) struct MatchLayout {
 
 /// Lays the Match screen out for a window of `window` logical pixels,
 /// which the caller has already raised to the minimum with
-/// `WindowSize::layout`.
-///
-/// The arrangement is chosen from the room each leaves the board before
-/// the board is capped at twice its size, so that the choice follows the
-/// window's shape; the cap is applied to the one chosen.
+/// `WindowSize::layout`: in the arrangement [`wide_is_chosen`] picks, with
+/// the room it leaves the board, capped at twice the board's size.
 pub(super) fn match_layout(window: Vec2) -> MatchLayout {
-    let (tall, wide) = (tall_room(window), wide_room(window));
-    let capped = |room: f32| room.min(BOARD_OUTER_SIZE * MAX_ZOOM);
-    if wide > tall * WIDE_GAIN {
-        wide_layout(window, capped(wide))
+    let capped = |room: f32| room.min(BOARD_CAP);
+    if wide_is_chosen(window) {
+        wide_layout(window, capped(wide_room(window)))
     } else {
-        tall_layout(window, capped(tall))
+        tall_layout(window, capped(tall_room(window)))
     }
+}
+
+/// The most the board is drawn: twice its own size.
+const BOARD_CAP: f32 = BOARD_OUTER_SIZE * MAX_ZOOM;
+
+/// Whether `window` gets the wide arrangement. Below the cap, where wide's
+/// room is more than [`WIDE_GAIN`] times tall's. Past it, where the larger
+/// room would pass the cap, the same choice is made instead at the window
+/// scaled down, at the same shape, to the size where that room just reaches
+/// the cap, and kept for every larger window of that shape: so past the cap
+/// the shape alone decides. At the cap itself the two agree, so no window
+/// changes arrangement as it grows across it.
+fn wide_is_chosen(window: Vec2) -> bool {
+    let at = window * cap_scale(window).min(1.0);
+    wide_room(at) > tall_room(at) * WIDE_GAIN
+}
+
+/// The factor that scales `window`, keeping its shape, to the size where
+/// the larger of the two rooms is exactly [`BOARD_CAP`]. Each room is the
+/// lesser of a width and a height, each the window's less fixed margins, so
+/// it reaches the cap at the scale where the later of those two does; the
+/// larger room is the one that reaches it first.
+fn cap_scale(window: Vec2) -> f32 {
+    let reaches =
+        |sides: f32, ends: f32| ((BOARD_CAP + sides) / window.x).max((BOARD_CAP + ends) / window.y);
+    reaches(2.0 * TALL_SIDE, TALL_TOP + TALL_BOTTOM)
+        .min(reaches(2.0 * WIDE_SIDE, WIDE_TOP + WIDE_BOTTOM))
 }
 
 /// The board tall would draw in `window`, before the cap: the room it
@@ -656,14 +687,52 @@ mod tests {
         assert_eq!(match_countdown_top(&opening), 250.0);
     }
 
+    /// The two rooms a window of `size` leaves the board, tall's and wide's,
+    /// before the cap, worked out from the margins here rather than by the
+    /// functions under test.
+    fn rooms(size: Vec2) -> (f32, f32) {
+        (
+            (size.x - 2.0 * TALL_SIDE).min(size.y - TALL_TOP - TALL_BOTTOM),
+            (size.y - WIDE_TOP - WIDE_BOTTOM).min(size.x - 2.0 * WIDE_SIDE),
+        )
+    }
+
+    /// Whether `size` should be wide, decided here as the module docs say:
+    /// by the two rooms, below the cap; past it, by the rooms of the same
+    /// shape scaled down until the larger is at the cap, which this finds
+    /// by halving rather than by the closed form the layout uses.
+    fn expected_wide(size: Vec2) -> bool {
+        let cap = 2.0 * BOARD_OUTER_SIZE;
+        let larger = |size: Vec2| {
+            let (tall, wide) = rooms(size);
+            tall.max(wide)
+        };
+        let mut at = size;
+        if larger(size) > cap {
+            let (mut low, mut high) = (0.0_f32, 1.0_f32);
+            for _ in 0..48 {
+                let middle = (low + high) / 2.0;
+                if larger(size * middle) < cap {
+                    low = middle;
+                } else {
+                    high = middle;
+                }
+            }
+            at = size * high;
+        }
+        let (tall, wide) = rooms(at);
+        wide > tall * WIDE_GAIN
+    }
+
     /// Every window gets a board between the smallest window's and twice its
     /// own size: inside the window, centred across it, square, and clear of
-    /// the bands above and below it. Wide is used exactly where the room it
-    /// leaves the board, before the cap, is more than [`WIDE_GAIN`] times
-    /// tall's, and the board is that room, capped; so a larger window never
-    /// gets a board smaller by more than that. The two rooms are worked out
-    /// here from the margins, not by the functions under test, so that a
-    /// slip in either changes what the test expects of the other.
+    /// the bands above and below it. Below the cap, wide is used exactly
+    /// where its room is more than [`WIDE_GAIN`] times tall's, and past it
+    /// where the same shape's rooms say so at the cap; the board is the
+    /// chosen room, capped, so a larger window never gets a board smaller by
+    /// more than that. The test works the rooms and the choice out for
+    /// itself, so a slip in the layout's own functions changes what the
+    /// layout does without changing what the test expects of it.
     #[test]
     fn the_board_grows_with_the_window_from_the_smallest_up_to_twice_its_size() {
         let smallest = match_layout(WindowSize::MINIMUM.0).zoom();
@@ -692,9 +761,8 @@ mod tests {
                 board.min.y >= top - 1e-3 && board.max.y <= size.y - bottom + 1e-3,
                 "{size}: {board:?}"
             );
-            let tall_room = (size.x - 2.0 * TALL_SIDE).min(size.y - TALL_TOP - TALL_BOTTOM);
-            let wide_room = (size.y - WIDE_TOP - WIDE_BOTTOM).min(size.x - 2.0 * WIDE_SIDE);
-            let wide = wide_room > tall_room * WIDE_GAIN;
+            let (tall_room, wide_room) = rooms(size);
+            let wide = expected_wide(size);
             assert_eq!(
                 layout.arrangement == Arrangement::Wide,
                 wide,
@@ -720,6 +788,9 @@ mod tests {
     /// size, its arrangement and the board's zoom, which the layout holds
     /// to within 0.01 - tall at its own size in the opening window, and
     /// wide everywhere else, from 0.70 at the minimum to 1.98 at 2560x1440.
+    /// The Mac's maximised window was designed for at an earlier estimate,
+    /// 1440x875 at 1.12; its figure for 1440x848, 1.08, is the layout's own
+    /// there.
     #[test]
     fn each_named_window_gets_the_arrangement_and_zoom_it_was_designed_for() {
         let expected = [
@@ -729,7 +800,7 @@ mod tests {
             (Arrangement::Wide, 0.88),
             (Arrangement::Wide, 0.83),
             (Arrangement::Wide, 0.95),
-            (Arrangement::Wide, 1.12),
+            (Arrangement::Wide, 1.08),
             (Arrangement::Wide, 1.43),
             (Arrangement::Wide, 1.98),
         ];
@@ -744,19 +815,32 @@ mod tests {
         }
     }
 
-    /// Past the sweep's largest window, the board stops at exactly twice
-    /// its size, and each window keeps the arrangement its shape gives it
-    /// before that: a window of a wide shape stays wide however large it
-    /// grows, as 2560x1440 is, and a portrait one stays tall, whether its
-    /// board reaches the cap or not.
+    /// Past the cap the board stops at exactly twice its size, and the
+    /// window's shape alone decides its arrangement, so a window keeps it
+    /// however large it grows: a wide shape stays wide - 2560x1440 at its
+    /// cap's edge, 2560x1600 and the three 16:9 screens past it - and a
+    /// portrait one stays tall, whether its board reaches the cap or not.
+    /// Two near-square shapes past the cap, one a little wider than the
+    /// threshold and one a little narrower, keep their arrangements at
+    /// twice the size; the first is the window a choice by the two rooms
+    /// alone gets wrong, turning tall as it grows. Every shape in the sweep,
+    /// taken past the cap, keeps its arrangement at one and a half, two and
+    /// three times that size; and the threshold is about 1.12 times as wide
+    /// as tall, as the module docs say.
     #[test]
-    fn the_board_stops_at_twice_its_size_and_the_window_keeps_its_arrangement() {
+    fn past_the_cap_the_board_is_twice_its_size_and_the_shape_alone_decides() {
         for (size, arrangement, capped) in [
             (Vec2::new(2560.0, 1440.0), Arrangement::Wide, false),
             (Vec2::new(2560.0, 1600.0), Arrangement::Wide, true),
             (Vec2::new(3840.0, 2160.0), Arrangement::Wide, true),
+            (Vec2::new(5120.0, 2880.0), Arrangement::Wide, true),
+            (Vec2::new(7680.0, 4320.0), Arrangement::Wide, true),
             (Vec2::new(1440.0, 2560.0), Arrangement::Tall, false),
             (Vec2::new(2160.0, 3840.0), Arrangement::Tall, true),
+            (Vec2::new(2400.0, 2100.0), Arrangement::Wide, true),
+            (Vec2::new(4800.0, 4200.0), Arrangement::Wide, true),
+            (Vec2::new(2000.0, 1900.0), Arrangement::Tall, true),
+            (Vec2::new(4000.0, 3800.0), Arrangement::Tall, true),
         ] {
             let layout = match_layout(size);
             assert_eq!(layout.arrangement, arrangement, "{size}");
@@ -767,6 +851,45 @@ mod tests {
             }
         }
         assert_eq!(MAX_ZOOM, 2.0);
+
+        let past_the_cap = |size: Vec2| {
+            let (tall, wide) = rooms(size);
+            tall.max(wide) > 2.0 * BOARD_OUTER_SIZE
+        };
+        // Every shape in the sweep, at a size past the cap - its own, or four
+        // times it, which takes even the smallest window past - and at one
+        // and a half, two and three times that.
+        let mut wide_shapes = 0;
+        for size in layout_sweep() {
+            let base = if past_the_cap(size) { size } else { size * 4.0 };
+            assert!(past_the_cap(base), "{base}");
+            let arrangement = match_layout(base).arrangement;
+            assert_eq!(
+                arrangement == Arrangement::Wide,
+                expected_wide(base),
+                "{base}"
+            );
+            for scale in [1.5, 2.0, 3.0] {
+                assert_eq!(
+                    match_layout(base * scale).arrangement,
+                    arrangement,
+                    "{base} at {scale} times"
+                );
+            }
+            wide_shapes += usize::from(arrangement == Arrangement::Wide);
+        }
+        assert!(
+            wide_shapes > 0 && wide_shapes < layout_sweep().len(),
+            "past the cap, both arrangements occur: {wide_shapes}"
+        );
+
+        for (aspect, arrangement) in [(1.11, Arrangement::Tall), (1.13, Arrangement::Wide)] {
+            for height in [2_000.0, 3_000.0, 5_000.0] {
+                let size = Vec2::new(height * aspect, height);
+                assert!(past_the_cap(size), "{size}");
+                assert_eq!(match_layout(size).arrangement, arrangement, "{size}");
+            }
+        }
     }
 
     /// The heart of it: at every size, everything the screen can show at its

@@ -82,8 +82,9 @@ use crate::rules::{BOARD_SIZE, Cell, Player, Point};
 
 /// The window's size when the game opens, in logical pixels. An adapted
 /// layout does not read these: it reads [`WindowSize`], which starts at
-/// this size. The screens not yet adapted - the Replay screens, Settings
-/// and the Help modal - still place themselves from them.
+/// this size. Of the screens not yet adapted, the Replay Viewer still
+/// places itself from them; Settings, the Replay Library and the Help
+/// modal are laid out for the opening size with fixed sizes of their own.
 pub(crate) const WINDOW_WIDTH: u32 = 1040;
 pub(crate) const WINDOW_HEIGHT: u32 = 900;
 /// The smallest window the layouts are made for, in logical pixels. A
@@ -457,12 +458,12 @@ pub(crate) fn frame_main_camera(
 }
 
 /// Puts [`WorldFraming`] back to [`WorldFraming::IDENTITY`] on every change
-/// of screen, so a screen that draws no board is never drawn at the zoom of
-/// the one before it.
+/// of screen, so a screen with no world-space scene of its own to frame is
+/// never drawn at the zoom of the one before it.
 ///
-/// One screen-agnostic system rather than a reset in each board screen's
-/// `OnExit`, for the reason `ui::hud`'s modal reset gives: a per-screen
-/// obligation is the kind a new screen forgets. It runs in
+/// One screen-agnostic system rather than a reset in the `OnExit` of each
+/// screen that frames the world, for the reason `ui::hud`'s modal reset
+/// gives: a per-screen obligation is the kind a new screen forgets. It runs in
 /// `StateTransition` after the transition is applied and before the exit
 /// and enter schedules, so a screen's own framing, written on entry or by
 /// its layout pass in `Update`, always comes after it; and it fires exactly
@@ -549,15 +550,16 @@ pub(crate) fn format_elapsed_time(elapsed_seconds: f64) -> String {
     format!("{:02}:{:02}", total_seconds / 60, total_seconds % 60)
 }
 
-/// The window sizes that matter by name: the opening window and the smallest,
-/// then the maximised and fullscreen windows of a 1920x1080 screen at
-/// Windows' 150% (1280x720 logical pixels), a 1366x768 screen and a
-/// 1440x900 Mac, a 1920x1080 screen and a large one. The maximised sizes
-/// are estimates, not measurements: the screen less Windows' default
-/// taskbar and a title bar for 1280x641 and 1366x689, and less the Mac's
-/// menu bar for 1440x875. Every layout's tests run at these, and a
-/// real-layout test that cannot afford the whole [`layout_sweep`] runs at
-/// some of them.
+/// The window sizes that matter by name: the opening window and the
+/// smallest; the maximised and the fullscreen windows of a 1920x1080
+/// screen at Windows' 150% (1280x720 logical pixels) and of a 1366x768
+/// screen; the maximised window of a 1440x900 Mac; a 1920x1080 screen; and
+/// a large one. The maximised sizes are estimates, not measurements: the
+/// screen less Windows' default taskbar and a title bar for 1280x641 and
+/// 1366x689, and less macOS's standard 24 pt menu bar and 28 pt title bar,
+/// with the Dock hidden, for 1440x848. Every layout's tests run at these,
+/// and a real-layout test that cannot afford the whole [`layout_sweep`]
+/// runs at some of them.
 #[cfg(test)]
 pub(crate) const NAMED_WINDOW_SIZES: [Vec2; 9] = [
     Vec2::new(1040.0, 900.0),
@@ -566,7 +568,7 @@ pub(crate) const NAMED_WINDOW_SIZES: [Vec2; 9] = [
     Vec2::new(1280.0, 720.0),
     Vec2::new(1366.0, 689.0),
     Vec2::new(1366.0, 768.0),
-    Vec2::new(1440.0, 875.0),
+    Vec2::new(1440.0, 848.0),
     Vec2::new(1920.0, 1080.0),
     Vec2::new(2560.0, 1440.0),
 ];
@@ -591,11 +593,14 @@ pub(crate) fn layout_sweep() -> Vec<Vec2> {
         Vec2::new(1707.0, 961.0) / 1.25,
         Vec2::new(2401.0, 1351.0) / 1.25,
     ]);
-    // A 2560x1600 screen, a 3840x2160 one at a scale factor of 1, and the
-    // portrait screens of a 2560x1440 and a 3840x2160 one.
+    // A 2560x1600 screen, 3840x2160, 5120x2880 and 7680x4320 ones at a
+    // scale factor of 1, and the portrait screens of a 2560x1440 and a
+    // 3840x2160 one.
     sizes.extend([
         Vec2::new(2560.0, 1600.0),
         Vec2::new(3840.0, 2160.0),
+        Vec2::new(5120.0, 2880.0),
+        Vec2::new(7680.0, 4320.0),
         Vec2::new(1440.0, 2560.0),
         Vec2::new(2160.0, 3840.0),
     ]);
