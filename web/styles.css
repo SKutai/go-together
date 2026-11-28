@@ -37,10 +37,12 @@ body {
     max(0.5rem, env(safe-area-inset-left));
 }
 
+/* The sizes below are the smallest window the game is laid out for, until
+   web/shell.js gives the frame and the canvas the page's own size. */
 .canvas-frame {
   position: relative;
   width: 1040px;
-  height: 900px;
+  height: 600px;
   background: #0a1011;
   border-radius: clamp(0.25rem, 0.8vw, 0.65rem);
   box-shadow:
@@ -53,8 +55,8 @@ body {
   position: absolute;
   inset: 0;
   display: block;
-  width: 1040px !important;
-  height: 900px !important;
+  width: 1040px;
+  height: 600px;
   background: #0a1011;
   border: 0;
   border-radius: inherit;
