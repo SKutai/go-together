@@ -38,11 +38,10 @@
 //! bindings and nothing else. For this section "corrupt" covers a missing
 //! or `null` field, a value that is not an array of `{action, key}`
 //! records, a record with an unknown field, an unknown key name (which is
-//! how a reserved key is refused, since none has one), an
-//! action bound twice or not at all, and a key bound twice. Every one of
-//! them is a warning naming the section and the cause - without serde's
-//! list of every accepted name, which for a keyboard key runs longer than
-//! the Settings screen's error line.
+//! how a reserved key is refused, since none has one), an action bound twice or
+//! not at all, and a key bound twice. Every one of them is a warning naming the
+//! section and the cause - without serde's list of every accepted name, which
+//! for a keyboard key runs longer than the Settings screen's error line.
 //!
 //! [`load_preferences`] applies the same idea one level down: a single bad
 //! *field* costs only that field, because the preferences object is read key

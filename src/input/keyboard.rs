@@ -55,8 +55,8 @@ use super::GameAction;
 ///
 /// Escape, F1 and F11 are absent on purpose - see the module docs. `f1`
 /// and `f11` were valid serde names in settings files written before F1
-/// became the Help key and F11 the fullscreen key;
-/// `crate::settings::schema` records what such a file loads as now.
+/// became the Help key and F11 the fullscreen key; `crate::settings::schema`
+/// records what such a file loads as now.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum KeyboardKey {

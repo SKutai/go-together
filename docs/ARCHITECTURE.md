@@ -613,16 +613,15 @@ minimum, or sized by a program, which Windows allows past the minimum it
 holds a drag to - and it is drawn as `WindowSize::layout()` lays it out,
 the window raised to the minimum in each direction that falls short, scaled
 down by one factor until it fits and centred, the window's background around
-it (`app::visuals::Letterbox`). `frame_main_camera` applies the
-scale three ways at once: the main camera's viewport is the drawn
-rectangle, `UiScale` is the scale, so the interface lays itself out at the
-layout's size inside it, and the projection takes it on top of the
-framing's zoom, so the world-space scene shrinks with the interface. It is
-the one place text is drawn below the 14px floor, and `UiScale` is 1 for
-every window at least the minimum and never above 1. Picking reads the same
-viewport and scale, so a pointer lands on what is drawn under it. A window
-with no area, as Windows reports a minimised one, changes nothing: neither
-`WindowSize` nor the camera follows it.
+it (`app::visuals::Letterbox`). `frame_main_camera` applies the scale three ways
+at once: the main camera's viewport is the drawn rectangle, `UiScale` is the
+scale, so the interface lays itself out at the layout's size inside it, and the
+projection takes it on top of the framing's zoom, so the world-space scene
+shrinks with the interface. It is the one place text is drawn below the 14px
+floor, and `UiScale` is 1 for every window at least the minimum and never
+above 1. Picking reads the same viewport and scale, so a pointer lands on what
+is drawn under it. A window with no area, as Windows reports a minimised one,
+changes nothing: neither `WindowSize` nor the camera follows it.
 
 **The browser page.** `web/shell.js` gives the canvas the page's size less
 the status lines under it and the page's padding, in whole CSS pixels and

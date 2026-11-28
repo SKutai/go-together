@@ -431,25 +431,24 @@ follows the window, as the renderer's camera system keeps a real one, and
 the game's own window tracking (`app::visuals::WindowLayoutPlugin`), where
 a test adds it, carries the size to `WindowSize` in the same frame. Before
 2026-11-28 the camera kept the size the app was made with, so a resize
-reached the screens' own passes but `bevy_ui` still laid out and
-hit-tested at the old size. The harness's camera has no viewport of its
-own, and draws the whole window. A test of a window smaller than the
-minimum marks it the main camera and adds the window tracking
-(`draw_as_the_game_does` in `ui::focus`), and the game's own framing then
-draws the window letterboxed, as it draws a real one: each screen's
+reached the screens' own passes but `bevy_ui` still laid out and hit-tested at
+the old size. The harness's camera has no viewport of its own, and draws the
+whole window. A test of a window smaller than the minimum marks it the main
+camera and adds the window tracking (`draw_as_the_game_does` in `ui::focus`),
+and the game's own framing then draws the window letterboxed, as it draws a real
+one: each screen's
 `a_window_below_the_minimum_draws_the_minimums_..._scaled_down` test holds
 it, in an 800x500 window, to the minimum's layout scaled down, inside the
 window, with the pointer landing where things are drawn. `ui::button`'s
 `centre_of` and `drawn_rect` give where a node is drawn, the viewport and
 scale included, so the pointer helpers click there. A screen laid out for
-any size is tested at several:
-`app::visuals::NAMED_WINDOW_SIZES` names the ones that matter, from the
-1040x600 minimum and a 1280x720 laptop's maximised window up to 2560x1440,
-and the Match screen, Home, Settings, the Replay Library, the Replay Viewer
-and the Help modal run their real-layout tests at all of them - every button
-reached by the pointer, every text inside the window, on the Match and the
-Viewer nothing drawn meeting anything else, and on Settings and the Library
-no two texts meeting. Settings runs them on every tab and with its reset
+any size is tested at several: `app::visuals::NAMED_WINDOW_SIZES` names the ones
+that matter, from the 1040x600 minimum and a 1280x720 laptop's maximised window
+up to 2560x1440, and the Match screen, Home, Settings, the Replay Library, the
+Replay Viewer and the Help modal run their real-layout tests at all of them -
+every button reached by the pointer, every text inside the window, on the Match
+and the Viewer nothing drawn meeting anything else, and on Settings and the
+Library no two texts meeting. Settings runs them on every tab and with its reset
 confirmation open, at the heights either side of its change of arrangement
 too; the Library with no Replays, one, a page, more than a page, the longest
 labels and each of its notes, and with each dialog open; Help on every
@@ -1273,11 +1272,10 @@ on 2026-11-28:
   alone, and is captured from it with `Screenshot::primary_window()`.
 
 The probe below is the one that work used, made to capture any size on
-2026-11-28. Save it as
-`src/ui/replay/viewer/board_probe.rs` - it lives there because the Viewer's
-state is private to that module - add `mod board_probe;` beside the other
-modules in `src/ui/replay/viewer/mod.rs`, and register it at the top of
-`ReplayViewerPlugin::build`:
+2026-11-28. Save it as `src/ui/replay/viewer/board_probe.rs` - it lives there
+because the Viewer's state is private to that module - add `mod board_probe;`
+beside the other modules in `src/ui/replay/viewer/mod.rs`, and register it at
+the top of `ReplayViewerPlugin::build`:
 
 ```rust
 app.add_systems(Last, board_probe::board_probe)
@@ -1307,11 +1305,10 @@ a square around the board; `GT_PROBE_SIZE=WxH` lays every screen out for a
 window that many logical pixels and captures the whole of it, where without
 it the window is the opening one, 1040x900. `GT_PROBE_AT` seeks the Viewer
 to a position in seconds instead of the end; `GT_PROBE_KEY` opens the
-Viewer's Key.
-The `match` mode writes a position straight into `GameState` - every stone
-colour beside every other and beside bare wood - and the `library` mode adds
-one card with the same position to the in-memory catalog, so neither needs a
-saved Replay and neither saves one. Run it from the repository root: the
+Viewer's Key. The `match` mode writes a position straight into `GameState` -
+every stone colour beside every other and beside bare wood - and the `library`
+mode adds one card with the same position to the in-memory catalog, so neither
+needs a saved Replay and neither saves one. Run it from the repository root: the
 Viewer and Library modes read a fixture by relative path.
 
 Remove all of it before committing. The source-reading guards in

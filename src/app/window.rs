@@ -794,9 +794,8 @@ mod tests {
 
     /// The opening from what is known of the monitors: the primary one
     /// decides wherever it is named, even beside others all short of room;
-    /// without it, every
-    /// monitor listed short of room maximises, and one with room, or none
-    /// listed, leaves the window where the platform puts it.
+    /// without it, every monitor listed short of room maximises, and one with
+    /// room, or none listed, leaves the window where the platform puts it.
     #[test]
     fn the_opening_follows_the_primary_monitor_or_else_every_monitor() {
         use Opening::{Centred, Maximised};

@@ -31,11 +31,10 @@
 //! cancel the capture and leave the screen, F1 is the Help key on the
 //! screens that have them, and F11 switches fullscreen, during a capture
 //! too - and reports unsupported keys, so the player can tell "nothing
-//! happened" from "that key will not work".
-//! Controller capture only accepts input from the controller *assigned to the
-//! player being remapped*, so a second pad cannot silently rebind the first
-//! player; if that controller disconnects mid-capture the capture is
-//! cancelled with an explanation.
+//! happened" from "that key will not work". Controller capture only accepts
+//! input from the controller *assigned to the player being remapped*, so a
+//! second pad cannot silently rebind the first player; if that controller
+//! disconnects mid-capture the capture is cancelled with an explanation.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
