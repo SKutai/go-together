@@ -249,11 +249,11 @@ fn deferred_startup_warnings(
 ///   write other parts of some of the same nodes - the HUD's which of four
 ///   panels are shown, the Match's what its texts say and which of its
 ///   hints and dot rows are drawn. Placing first means every display pass
-///   sees its nodes already where this frame's window puts them, and the
-///   layout pass does not rely on the display passes writing only the
-///   fields it leaves alone. The display passes must still keep to their
-///   own fields: one that replaced a whole `Node` would undo the placement
-///   until the window's size next changed.
+///   sees its nodes already where this frame's window puts them. It also
+///   means the layout pass need not keep to its own fields, since the
+///   display passes run after it and set theirs every frame; but the
+///   display passes must keep to theirs, since one that replaced a whole
+///   `Node` would undo the placement until the window's size next changed.
 ///
 /// Every other pair is deliberately left unordered - see
 /// [`configure_app_systems`]'s doc comment for why that is safe rather than
@@ -283,9 +283,9 @@ pub(crate) enum AppSystems {
     /// lines, and the two bars below the board - hold progress while a
     /// gesture runs or a released end hold drains, and the round-time bar
     /// otherwise. Where things stand in the window is
-    /// [`Self::ScreenLayout`]'s, which runs first; this stage still places
-    /// what is drawn on the board, such as the cursors and the capture
-    /// marks.
+    /// [`Self::ScreenLayout`]'s, which runs first; this stage still moves
+    /// the cursors over the board and decides which capture marks are
+    /// drawn.
     MatchDisplay,
 }
 
@@ -390,12 +390,12 @@ fn engine_plugins(asset_path: String, platform_window: WindowPlatformConfig) -> 
 /// new, each placed node's placement and current value, and the round
 /// text's `UiRole`, and writes only nodes' places, that text's
 /// justification and the camera's [`visuals::WorldFraming`] - none of which
-/// gameplay, or the marimba's input and animation, writes. Two systems are registered without a screen gate
-/// and are harmless anyway: gameplay's input-release gate runs on every
-/// screen but touches only `InputGate`, [`crate::input::SemanticInput`] and
-/// `GameplayPause`, none of which any Settings system reads or writes, and
-/// the marimba's input handler checks the screen itself and only drains
-/// keyboard messages elsewhere. This crate does not enable Bevy's
+/// gameplay, or the marimba's input and animation, writes. Two systems are
+/// registered without a screen gate and are harmless anyway: gameplay's
+/// input-release gate runs on every screen but touches only `InputGate`,
+/// [`crate::input::SemanticInput`] and `GameplayPause`, none of which any
+/// Settings system reads or writes, and the marimba's input handler checks
+/// the screen itself and only drains keyboard messages elsewhere. This crate does not enable Bevy's
 /// system-ordering-ambiguity diagnostic, so an unordered pair here is a
 /// deliberate "no dependency exists," not an oversight.
 ///

@@ -38,13 +38,15 @@
 //! together, stands centred down the window as one piece.
 //!
 //! Wide is used only where it would draw the board more than [`WIDE_GAIN`]
-//! times as large as tall would - 4% larger - so a window about the opening
-//! one's shape, or taller, keeps the familiar layout: 1040x900 is tall. The
-//! margins are fixed pixels, so below the cap the window's shape alone does
-//! not decide: 1200x1038, the opening shape 15% larger, is wide, because
-//! there wide's board is more than 4% larger. Near the boundary a slightly
-//! larger window can get a board up to 4% smaller, as it crosses back into
-//! tall; the margin is what keeps the change of arrangement worth making.
+//! times as large as tall would - 4% larger. So tall is used in every
+//! window narrower than about 1.12 times its height, and in a wider one
+//! until wide gains that much. The margins are fixed pixels, so below the
+//! cap that point depends on the size as well as the shape: 1040x900 is
+//! tall, and its shape stays tall up to about 1182x1023 and is wide from
+//! there, as 1200x1038 is, because there wide's board is more than 4%
+//! larger. Near the boundary a slightly larger window can get a board up to
+//! 4% smaller, as it crosses back into tall; the margin is what keeps the
+//! change of arrangement worth making.
 //!
 //! Past the cap - in a window where the larger of the two rooms would draw
 //! the board at more than twice its size - the window's shape alone
@@ -52,8 +54,9 @@
 //! the arrangement is the one the same shape gets at the size where that
 //! larger room just reaches the cap ([`wide_is_chosen`]). Worked out from
 //! the margins, a window past the cap is wide when it is more than about
-//! 1.12 times as wide as it is tall: 2560x1600, 3840x2160 and 5120x2880 are
-//! wide, as 2560x1440 is, and a portrait window is tall.
+//! 1.12 times as wide as it is tall - the same proportion below which no
+//! window is ever wide: 2560x1600, 3840x2160 and 5120x2880 are wide, as
+//! 2560x1440 is, and a portrait window is tall.
 //!
 //! # Making room
 //!
@@ -78,7 +81,7 @@
 //!   Replay-save notice, is only ever shown with no bar under it.
 //!
 //! The widths come from [`crate::ui::text_metrics`], for the longest text
-//! each place can hold. Tests in `super` hold each budget to the text the
+//! each place has room for. Tests in `super` hold each budget to the text the
 //! screen really writes, and its real-layout tests hold the whole layout to
 //! what `bevy_ui` draws.
 //!
@@ -815,11 +818,13 @@ mod tests {
         }
     }
 
-    /// Past the cap the board stops at exactly twice its size, and the
-    /// window's shape alone decides its arrangement, so a window keeps it
-    /// however large it grows: a wide shape stays wide - 2560x1440 at its
-    /// cap's edge, 2560x1600 and the three 16:9 screens past it - and a
-    /// portrait one stays tall, whether its board reaches the cap or not.
+    /// Past the cap the window's shape alone decides its arrangement, so a
+    /// window keeps it however large it grows, and the board grows no
+    /// larger than twice its size - exactly that wherever the chosen room
+    /// passes the cap, and a little short of it in a tall window just past
+    /// the cap, as 1690x1520 is at 1.95. A wide shape stays wide - 2560x1440
+    /// at the cap's edge, 2560x1600 and the three 16:9 screens past it - and
+    /// a portrait one stays tall, whether its board reaches the cap or not.
     /// Two near-square shapes past the cap, one a little wider than the
     /// threshold and one a little narrower, keep their arrangements at
     /// twice the size; the first is the window a choice by the two rooms
@@ -828,7 +833,7 @@ mod tests {
     /// three times that size; and the threshold is about 1.12 times as wide
     /// as tall, as the module docs say.
     #[test]
-    fn past_the_cap_the_board_is_twice_its_size_and_the_shape_alone_decides() {
+    fn past_the_cap_the_shape_alone_decides_the_arrangement() {
         for (size, arrangement, capped) in [
             (Vec2::new(2560.0, 1440.0), Arrangement::Wide, false),
             (Vec2::new(2560.0, 1600.0), Arrangement::Wide, true),
@@ -837,6 +842,7 @@ mod tests {
             (Vec2::new(7680.0, 4320.0), Arrangement::Wide, true),
             (Vec2::new(1440.0, 2560.0), Arrangement::Tall, false),
             (Vec2::new(2160.0, 3840.0), Arrangement::Tall, true),
+            (Vec2::new(1690.0, 1520.0), Arrangement::Tall, false),
             (Vec2::new(2400.0, 2100.0), Arrangement::Wide, true),
             (Vec2::new(4800.0, 4200.0), Arrangement::Wide, true),
             (Vec2::new(2000.0, 1900.0), Arrangement::Tall, true),

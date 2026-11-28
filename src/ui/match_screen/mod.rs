@@ -12,10 +12,12 @@
 //! `stone_geometry` in `app::visuals` says why those two.
 //!
 //! Where all of it stands is [`geometry`]'s to say, as a pure function of
-//! the window's size: the familiar layout in a window of about the opening
-//! one's shape, and the wide arrangement beside the board in a wider one,
-//! with the board itself placed and zoomed by the main camera. [`layout`]
-//! spawns the furniture there and moves it when the size changes.
+//! the window's size: the familiar layout in every window narrower than
+//! about 1.12 times its height, and in a wider one until the wide
+//! arrangement beside the board would draw the board more than 4% larger -
+//! the opening shape stays familiar up to about 1182x1023 - with the board
+//! itself placed and zoomed by the main camera. [`layout`] spawns the
+//! furniture there and moves it when the size changes.
 //!
 //! # What the HUD deliberately does not show
 //!

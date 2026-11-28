@@ -291,11 +291,12 @@ itself:
   the timer, round, end-reason and countdown panels are shown, the Match's
   what its texts say and which hints and dot rows are drawn. Placing first
   means a display pass always sees its nodes where this frame's window puts
-  them, and the layout pass does not rely on the display passes keeping to
-  the fields it leaves alone. They must keep to their own fields all the
-  same: a display pass that replaced a whole `Node` would undo the
-  placement until the window's size next changed. `ScreenLayout` holds
-  Home's layout pass too, which shares nothing with either.
+  them. It also means the layout pass need not keep to its own fields,
+  since the display passes run after it and set theirs every frame; but
+  the display passes must keep to theirs, since one that replaced a whole
+  `Node` would undo the placement until the window's size next changed.
+  `ScreenLayout` holds Home's layout pass too, which shares nothing with
+  either.
 
 Every other pair of sets is deliberately left unordered. This project does
 not enable Bevy's system-order-ambiguity diagnostics, so two unordered
@@ -553,9 +554,11 @@ the height between the title row and the band under it. Either, in a
 window with more room than its board takes, stands centred down the
 window as one piece. The board ranges from 0.70 of its own size at the
 minimum to twice it. Below that cap, wide is chosen where it gives the
-board more than 4% more room than tall, which keeps a window of about the
-opening shape on the familiar layout; the margins are fixed pixels, so the
-same shape can be tall at one size and wide at a larger one. Past the cap,
+board more than 4% more room than tall: so every window narrower than
+about 1.12 times its height is tall, and a wider one is tall until wide
+gains that much. The margins are fixed pixels, so that depends on the size
+as well as the shape - the opening shape stays tall up to about 1182x1023
+and is wide above it. Past the cap,
 the window's shape alone decides - the choice its shape gets where the
 larger room just reaches the cap - so a window keeps its arrangement
 however large it grows. Nothing but the board
@@ -3128,12 +3131,14 @@ for why each step is the way it is.
 4. Mark every node whose place depends on the window with a placement
    component, and write places through one function that both the spawner
    and a placement pass call - the pass running when `WindowSize` changes,
-   and when the furniture first appears. Run it before the display passes
-   that show and hide the same nodes: in the `ScreenLayout` stage, adding an
-   edge from that stage to the screen's own display stage alongside the
-   pass, since the stage is ordered only before `MatchDisplay` and
-   `HudDisplay`; or, for a screen whose systems are in no stage, first in
-   its own chain. Have each arrangement set every field it owns, so a node
+   and when the furniture first appears. Run it before every display pass
+   that writes the same nodes' `Node` - to show and hide them, say: in the
+   `ScreenLayout` stage, adding an edge from that stage to the screen's own
+   display stage alongside the pass, since the stage is ordered only before
+   `MatchDisplay` and `HudDisplay`; or, for a screen whose systems are in no
+   stage, first in its own chain. A display pass that writes only other
+   components of those nodes needs no edge: Home's marimba is shown and
+   hidden by its `Visibility`, in a stage of its own. Have each arrangement set every field it owns, so a node
    moved into one arrangement and back is the node it was, and test that a
    change of size moves every node to where a fresh entry at the new size
    puts it.
