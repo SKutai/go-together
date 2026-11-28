@@ -3,18 +3,22 @@
 //!
 //! Every text in the game is set in Bevy's bundled default font, which is
 //! monospaced, and in printable ASCII, which `crate::architecture` holds
-//! every production string to. So a line's advance is its length in
-//! characters times one advance, and a line box is a fixed multiple of the
-//! font's size. A layout that has to know before `bevy_ui` runs whether a
-//! line fits, or how tall it stands, reads these: the Match screen's title
-//! row, which chooses between one line and two for its clocks; Home,
-//! Settings and the Replay Library, which leave room for their titles and
-//! notes; the Library's search field and Settings' error line, which cut a
-//! text to the characters their lines hold; the Replay Viewer's header,
-//! which keeps room for as many lines as its label takes; and the Help
-//! modal, whose two columns hold a known number of characters and lines.
-//! `bevy_ui` is still what lays the text out and draws it, and the test
-//! here holds the two to each other.
+//! every production string to and the Replay labels and search queries are
+//! held to as well; only Settings' error line can quote something else, a
+//! path or a setting's value from the settings file. So a line's advance is
+//! its length in characters times one advance, and a line box is a fixed
+//! multiple of the font's size. A layout that has to know before `bevy_ui`
+//! runs whether a line fits, or how tall it stands, reads these: the Match
+//! screen's title row, which chooses between one line and two for its
+//! clocks; Home, Settings and the Replay Library, which leave room for
+//! their titles and notes; Settings' error line, which sets a message that
+//! does not fit its place in lines of its own, and with the Library's
+//! search field marks what it cuts away; the Replay Viewer's header, which
+//! keeps room for as many lines as its label takes; and the Help modal,
+//! whose two columns hold a known number of characters and lines. `bevy_ui`
+//! is still what lays the text out and draws it, and the test here holds
+//! the two to each other. Where it breaks a text's lines, and so how many
+//! it sets the text on, is [`crate::ui::line_breaks`]'s to say.
 //!
 //! A different font, or Bevy laying text out differently, is what would
 //! make these untrue, and the test is what would say so.
@@ -43,13 +47,16 @@ pub(crate) const fn text_height(lines: usize, font_px: f32) -> f32 {
 /// font draws anything else, an ellipsis among them, as a missing glyph.
 pub(crate) const CUT_MARK: &str = "...";
 
-/// Wraps `text` at `chars` characters a line, greedily, as `bevy_ui` wraps
-/// at spaces: each line takes as many whole words as fit, a word is split
-/// only where it is longer than a line, and the text's own line breaks are
-/// kept, so a blank line between paragraphs stays one blank line. It counts
-/// characters rather than bytes, for a text that quotes what the player
-/// wrote. For a layout that has to know how many lines a text takes, or
-/// sets them itself, before `bevy_ui` lays it out.
+/// Wraps `text` at `chars` characters a line, greedily and at spaces alone:
+/// each line takes as many whole words as fit, a word is split only where
+/// it is longer than a line, and the text's own line breaks are kept, so a
+/// blank line between paragraphs stays one blank line. It counts characters
+/// rather than bytes, for a text that quotes what the player wrote. For a
+/// layout that sets a text's lines itself before `bevy_ui` lays it out, as
+/// Help's columns and Settings' error line do. `bevy_ui` breaks lines after
+/// a hyphen or a slash too, and never at a space before `)` `]` `}` `!` `?`
+/// `,` `.` `:` `;` or `/`, so how many lines it would set a text on is
+/// [`crate::ui::line_breaks`]'s to say.
 pub(crate) fn wrap_lines(text: &str, chars: usize) -> Vec<String> {
     let chars = chars.max(1);
     let mut lines = Vec::new();

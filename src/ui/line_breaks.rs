@@ -1,12 +1,18 @@
-//! Where `bevy_ui` breaks the lines of the Viewer's text, worked out
-//! without laying it out: how many characters a line holds, and how many
-//! lines a text takes at so many characters to a line.
+//! Where `bevy_ui` breaks the lines of the game's text, worked out
+//! without laying it out: how many characters a line holds, how many lines
+//! a text takes at so many characters to a line, and whether it fits a box
+//! of so many lines. The Replay Viewer reads it to give its label the lines
+//! it takes, and the Replay Library's search field and Settings' error line
+//! to know whether a text fits them whole.
 //!
-//! Every text in the game is printable ASCII in a monospaced font (see
-//! [`crate::ui::text_metrics`]), so a line's width is its length in
-//! characters, and where it may break depends only on which characters
-//! stand around the place. All three parts of the answer are rules,
-//! followed here exactly rather than estimated:
+//! The game's own strings, the Replay labels and the search queries are
+//! printable ASCII, in a monospaced font (see [`crate::ui::text_metrics`]),
+//! so a line's width is its length in characters, and where it may break
+//! depends only on which characters stand around the place. Settings'
+//! error line can carry anything, since it quotes a path or a setting's
+//! value from the settings file, and [`fits`] takes a text with anything
+//! else in it on one line only. For printable ASCII, all three parts of the
+//! answer are rules, followed here exactly rather than estimated:
 //!
 //! * **How many characters a line holds** is what parley, the layout
 //!   engine `bevy_ui` uses, counts: it adds the font's advance, as it
@@ -43,10 +49,12 @@
 //! for 650,000 texts of up to 60 characters at the sizes and widths the
 //! Viewer sets them at; and the count of characters against parley at
 //! 32,636 widths, every exact fit among them. They agreed on every one.
-//! In the game, a test in [`super`] lays a corpus of labels out with
-//! `bevy_ui` at several widths and holds where each of their lines starts
-//! to this, character for character, which a change to any one rule here
-//! fails.
+//! In the game, a test in `ui::replay::viewer` lays a corpus of labels out
+//! with `bevy_ui` at several widths and holds where each of their lines
+//! starts to this, character for character, which a change to any one rule
+//! here fails. The search field's test holds its fit to what `bevy_ui`
+//! draws both ways, laying each query it cuts out whole as well; the error
+//! line's tests hold what it draws to its place.
 
 /// The font's advance at `font_px`, in pixels at a scale factor of 1, as
 /// parley scales it: 600 units of a 1000-unit em, the size divided by the
@@ -61,7 +69,7 @@ fn advance(font_px: f32) -> f32 {
 /// one character at a time, each character fitting while the sum is no
 /// more than `width` - and at least one, which a line takes however narrow
 /// it is.
-pub(super) fn chars_per_line(width: f32, font_px: f32) -> usize {
+pub(crate) fn chars_per_line(width: f32, font_px: f32) -> usize {
     let advance = advance(font_px);
     let (mut sum, mut chars) = (0.0_f32, 0);
     while sum + advance <= width {
@@ -134,7 +142,7 @@ const fn class(byte: u8) -> Class {
 /// quotation marks, of which ASCII has none. Their other changes, to `,`
 /// `.` `:` `;` after a space, to numbers and to a hyphen that starts a
 /// word, ICU does not apply, and nor does this.
-pub(super) fn may_break_before(text: &[u8], index: usize) -> bool {
+pub(crate) fn may_break_before(text: &[u8], index: usize) -> bool {
     use Class::*;
 
     let (before, after) = (class(text[index - 1]), class(text[index]));
@@ -179,7 +187,7 @@ pub(super) fn may_break_before(text: &[u8], index: usize) -> bool {
 /// Calls `line` with where each line of `text` starts, set `chars`
 /// characters to a line as the layout engine fills its lines; with
 /// `break_words`, a word too long for a line breaks inside it.
-pub(super) fn for_each_line(
+pub(crate) fn for_each_line(
     text: &[u8],
     chars: usize,
     break_words: bool,
@@ -225,15 +233,71 @@ pub(super) fn for_each_line(
 /// `break_words`, as a text set with `LineBreak::WordOrCharacter` takes
 /// them, breaking inside a word too long for a line, and otherwise as one
 /// set with `LineBreak::WordBoundary`, the default.
-pub(super) fn wrapped_lines(text: &str, chars: usize, break_words: bool) -> usize {
+pub(crate) fn wrapped_lines(text: &str, chars: usize, break_words: bool) -> usize {
     let mut lines = 0;
     for_each_line(text.as_bytes(), chars, break_words, |_| lines += 1);
     lines
 }
 
+/// Whether `text`, set with `LineBreak::WordBoundary` at `chars` characters
+/// to a line, takes no more than `lines` lines and runs past the end of
+/// none of them, as a word too long for a line runs on past it. Only
+/// printable ASCII is followed to its breaks: a text with anything else in
+/// it is taken to fit only where it needs none, on one line of no more than
+/// `chars` characters, each taken for one advance as
+/// [`crate::ui::text_metrics`] takes them, and with no control character,
+/// a line break of its own among them.
+pub(crate) fn fits(text: &str, chars: usize, lines: usize) -> bool {
+    let bytes = text.as_bytes();
+    if !bytes.iter().all(|byte| (b' '..=b'~').contains(byte)) {
+        return lines > 0 && text.chars().count() <= chars && !text.chars().any(char::is_control);
+    }
+    let mut starts = Vec::new();
+    for_each_line(bytes, chars, false, |start| starts.push(start));
+    if starts.len() > lines {
+        return false;
+    }
+    starts.push(bytes.len());
+    starts.windows(2).all(|line| {
+        let line = &bytes[line[0]..line[1]];
+        // A space that does not fit hangs past the line's end, unseen.
+        let hanging = line.iter().rev().take_while(|byte| **byte == b' ').count();
+        line.len() - hanging <= chars
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Whether a text fits a box of so many lines, on texts whose lines are
+    /// worked out by hand, ten characters to a line: a hyphen and a slash
+    /// give a word places to break; a space before `!` or a closing bracket
+    /// is no place to break (LB13), so the word before it moves down and a
+    /// second line can spill onto a third; a word too long for a line runs
+    /// past it; a space that does not fit hangs unseen; and a text with
+    /// anything but printable ASCII in it is taken to fit on one line only,
+    /// and one with a line break of its own not at all.
+    #[test]
+    fn a_text_fits_where_bevy_ui_sets_it_inside_its_lines() {
+        // "abcde-fgh-" and "ijklmn": a break after a hyphen.
+        assert!(fits("abcde-fgh-ijklmn", 10, 2));
+        assert!(fits("abcde/fgh/ijklmn", 10, 2));
+        assert!(!fits("abcde-fgh-ijklmn", 10, 1));
+        // Spaces alone would set "aaaa bbbb" and "! cc dd"; LB13 keeps
+        // "bbbb" with the "!", so "aaaa ", "bbbb ! cc " and "dd".
+        assert!(!fits("aaaa bbbb ! cc dd", 10, 2));
+        assert!(fits("aaaa bbbb ! cc dd", 10, 3));
+        assert!(!fits("aaaa bbbb ) cc dd", 10, 2));
+        // A word longer than a line runs on past it.
+        assert!(!fits("abcdefghijk", 10, 2));
+        assert!(fits("abcdefghij", 10, 1));
+        // "abcdefghij " - the space hangs past the line's end.
+        assert!(fits("abcdefghij klmno", 10, 2));
+        assert!(fits("caf\u{e9} au lait", 12, 1));
+        assert!(!fits("caf\u{e9} au lait", 11, 2));
+        assert!(!fits("one\ntwo", 10, 2));
+    }
 
     /// How many characters a line holds, against counts parley gave on
     /// 2026-11-28 at widths an exact number of advances wide and a

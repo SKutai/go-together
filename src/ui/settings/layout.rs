@@ -1561,7 +1561,8 @@ pub(super) mod tests {
     }
 
     /// The error line held to its place: a message that fits is shown
-    /// whole, the screen's own messages among them in both arrangements; a
+    /// whole, the screen's own messages among them in both arrangements, and
+    /// one line with more than printable ASCII in it as it is; a
     /// longer one keeps the lines there is room for, wrapped at the
     /// characters a line holds a pixel short of the place, the last ending
     /// with "..." - also where a run of spaces is what was cut away; a word
@@ -1570,16 +1571,21 @@ pub(super) mod tests {
     fn the_error_line_is_cut_to_the_lines_it_has_room_for() {
         use super::super::bindings::{CONTROLLER_DISCONNECTED_MESSAGE, UNSUPPORTED_KEY_MESSAGE};
         use super::super::display::shown_error;
+        use super::super::geometry::ERROR_SIZE;
         use super::super::{CONNECT_A_CONTROLLER_MESSAGE, SETTINGS_NOT_SAVED_WARNING};
-        use crate::ui::text_metrics::line_width;
+        use crate::ui::line_breaks::chars_per_line;
 
         for window in [WindowSize::MINIMUM.0, WindowSize::OPENING.0] {
             let layout = settings_layout(window);
             let (width, room) = layout.error_line();
             assert_eq!(room, if layout.sidebar() { 2 } else { 1 }, "{window}");
-            let chars = ((width - 1.0) / line_width(1, 14.0)).floor() as usize;
+            let chars = chars_per_line(width - 1.0, ERROR_SIZE);
             let short = "Keyboard bindings were missing; using keyboard defaults.";
             assert_eq!(shown_error(short, &layout), short, "{window}");
+            // One line with more than printable ASCII in it is drawn as it
+            // is, its run of spaces too, which the game's own lines close.
+            let accented = "Could not read /home/jos\u{e9}/settings.json:  denied.";
+            assert_eq!(shown_error(accented, &layout), accented, "{window}");
             // The screen's own messages, the longest of them 103 characters
             // and filling the line on top, are all shown whole.
             for message in [
@@ -1621,19 +1627,72 @@ pub(super) mod tests {
         }
     }
 
-    /// The longest warning the settings loader writes, on Preferences, the
-    /// tab Settings opens on, under real layout at 1040x600, either side of
-    /// 854 px and in the opening window, in both arrangements: cut to two
-    /// lines beside the title in the sidebar, which stays one title tall,
-    /// and to one under the instruction on top; every text inside the window
-    /// and no two meeting; the tab's contents clear of Reset Controls and
-    /// Back; and every control reached by the pointer. A warning that fits
-    /// is drawn as it is, so the opening window shows it as it always did.
-    #[test]
-    fn the_longest_load_warning_keeps_to_its_place_in_both_arrangements() {
+    /// The error line, drawn as `shown` in `window` under real layout, held
+    /// to its place: on the lines the place has room for, two beside the
+    /// title in the sidebar, which stays one title tall, and one under the
+    /// instruction on top; every text inside the window and no two meeting;
+    /// the tab's contents clear of Reset Controls and Back; and every
+    /// control reached by the pointer.
+    fn assert_the_error_keeps_to_its_place(
+        app: &mut App,
+        window: Vec2,
+        shown: &str,
+        context: &str,
+    ) {
         use crate::ui::button::{covered_at_their_centres, reachable_buttons};
         use crate::ui::focus::{drawn_texts, laid_out_texts, measure_drawn_lines};
 
+        let layout = settings_layout(window);
+        let lines = measure_drawn_lines(app, shown);
+        let room = if layout.sidebar() { 2 } else { 1 };
+        assert!(
+            (1..=room).contains(&lines.len()),
+            "{context}: {} lines",
+            lines.len()
+        );
+        let inside = Rect::from_corners(Vec2::ZERO, window);
+        for (text, rect) in laid_out_texts(app) {
+            assert!(
+                inside.contains(rect.min) && inside.contains(rect.max),
+                "{context}: {text:?} at {rect:?}"
+            );
+        }
+        let drawn = drawn_texts(app);
+        for (index, (_, a_text, a)) in drawn.iter().enumerate() {
+            for (_, b_text, b) in &drawn[index + 1..] {
+                assert!(
+                    a.intersect(*b).is_empty(),
+                    "{context}: {a_text:?} meets {b_text:?}"
+                );
+            }
+        }
+        let contents = placed_entity(app, SettingsPlacement::Contents);
+        let contents = node_rect(app, contents);
+        let footer = placed_entity(app, SettingsPlacement::Footer);
+        let footer = node_rect(app, footer);
+        assert!(contents.intersect(footer).is_empty(), "{context}");
+        assert!(
+            inside.contains(footer.min) && inside.contains(footer.max),
+            "{context}: {footer:?}"
+        );
+        if layout.sidebar() {
+            let head = placed_entity(app, SettingsPlacement::Head);
+            let head = node_rect(app, head);
+            assert!((head.height() - 46.0).abs() < 0.5, "{context}: {head:?}");
+        }
+        let buttons = reachable_buttons(app);
+        assert_eq!(covered_at_their_centres(app, &buttons), [], "{context}");
+    }
+
+    /// The longest warning the settings loader writes, on Preferences, the
+    /// tab Settings opens on, under real layout at 1040x600, either side of
+    /// 854 px and in the opening window, in both arrangements: cut to two
+    /// lines beside the title in the sidebar and to one under the
+    /// instruction on top, and keeping to its place
+    /// ([`assert_the_error_keeps_to_its_place`]). A warning that fits is
+    /// drawn as it is, so the opening window shows it as it always did.
+    #[test]
+    fn the_longest_load_warning_keeps_to_its_place_in_both_arrangements() {
         let short = "Keyboard bindings were missing; using keyboard defaults.".to_string();
         let mut warnings = longest_load_warnings().to_vec();
         warnings.push(short.clone());
@@ -1655,51 +1714,159 @@ pub(super) mod tests {
                 if *warning == short {
                     assert_eq!(shown, short, "{context}: shown as it is");
                 }
-                let lines = measure_drawn_lines(&mut app, &shown);
-                let room = if layout.sidebar() { 2 } else { 1 };
-                assert!(
-                    (1..=room).contains(&lines.len()),
-                    "{context}: {} lines",
-                    lines.len()
-                );
-                let inside = Rect::from_corners(Vec2::ZERO, window);
-                for (text, rect) in laid_out_texts(&mut app) {
-                    assert!(
-                        inside.contains(rect.min) && inside.contains(rect.max),
-                        "{context}: {text:?} at {rect:?}"
-                    );
-                }
-                let drawn = drawn_texts(&mut app);
-                for (index, (_, a_text, a)) in drawn.iter().enumerate() {
-                    for (_, b_text, b) in &drawn[index + 1..] {
-                        assert!(
-                            a.intersect(*b).is_empty(),
-                            "{context}: {a_text:?} meets {b_text:?}"
-                        );
-                    }
-                }
-                let contents = placed_entity(&mut app, SettingsPlacement::Contents);
-                let contents = node_rect(&app, contents);
-                let footer = placed_entity(&mut app, SettingsPlacement::Footer);
-                let footer = node_rect(&app, footer);
-                assert!(contents.intersect(footer).is_empty(), "{context}");
-                assert!(
-                    inside.contains(footer.min) && inside.contains(footer.max),
-                    "{context}: {footer:?}"
-                );
-                if layout.sidebar() {
-                    let head = placed_entity(&mut app, SettingsPlacement::Head);
-                    let head = node_rect(&app, head);
-                    assert!((head.height() - 46.0).abs() < 0.5, "{context}: {head:?}");
-                }
-                let buttons = reachable_buttons(&mut app);
-                assert_eq!(
-                    covered_at_their_centres(&mut app, &buttons),
-                    [],
-                    "{context}"
-                );
+                assert_the_error_keeps_to_its_place(&mut app, window, &shown, &context);
             }
         }
+    }
+
+    /// Messages that break where `bevy_ui` breaks them, on the error line
+    /// under real layout in the sidebar at 1040x600, where a line holds 56
+    /// characters, and at 1150x768, where it holds 67, and on top in the
+    /// opening window, where it holds 103: one whose longest word breaks
+    /// after its hyphens and one whose longest word breaks after its
+    /// slashes, each word longer than the narrowest sidebar's line, and one
+    /// with a space before "!" as the last character that line holds, where
+    /// no line may break, so that the word before it moves down and
+    /// `bevy_ui` would set the message on a third line there. At 1040x600
+    /// the first two are drawn as they are, on two lines, and the third in
+    /// the game's own two lines, broken at its spaces. Elsewhere each is
+    /// drawn as it is: on two lines in the sidebar at 1150x768, and on one
+    /// line on top, as it always was. Only the 1040x600 states tell this fit
+    /// from a wrap at spaces alone, which draws all three whole at the other
+    /// two sizes as well. Each keeps to its place as the longest warning
+    /// does.
+    #[test]
+    fn the_error_line_fits_a_message_where_bevy_ui_breaks_it() {
+        use super::super::display::shown_error;
+        use super::super::geometry::ERROR_SIZE;
+        use crate::ui::line_breaks::chars_per_line;
+
+        const HYPHENS: &str = concat!(
+            "Could not save settings to ",
+            "go-together-keyboard-and-controller-bindings-backup.json."
+        );
+        const SLASHES: &str = concat!(
+            "Could not save settings to ",
+            "~/.config/games/settings/keyboard/controller/controls.json."
+        );
+        const SPACED_BANG: &str = concat!(
+            "The controller was unplugged while you were reassigning ! ",
+            "Plug it back in and press a button to go on."
+        );
+        let narrowest = settings_layout(WindowSize::MINIMUM.0);
+        assert_eq!(
+            chars_per_line(narrowest.error_line().0 - 1.0, ERROR_SIZE),
+            56
+        );
+        let game_lines = SPACED_BANG.replacen(" ! ", "\n! ", 1);
+        // The message, and how it is drawn at 1040x600.
+        let messages = [
+            (HYPHENS, HYPHENS),
+            (SLASHES, SLASHES),
+            (SPACED_BANG, game_lines.as_str()),
+        ];
+        for window in [
+            WindowSize::MINIMUM.0,
+            Vec2::new(1150.0, 768.0),
+            WindowSize::OPENING.0,
+        ] {
+            let layout = settings_layout(window);
+            assert_eq!(layout.sidebar(), window != WindowSize::OPENING.0);
+            for (message, at_the_minimum) in messages {
+                let context = format!("{window}, {message:?}");
+                let mut app = laid_out_settings(
+                    window,
+                    ControlMappingState::new(Some(message.into())),
+                    MatchSettings::default(),
+                );
+                let shown = shown_error(message, &layout);
+                if window == WindowSize::MINIMUM.0 {
+                    assert_eq!(shown, at_the_minimum, "{context}");
+                } else {
+                    assert_eq!(shown, message, "{context}: shown as it is");
+                }
+                assert_the_error_keeps_to_its_place(&mut app, window, &shown, &context);
+            }
+        }
+    }
+
+    /// The error line's text node is its place with the place's edges
+    /// rounded to the display's pixels, so a line of it holds the characters
+    /// of a pixel less than the place or those of a pixel more, and a
+    /// message is drawn as it is only where it fits at both. In the sidebar
+    /// the place follows the window's width, and at some widths the two
+    /// counts are one apart: at 1064x600 the place is 479.6 px, a pixel less
+    /// holds 56 characters and a pixel more 57, and the node `bevy_ui` lays
+    /// the text out in is 479 px, which holds 57. A message with a space
+    /// before "!" as the 57th character of its first line takes two lines at
+    /// 56 and three at 57: at 1064x600 it is set in the game's own two
+    /// lines, and at 1040x600, where both counts are 56, it is drawn as it
+    /// is. At 1081x600 the place less a pixel is an exact number of advances,
+    /// 59, which a line holds whole: a message whose first line is 59
+    /// characters is drawn as it is there, on two lines. In each window the
+    /// node holds one of the two counts, and the message keeps to its place
+    /// as the longest warning does. Under real layout.
+    #[test]
+    fn the_error_line_fits_a_message_at_both_counts_its_place_can_hold() {
+        use super::super::display::shown_error;
+        use super::super::geometry::ERROR_SIZE;
+        use crate::ui::line_breaks::chars_per_line;
+
+        const WIDER_BANG: &str = concat!(
+            "The controller was disconnected while you were remapping ! ",
+            "Plug it back in and press any button to go on mapping."
+        );
+        const EXACT_FIT: &str = concat!(
+            "Could not load settings: the keyboard section was stored by ",
+            "a newer version of the game, which this one cannot read."
+        );
+        let game_lines = WIDER_BANG.replacen(" ! ", "\n! ", 1);
+        // The window, the characters a pixel less and a pixel more than its
+        // place hold, the message, and how it is drawn.
+        let cases = [
+            (Vec2::new(1040.0, 600.0), [56, 56], WIDER_BANG, WIDER_BANG),
+            (
+                Vec2::new(1064.0, 600.0),
+                [56, 57],
+                WIDER_BANG,
+                game_lines.as_str(),
+            ),
+            (Vec2::new(1081.0, 600.0), [59, 59], EXACT_FIT, EXACT_FIT),
+        ];
+        for (window, counts, message, drawn) in cases {
+            let context = format!("{window}, {message:?}");
+            let layout = settings_layout(window);
+            assert!(layout.sidebar(), "{context}");
+            let (width, room) = layout.error_line();
+            assert_eq!(room, 2, "{context}");
+            assert_eq!(
+                [width - 1.0, width + 1.0].map(|width| chars_per_line(width, ERROR_SIZE)),
+                counts,
+                "{context}: {width} px"
+            );
+            let mut app = laid_out_settings(
+                window,
+                ControlMappingState::new(Some(message.into())),
+                MatchSettings::default(),
+            );
+            let shown = shown_error(message, &layout);
+            assert_eq!(shown, drawn, "{context}");
+            let world = app.world_mut();
+            let node = world
+                .query::<(&MappingUiRole, &ComputedNode)>()
+                .iter(world)
+                .find(|(role, _)| matches!(role, MappingUiRole::Error))
+                .map(|(_, node)| node.size.x * node.inverse_scale_factor)
+                .expect("the error line is laid out");
+            assert!(
+                counts.contains(&chars_per_line(node, ERROR_SIZE)),
+                "{context}: a node {node} px wide"
+            );
+            assert_the_error_keeps_to_its_place(&mut app, window, &shown, &context);
+        }
+        // At 1081x600 a hair less than the place less a pixel holds 58.
+        let (width, _) = settings_layout(Vec2::new(1081.0, 600.0)).error_line();
+        assert_eq!(chars_per_line(width - 1.01, ERROR_SIZE), 58);
     }
 
     /// Every message the screen itself puts on its error line, and every
