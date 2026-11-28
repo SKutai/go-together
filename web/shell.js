@@ -14,12 +14,15 @@ const minimumHeight = 600;
 // a resize. A page smaller than the minimum in either direction gets a
 // canvas the minimum's size in that direction, drawn scaled down by one
 // factor until it fits, as a desktop window smaller than the minimum is.
+// Both directions come from the layout viewport: browser zoom changes it,
+// and the game lays itself out again, but a pinch zoom only magnifies the
+// page and leaves the game's layout alone.
 const layOutCanvas = () => {
   if (!canvas || !frame || !shell || !shellCopy) {
     return;
   }
   const viewportWidth = document.documentElement.clientWidth;
-  const viewportHeight = window.visualViewport?.height ?? document.documentElement.clientHeight;
+  const viewportHeight = document.documentElement.clientHeight;
   const shellStyle = getComputedStyle(shell);
   const horizontalPadding =
     Number.parseFloat(shellStyle.paddingLeft) + Number.parseFloat(shellStyle.paddingRight);
@@ -92,7 +95,6 @@ if (canvas) {
 
 layOutCanvas();
 window.addEventListener("resize", layOutCanvas);
-window.visualViewport?.addEventListener("resize", layOutCanvas);
 if (shellCopy && "ResizeObserver" in window) {
   new ResizeObserver(layOutCanvas).observe(shellCopy);
 }
