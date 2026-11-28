@@ -244,8 +244,9 @@ pub(super) struct ViewerOverlay<'w, 's> {
 /// playback crossed an event.
 ///
 /// The comparison borrows this cached key rather than rebuilding it, so the
-/// steady-state frame allocates nothing; `replay_id` is cloned only when the
-/// key actually changes and is stored. The gate saves 180 entity iterations:
+/// steady-state frame allocates nothing; `replay_id` is cloned only on a
+/// frame that redraws - the key changed, or the board was just spawned -
+/// when the key is stored. The gate saves 180 entity iterations:
 /// 81 intersections and their 81 rings, two cursors, two score badges, two
 /// markers and the twelve selection marks. Their writes are already
 /// compare-guarded inside [`update_viewer_board_visuals`], so paying two
@@ -617,7 +618,7 @@ mod tests {
     /// scores and a four-digit year - character for character but for
     /// which digit stands where, since the result's timestamp is local
     /// time. The round line is as long however much of the round is left,
-    /// and as short with Round Time off or in a Replay from before it was
+    /// and shorter with Round Time off or in a Replay from before it was
     /// recorded; the result line is no longer for a draw or for the other
     /// winner. And each grows past what the layout names its assumptions
     /// at: 1,000 minutes, round 10,000 and a score of 1,000.

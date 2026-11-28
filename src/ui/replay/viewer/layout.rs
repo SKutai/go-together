@@ -21,11 +21,12 @@
 //! by [`place_viewer_furniture`] and, through [`placed`], at spawn, so the
 //! two cannot disagree. The countdown card's row is the one node spawned
 //! another way, through the shared card's own `overlay_node`, which
-//! [`place`] keeps to: both read the same `overlay_top`. That system also
-//! gives the main camera the board's framing, which is how the board, and
-//! everything drawn on it, is placed and scaled; the score badges, which
-//! are drawn at their own size whatever the board does, are placed with
-//! the rest of the board by [`super::display`].
+//! [`place`] keeps to: both read the same `overlay_top`.
+//! [`place_viewer_furniture`] also gives the main camera the board's
+//! framing, which is how the board, and everything drawn on it, is placed
+//! and scaled; the score badges, which are drawn at their own size whatever
+//! the board does, are placed with the rest of the board by
+//! [`super::display`].
 //!
 //! The header's four texts - the label, the timer, the round and the
 //! result line - are spawned twice, once for each arrangement, and the
@@ -182,8 +183,12 @@ pub(super) const VIEWER_COUNTDOWN_CARD: CountdownCard = CountdownCard {
 pub(super) enum ViewerPlacement {
     /// The row of Back, tall's label and Match Settings.
     HeaderRow,
-    /// Tall's label, in the middle of that row.
+    /// The middle of that row, which holds tall's label.
     TallLabel,
+    /// Tall's label itself, as wide as the characters a line of it holds in
+    /// the window and half a character more, so that it breaks its lines
+    /// where the layout counts them ([`super::geometry::TallLabelRoom`]).
+    TallLabelText,
     /// One of tall's three lines under the row.
     TallLine(HeaderLine),
     /// Wide's column under Back, holding its own four header texts.
@@ -217,6 +222,7 @@ pub(super) fn place(layout: &ViewerLayout, placement: ViewerPlacement, node: &mu
     match placement {
         ViewerPlacement::HeaderRow => node.top = px(layout.header_top()),
         ViewerPlacement::TallLabel => node.display = shown(!layout.has_column()),
+        ViewerPlacement::TallLabelText => node.width = px(layout.tall_label_width()),
         ViewerPlacement::TallLine(line) => {
             node.display = shown(!layout.has_column());
             node.top = px(layout.tall_line_top(line));
@@ -274,7 +280,8 @@ pub(super) fn placed(
 /// The layout for the window's size and the open Replay's label: what the
 /// placement pass places by, and the display pass the board's marks.
 pub(super) fn current_layout(window: &WindowSize, replay: &Replay) -> ViewerLayout {
-    viewer_layout(window.layout(), TallLabelRoom::for_label(&replay.label))
+    let size = window.layout();
+    viewer_layout(size, TallLabelRoom::for_label(&replay.label, size.x))
 }
 
 /// Keeps the Viewer's furniture where [`super::geometry`] puts it for the
@@ -640,10 +647,7 @@ fn spawn_viewer_ui(commands: &mut Commands, replay: &Replay, layout: &ViewerLayo
                     ))
                     .with_child((
                         header_text(ViewerText::Label, replay.label.clone()),
-                        Node {
-                            width: percent(100),
-                            ..default()
-                        },
+                        placed(layout, ViewerPlacement::TallLabelText, Node::default()),
                         ViewerText::Label,
                     ));
                 header
@@ -1598,9 +1602,10 @@ mod tests {
         )
     }
 
-    const PLACEMENTS: [ViewerPlacement; 13] = [
+    const PLACEMENTS: [ViewerPlacement; 14] = [
         ViewerPlacement::HeaderRow,
         ViewerPlacement::TallLabel,
+        ViewerPlacement::TallLabelText,
         ViewerPlacement::TallLine(HeaderLine::Timer),
         ViewerPlacement::TallLine(HeaderLine::Round),
         ViewerPlacement::TallLine(HeaderLine::Result),
@@ -1635,13 +1640,14 @@ mod tests {
     /// the node it was, starting from either layout: each arrangement, and
     /// each form of the Key, sets every field that any of them sets. And
     /// moving it changes it, so each really is placed from the window:
-    /// every one between the opening window and 1040x700, whose layout
+    /// every one between the opening window and 1080x700, whose layout
     /// differs in arrangement, in the board's size, in the piece's place
-    /// down the window, and in the Key's form.
+    /// down the window, in the Key's form and in the characters a line of
+    /// tall's label holds.
     #[test]
     fn a_placed_node_moved_and_moved_back_is_the_node_it_was() {
         let opening = opening();
-        let other = viewer_layout(Vec2::new(1040.0, 700.0), TallLabelRoom::TwoLines);
+        let other = viewer_layout(Vec2::new(1080.0, 700.0), TallLabelRoom::TwoLines);
         for placement in PLACEMENTS {
             for (from, to) in [(&opening, &other), (&other, &opening)] {
                 let (start, _) = placed(from, placement, sentinel());

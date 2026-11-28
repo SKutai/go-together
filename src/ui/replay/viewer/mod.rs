@@ -629,10 +629,8 @@ mod tests {
             .as_ref()
             .expect("a Replay is open")
             .label;
-        geometry::viewer_layout(
-            app.world().resource::<WindowSize>().layout(),
-            geometry::TallLabelRoom::for_label(label),
-        )
+        let size = app.world().resource::<WindowSize>().layout();
+        geometry::viewer_layout(size, geometry::TallLabelRoom::for_label(label, size.x))
     }
 
     /// The camera's framing in `app` is the one the Viewer's layout gives
@@ -984,10 +982,11 @@ mod tests {
         at_countdown(&mut app);
         assert!(countdown_shown(&mut app));
         let opening = placed_state(&mut app);
-        // The header row, tall's label and its three lines, wide's column,
-        // the countdown, the transport row, the Key's panel, body and two
-        // columns, and the two wordings of the Key's badge row.
-        assert_eq!(opening.0.len(), 14);
+        // The header row, the middle of it, tall's label and its three
+        // lines, wide's column, the countdown, the transport row, the Key's
+        // panel, body and two columns, and the two wordings of the Key's
+        // badge row.
+        assert_eq!(opening.0.len(), 15);
 
         resize(&mut app, laptop);
         let moved = placed_state(&mut app);
@@ -1065,7 +1064,7 @@ mod tests {
             .map(|window| (window, replay.clone()))
             .chain([(WindowSize::OPENING.0, three_lines)]);
         for (window, replay) in cases {
-            let label_lines = geometry::TallLabelRoom::for_label(&replay.label);
+            let label_lines = geometry::TallLabelRoom::for_label(&replay.label, window.x);
             let mut app = viewer_app(window, replay);
             app.update();
             assert_frames_its_board(&mut app, &format!("{window} {label_lines:?}"));
@@ -1336,31 +1335,37 @@ mod tests {
                             assert_eq!(as_nines(&drawn), as_nines(longest), "{context}");
                         }
                     }
-                    let items = drawn_items(&mut app);
-                    // Back, Match Settings, the nine transport controls, the
-                    // label, the timer, the round, the result, the board and
-                    // two badges.
-                    assert_eq!(items.len(), 18, "{context}: {items:#?}");
-                    let inside = Rect::from_corners(Vec2::ZERO, window);
-                    for (name, rect) in &items {
-                        assert!(
-                            inside.contains(rect.min) && inside.contains(rect.max),
-                            "{context}: {name} at {rect:?} leaves the window"
-                        );
-                    }
-                    for (index, (name, rect)) in items.iter().enumerate() {
-                        for (other, other_rect) in &items[index + 1..] {
-                            let pair = [name.as_str(), other.as_str()];
-                            if pair.contains(&"board") && pair.contains(&"score badge") {
-                                continue;
-                            }
-                            assert!(
-                                rect.intersect(*other_rect).is_empty(),
-                                "{context}: {name} {rect:?} meets {other} {other_rect:?}"
-                            );
-                        }
-                    }
+                    assert_drawn_apart(&mut app, window, &context);
                 }
+            }
+        }
+    }
+
+    /// Everything the Viewer in `app` draws, as [`drawn_items`] measures it,
+    /// stands inside the window and meets nothing else, but for the score
+    /// badges, which stand over the board.
+    fn assert_drawn_apart(app: &mut App, window: Vec2, context: &str) {
+        let items = drawn_items(app);
+        // Back, Match Settings, the nine transport controls, the label, the
+        // timer, the round, the result, the board and two badges.
+        assert_eq!(items.len(), 18, "{context}: {items:#?}");
+        let inside = Rect::from_corners(Vec2::ZERO, window);
+        for (name, rect) in &items {
+            assert!(
+                inside.contains(rect.min) && inside.contains(rect.max),
+                "{context}: {name} at {rect:?} leaves the window"
+            );
+        }
+        for (index, (name, rect)) in items.iter().enumerate() {
+            for (other, other_rect) in &items[index + 1..] {
+                let pair = [name.as_str(), other.as_str()];
+                if pair.contains(&"board") && pair.contains(&"score badge") {
+                    continue;
+                }
+                assert!(
+                    rect.intersect(*other_rect).is_empty(),
+                    "{context}: {name} {rect:?} meets {other} {other_rect:?}"
+                );
             }
         }
     }
@@ -1424,20 +1429,39 @@ mod tests {
         "Saturday game with my aunt Lucy, best of three, round one. ",
     ];
 
+    /// A label that takes three lines in tall's header only from a window
+    /// wider than the narrowest: a space that fits on a line is followed by
+    /// the line-breaking rules, and no line starts with `!`.
+    const WIDER_THREE_LINES: &str = "Saturday night with my brothers ! He won the final again";
+
+    /// The tall windows the Viewer's label is checked in: the narrowest;
+    /// 1058 and 1059 px wide, either side of where a line of the label
+    /// first holds 32 characters; 1100x900, 33; and 1300x1300, 39.
+    const TALL_WINDOWS: [Vec2; 5] = [
+        Vec2::new(1040.0, 900.0),
+        Vec2::new(1058.0, 900.0),
+        Vec2::new(1059.0, 900.0),
+        Vec2::new(1100.0, 900.0),
+        Vec2::new(1300.0, 1300.0),
+    ];
+
     /// The judgement of which labels tall gives a third line, against what
-    /// `bevy_ui` does with them in the Viewer itself, in the narrowest
-    /// window's header, where labels wrap the most: every label given two
-    /// lines is drawn on two at most, and every label drawn on two is given
-    /// two, among the labels a player might write and those the game writes
-    /// by itself.
+    /// `bevy_ui` does with them in the Viewer itself, in tall windows from
+    /// the narrowest up: in each, every label given two lines is drawn on
+    /// two at most, every label drawn on two is given two, and nothing
+    /// drawn meets anything else - a label drawn on three among them, whose
+    /// third line used to run over the timer - for the labels a player
+    /// might write, one that takes three lines only in a wider window, and
+    /// one the game writes by itself.
     #[test]
     fn tall_draws_a_label_it_gives_two_lines_on_two_at_most() {
         use super::geometry::TallLabelRoom;
-        use crate::app::visuals::WindowSize;
         use crate::replay::default_replay_label;
         use crate::rules::Score;
+        use crate::ui::arrangement::Arrangement;
 
         let mut labels: Vec<String> = REALISTIC_LABELS.map(String::from).into();
+        labels.push(WIDER_THREE_LINES.into());
         labels.push(default_replay_label(
             Score {
                 black: 999,
@@ -1446,31 +1470,48 @@ mod tests {
             "2026-11-27 23:59",
         ));
         let mut seen = [0; 2];
-        for label in labels {
-            let mut replay = fixed_metadata_replay();
-            replay.label = label.clone();
-            let mut app = viewer_app(WindowSize::OPENING.0, replay);
-            app.update();
-            let lines = label_lines(&mut app);
-            let given_two = TallLabelRoom::for_label(&label) == TallLabelRoom::TwoLines;
-            assert_eq!(given_two, lines <= 2, "{label:?} is drawn on {lines} lines");
-            seen[usize::from(given_two)] += 1;
+        for window in TALL_WINDOWS {
+            for label in &labels {
+                let mut replay = fixed_metadata_replay();
+                replay.label = label.clone();
+                let mut app = viewer_app(window, replay);
+                app.update();
+                let context = format!("{window} {label:?}");
+                assert_eq!(layout_of(&app).arrangement, Arrangement::Tall, "{context}");
+                let lines = label_lines(&mut app);
+                let given_two =
+                    TallLabelRoom::for_label(label, window.x) == TallLabelRoom::TwoLines;
+                assert_eq!(given_two, lines <= 2, "{context} is drawn on {lines} lines");
+                assert_drawn_apart(&mut app, window, &context);
+                seen[usize::from(given_two)] += 1;
+                if label == WIDER_THREE_LINES {
+                    // Three at 32 characters, two at 31 and from 33.
+                    let expected = if window.x == 1059.0 { 3 } else { 2 };
+                    assert_eq!(lines, expected, "{context}");
+                }
+            }
         }
-        assert!(seen[0] >= 4 && seen[1] >= 10, "{seen:?}");
+        assert!(seen[0] >= 10 && seen[1] >= 80, "{seen:?}");
     }
 
-    /// Labels of many kinds, for [`the_label_check_counts_the_lines_bevy_ui_sets`]:
-    /// the realistic ones; the labels the game writes by itself, at small
-    /// and large scores; each printable punctuation mark at and around the
-    /// place where a 31-character line has to break, after a space, after
-    /// a word, inside a word and before a space; and some hundreds
-    /// generated from words, punctuation and runs of spaces. Every one is a
-    /// label a Replay may have.
-    fn label_corpus() -> Vec<String> {
+    /// Labels of many kinds, for
+    /// [`the_label_check_counts_the_lines_bevy_ui_sets`] at `chars`
+    /// characters to a line: the realistic ones; the labels the game writes
+    /// by itself, at small and large scores; each printable punctuation
+    /// mark at every place from four characters before the end of a full
+    /// first line to one after it - after a space, after a word, inside a
+    /// word, between spaces, before a digit after a space or a letter, and
+    /// inside a number - and every two marks side by side where a full line
+    /// ends, so that where a rule lets the first line break, or does not,
+    /// decides where the second starts; and some hundreds generated from
+    /// words, punctuation and runs of spaces. Every one is a label a Replay
+    /// may have.
+    fn label_corpus(chars: usize) -> Vec<String> {
         use crate::replay::{default_replay_label, validate_label};
         use crate::rules::Score;
 
         let mut labels: Vec<String> = REALISTIC_LABELS.map(String::from).into();
+        labels.push(WIDER_THREE_LINES.into());
         for (black, white) in [
             (0, 0),
             (3, 1),
@@ -1485,20 +1526,40 @@ mod tests {
         }
         for mark in (b'!'..=b'~').filter(|byte| !byte.is_ascii_alphanumeric()) {
             let mark = char::from(mark);
-            for at in 27..=32 {
-                let word = "a".repeat(at - 1);
-                for label in [
-                    format!("A{} {mark}bbbbbbbbbb cc", &word[1..]),
-                    format!("A{word}{mark} bbbbbbbbbb cc"),
-                    format!("A{word}{mark}bbbbbbbbbb cc"),
-                    format!("A{} {mark} bbbbbbbbbb cc", &word[1..]),
+            for at in chars - 4..=chars + 1 {
+                // A word that ends just before `at`, and one more letter.
+                let (short, long) = ("a".repeat(at - 2), "a".repeat(at - 1));
+                for head in [
+                    format!("A{short} {mark}bbbbbbbbbb cc"),
+                    format!("A{long}{mark} bbbbbbbbbb cc"),
+                    format!("A{long}{mark}bbbbbbbbbb cc"),
+                    format!("A{short} {mark} bbbbbbbbbb cc"),
+                    format!("A{short} {mark}9bbbbbbbbb cc"),
+                    format!("A{long}{mark}9bbbbbbbbb cc"),
+                    format!("A{} 9{mark}9bbbbbbbb cc", "a".repeat(at - 3)),
                 ] {
+                    let mut label = head;
+                    label.truncate(60);
                     labels.push(label);
                 }
             }
         }
+        // Every two marks side by side where a full line ends, after a
+        // space earlier on the line: whether a line may break between them
+        // decides whether it ends there or at that space.
+        let marks: Vec<char> = (b'!'..=b'~')
+            .filter(|byte| !byte.is_ascii_alphanumeric())
+            .map(char::from)
+            .collect();
+        for first in &marks {
+            for second in &marks {
+                let mut label = format!("A {}{first}{second}bbbbbbbbbb cc", "a".repeat(chars - 3));
+                label.truncate(60);
+                labels.push(label);
+            }
+        }
         // A small generator, so the corpus is the same on every run.
-        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15 ^ chars as u64;
         let mut next = |below: usize| {
             state ^= state << 13;
             state ^= state >> 7;
@@ -1560,38 +1621,46 @@ mod tests {
         labels
     }
 
-    /// Every label of [`label_corpus`], laid out by `bevy_ui` 498 px wide,
-    /// as tall sets its label in the narrowest window's header: the lines
-    /// each is set on are the lines [`wrap`] counts for 31 characters of
-    /// 26 px to a line, label for label, so tall gives a third line to
-    /// exactly the labels set on three.
+    /// The widths the label corpus is laid out at, in logical pixels: tall's
+    /// label in the narrowest window, 31 characters and half of one; in a
+    /// 1059 px window, 32 and half of one; and in a window past the cap's
+    /// width, 51 and half of one; wide's column at 1040x600, 234 px, which
+    /// is 15 characters exactly and holds 14; at 1920x1080, 434 px; and two
+    /// more exact fits, 468 px and 546 px, which hold 29 and 34.
+    const CORPUS_WIDTHS: [f32; 7] = [491.4, 507.0, 803.4, 234.0, 434.0, 468.0, 546.0];
+
+    /// Every label of [`label_corpus`], laid out by `bevy_ui` at each of
+    /// [`CORPUS_WIDTHS`] as tall sets its label, and its lines read back
+    /// character by character from where `bevy_ui` put each glyph: every
+    /// character stands on the line [`wrap`] puts it on, at the number of
+    /// characters [`wrap::chars_per_line`] says the width holds, and every
+    /// label is set on as many lines as `wrap` counts, empty last ones
+    /// included. So tall gives a third line to exactly the labels `bevy_ui`
+    /// sets on three, and a change to any one of `wrap`'s rules moves some
+    /// character here onto another line.
     #[test]
     fn the_label_check_counts_the_lines_bevy_ui_sets() {
-        use super::geometry::{TallLabelRoom, VIEWER_HEADER_INSET, VIEWER_LABEL_SIZE};
+        use super::geometry::VIEWER_LABEL_SIZE;
         use super::layout::header_text;
-        use crate::app::visuals::{MIN_WINDOW_WIDTH, WindowSize};
+        use crate::app::visuals::WindowSize;
         use crate::ui::focus::real_layout_app;
-        use crate::ui::text_metrics::line_width;
         use bevy::text::TextLayoutInfo;
 
-        let width = (MIN_WINDOW_WIDTH as f32 - 2.0 * VIEWER_HEADER_INSET) / 2.0;
-        assert_eq!(width, 498.0);
-        assert!(line_width(31, VIEWER_LABEL_SIZE) <= width);
-        assert!(line_width(32, VIEWER_LABEL_SIZE) > width);
-        let labels = label_corpus();
         let mut app = real_layout_app(WindowSize::OPENING.0);
-        let root = app
-            .world_mut()
-            .spawn(Node {
-                position_type: PositionType::Absolute,
-                flex_direction: FlexDirection::Column,
-                ..default()
-            })
-            .id();
-        let nodes: Vec<Entity> = labels
-            .iter()
-            .map(|label| {
-                app.world_mut()
+        let mut laid_out = Vec::new();
+        for width in CORPUS_WIDTHS {
+            let chars = wrap::chars_per_line(width, VIEWER_LABEL_SIZE);
+            let root = app
+                .world_mut()
+                .spawn(Node {
+                    position_type: PositionType::Absolute,
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                })
+                .id();
+            for label in label_corpus(chars) {
+                let node = app
+                    .world_mut()
                     .spawn((
                         header_text(ViewerText::Label, label.clone()),
                         Node {
@@ -1600,25 +1669,31 @@ mod tests {
                         },
                         ChildOf(root),
                     ))
-                    .id()
-            })
-            .collect();
+                    .id();
+                laid_out.push((width, chars, label, node));
+            }
+        }
         app.update();
         app.update();
         let mut seen = [0; 4];
-        for (label, node) in labels.iter().zip(nodes) {
-            let set = lines_set(app.world().get::<TextLayoutInfo>(node).unwrap());
-            assert_eq!(wrap::wrapped_lines(label, 31, true), set, "{label:?}");
-            assert_eq!(
-                TallLabelRoom::for_label(label) == TallLabelRoom::TwoLines,
-                set <= 2,
-                "{label:?}"
-            );
+        for (width, chars, label, node) in &laid_out {
+            let layout = app.world().get::<TextLayoutInfo>(*node).unwrap();
+            let context = format!("{width} px, {chars} characters: {label:?}");
+            assert_eq!(layout.glyphs.len(), label.len(), "{context}: a glyph each");
+            let mut starts = Vec::new();
+            wrap::for_each_line(label.as_bytes(), *chars, true, |start| starts.push(start));
+            let lines_of: Vec<u32> = (0..label.len())
+                .map(|index| (starts.partition_point(|start| *start <= index) - 1) as u32)
+                .collect();
+            let drawn: Vec<u32> = layout.glyphs.iter().map(|glyph| glyph.line_index).collect();
+            assert_eq!(drawn, lines_of, "{context}: the line each character is on");
+            let set = lines_set(layout);
+            assert_eq!(set, starts.len(), "{context}: the lines");
             seen[set.min(3)] += 1;
         }
         assert!(
-            seen[1] >= 10 && seen[2] >= 100 && seen[3] >= 20,
-            "the corpus reaches one, two and three lines: {seen:?}"
+            seen[1] >= 500 && seen[2] >= 5_000 && seen[3] >= 500,
+            "the corpus reaches one, two and three lines and more: {seen:?}"
         );
     }
 
@@ -1641,13 +1716,22 @@ mod tests {
         shown[0]
     }
 
+    /// What the Key says of the score badges at 1040x900, byte for byte the
+    /// sentence it has always said there, and what it says in wide, where
+    /// the result line stands beside the board.
+    const KEY_BADGE_SENTENCE_TALL: &str = "Score badges show each player's score beside their cursor. When both cursors share a point, Black / P1's is on the left, as in the score at the top.";
+    const KEY_BADGE_SENTENCE_WIDE: &str = "Score badges show each player's score beside their cursor. When both cursors share a point, Black / P1's is on the left, as in the score beside the board.";
+
     /// The Key's panel and the Match Settings panel, as `bevy_ui` lays them
     /// out, stand inside the window with 12 px to spare at every named size
     /// and at either side of the Key's switch to two columns, 721 and 722
     /// px tall: Match Settings for a Replay with every end reason it lists,
     /// and the Key in one column from 722 px and in two below. The Key's
     /// height in each form is what the layout reckons with, measured here
-    /// at a scale factor of 1.
+    /// at a scale factor of 1. And the Key shows the one wording of its
+    /// badge sentence that is true in the window's arrangement: in tall,
+    /// as at 1040x900, the sentence it has always shown there, and in wide
+    /// the one that points beside the board.
     #[test]
     fn the_key_stands_inside_the_window_in_either_form() {
         use super::geometry::{
@@ -1659,6 +1743,7 @@ mod tests {
         let mut sizes = NAMED_WINDOW_SIZES.to_vec();
         sizes.extend([Vec2::new(1040.0, 721.0), Vec2::new(1040.0, 722.0)]);
         let mut forms = Vec::new();
+        let mut wordings_seen = [false, false];
         for window in sizes {
             let mut app = viewer_app(window, every_end_reason());
             let inside = Rect::from_corners(Vec2::splat(12.0), window - Vec2::splat(12.0));
@@ -1697,6 +1782,31 @@ mod tests {
                 "{window}: the Key is {} against {expected}",
                 key.size()
             );
+            let shown_wordings: Vec<String> = {
+                use bevy::ui::ComputedNode;
+                let world = app.world_mut();
+                world
+                    .query::<(
+                        &layout::ViewerPlacement,
+                        &Text,
+                        &ComputedNode,
+                        &InheritedVisibility,
+                    )>()
+                    .iter(world)
+                    .filter(|(placement, _, node, visibility)| {
+                        matches!(placement, layout::ViewerPlacement::KeySentence(_))
+                            && visibility.get()
+                            && node.size() != Vec2::ZERO
+                    })
+                    .map(|(_, text, ..)| text.0.clone())
+                    .collect()
+            };
+            let (wording, seen) = match layout_of(&app).arrangement {
+                crate::ui::arrangement::Arrangement::Tall => (KEY_BADGE_SENTENCE_TALL, 0),
+                crate::ui::arrangement::Arrangement::Wide => (KEY_BADGE_SENTENCE_WIDE, 1),
+            };
+            assert_eq!(shown_wordings, [wording], "{window}");
+            wordings_seen[seen] = true;
             forms.push(one_column);
             close_open_viewer_modal(&mut app.world_mut().resource_mut::<ReplayViewerState>());
             app.world_mut()
@@ -1725,6 +1835,7 @@ mod tests {
             );
         }
         assert!(forms.contains(&true) && forms.contains(&false));
+        assert_eq!(wordings_seen, [true, true], "both wordings were checked");
     }
 
     /// The whole screen driven without a pointer, over real `bevy_ui`
@@ -2097,16 +2208,21 @@ mod tests {
 
     /// The opening window as `bevy_ui` lays it out through the game's own
     /// plugins, written out as numbers: Back and Match Settings in the
-    /// header row, the label's node between them and the three lines under
-    /// it, and every control of the transport row - and the board drawn by
-    /// the camera at its own size over the origin. They are the numbers the
-    /// screen was laid out at before it was laid out for other sizes,
-    /// measured on `main` on 2026-11-28 with the same reading. A slip in an
-    /// arm of the placement that the opening window reaches shows here, and
-    /// not only in the pure layout's arithmetic.
+    /// header row, the label between them and the three lines under it,
+    /// every control of the transport row and Play's label, and no other
+    /// button or header text - and the board drawn by the camera at its own
+    /// size over the origin. They are the numbers the screen was laid out
+    /// at before it was laid out for other sizes, measured on `main` on
+    /// 2026-11-28 with the same reading, but for the label's node: that is
+    /// now as wide as 31 characters and half of one, 492 px where it was
+    /// 498, and centred as before, so its glyphs are drawn where `main`
+    /// drew them, which their ink is held to. A slip in an arm of the
+    /// placement that the opening window reaches shows here, and not only
+    /// in the pure layout's arithmetic.
     #[test]
     fn the_opening_window_lays_the_viewer_out_where_it_always_did() {
         use crate::app::visuals::{WindowSize, WorldFraming};
+        use crate::ui::focus::drawn_texts;
         use bevy::ui::{ComputedNode, UiGlobalTransform};
 
         let mut app = viewer_app(WindowSize::OPENING.0, fixed_metadata_replay());
@@ -2171,10 +2287,11 @@ mod tests {
             .map(|(text, node, transform, _)| (*text, shown_rect(node, transform)))
             .collect();
         for (role, expected) in [
-            (ViewerText::Label, rect(271.0, 15.0, 498.0, 32.0)),
+            (ViewerText::Label, rect(274.0, 15.0, 492.0, 32.0)),
             (ViewerText::Timer, rect(0.0, 80.0, 1040.0, 22.0)),
             (ViewerText::Round, rect(0.0, 104.0, 1040.0, 20.0)),
             (ViewerText::Result, rect(0.0, 128.0, 1040.0, 17.0)),
+            (ViewerText::PlayPause, rect(419.0, 850.0, 36.0, 18.0)),
         ] {
             let found: Vec<Rect> = texts
                 .iter()
@@ -2184,5 +2301,22 @@ mod tests {
             assert_eq!(found.len(), 1, "one {role:?} is shown");
             assert!(close(found[0], expected), "{role:?} at {:?}", found[0]);
         }
+        assert_eq!(texts.len(), 5, "and no other text: {texts:?}");
+        let label = drawn_texts(&mut app)
+            .into_iter()
+            .filter(|(_, text, _)| text == "Sample Replay")
+            .map(|(_, _, ink)| ink)
+            .collect::<Vec<_>>();
+        assert_eq!(label.len(), 1);
+        let expected = Rect::new(418.6, 19.0, 620.8, 45.0);
+        assert!(
+            (label[0].min - expected.min)
+                .abs()
+                .max(label[0].max - expected.max)
+                .max_element()
+                < 0.01,
+            "the label's ink at {:?}",
+            label[0]
+        );
     }
 }

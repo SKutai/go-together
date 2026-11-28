@@ -1,26 +1,32 @@
 //! Where `bevy_ui` breaks the lines of the Viewer's text, worked out
-//! without laying it out: how many lines a text takes at so many
-//! characters to a line.
+//! without laying it out: how many characters a line holds, and how many
+//! lines a text takes at so many characters to a line.
 //!
 //! Every text in the game is printable ASCII in a monospaced font (see
 //! [`crate::ui::text_metrics`]), so a line's width is its length in
 //! characters, and where it may break depends only on which characters
-//! stand around the place. Both halves of the answer are rules, followed
-//! here exactly rather than estimated:
+//! stand around the place. All three parts of the answer are rules,
+//! followed here exactly rather than estimated:
 //!
+//! * **How many characters a line holds** is what parley, the layout
+//!   engine `bevy_ui` uses, counts: it adds the font's advance, as it
+//!   scales it, one character at a time in single precision, and a
+//!   character fits while the sum is no more than the line's width
+//!   ([`chars_per_line`]). So a width that is an exact number of advances
+//!   may hold one character fewer: thirty characters at 26 px add up to
+//!   a little over 468 px, and 468 px holds twenty-nine.
 //! * **Where a line may break** is the Unicode line-breaking algorithm,
-//!   UAX #14, which the layout engine `bevy_ui` uses takes from ICU.
-//!   Printable ASCII falls into fourteen of its classes ([`Class`]), and
-//!   [`may_break_before`] is its rules for those, as ICU applies them. A
-//!   line may break after a space, unless what follows is one of `)` `]`
-//!   `}` `!` `?` `,` `.` `:` `;` `/`, none of which starts a line, or the
-//!   spaces follow `(` `[` `{`, after which no line breaks; so `(`, a
-//!   quotation mark or `-` may start a line after a space. Between two
-//!   other characters a line breaks after `-` or `/` that no digit
-//!   follows, after `|` `!` `?`, and in a few other places beside
-//!   punctuation, but never inside a word or a number, nor beside a
-//!   quotation mark.
-//! * **How lines are filled** is the way that engine fills them: each line
+//!   UAX #14, which parley takes from ICU. Printable ASCII falls into
+//!   fourteen of its classes ([`Class`]), and [`may_break_before`] is its
+//!   rules for those, as ICU applies them. A line may break after a space,
+//!   unless what follows is one of `)` `]` `}` `!` `?` `,` `.` `:` `;` `/`,
+//!   none of which starts a line, or the spaces follow `(` `[` `{`, after
+//!   which no line breaks; so `(`, a quotation mark or `-` may start a line
+//!   after a space. Between two other characters a line breaks after `-`
+//!   or `/` that no digit follows, after `|` `!` `?`, and in a few other
+//!   places beside punctuation, but never inside a word or a number, nor
+//!   beside a quotation mark.
+//! * **How lines are filled** is the way parley fills them: each line
 //!   takes as many characters as fit, and when the next does not, the line
 //!   ends at the last place on it that it may break. A space that does not
 //!   fit hangs past the end of its line, and the line ends after it, so
@@ -30,14 +36,40 @@
 //!   inside a word (`LineBreak::WordOrCharacter`), breaks after the last
 //!   character that fits - but only on a line with no other place to break.
 //!
-//! Both were checked on 2026-11-28, the breaks against ICU's segmenter
-//! (`icu_segmenter` 2.3) for every printable ASCII string of up to four
-//! characters and two million longer ones, and the lines against the
-//! engine itself (`parley` 0.11, with Bevy's default font) for 650,000
-//! texts of up to 60 characters, at the sizes and widths the Viewer sets
-//! them at; they agreed on every one. A test in [`super`] holds the lines
-//! to what `bevy_ui` draws for a corpus of labels, so a change in either
-//! would show there.
+//! The three were checked on 2026-11-28 against what they follow: the
+//! breaks against ICU's segmenter (`icu_segmenter` 2.3) for every
+//! printable ASCII string of up to four characters and two million longer
+//! ones; the lines against parley 0.11 itself, with Bevy's default font,
+//! for 650,000 texts of up to 60 characters at the sizes and widths the
+//! Viewer sets them at; and the count of characters against parley at
+//! 32,636 widths, every exact fit among them. They agreed on every one.
+//! In the game, a test in [`super`] lays a corpus of labels out with
+//! `bevy_ui` at several widths and holds where each of their lines starts
+//! to this, character for character, which a change to any one rule here
+//! fails.
+
+/// The font's advance at `font_px`, in pixels at a scale factor of 1, as
+/// parley scales it: 600 units of a 1000-unit em, the size divided by the
+/// em before it multiplies the units, in single precision. At some sizes
+/// that is a unit in the last place away from `0.6 * font_px`.
+fn advance(font_px: f32) -> f32 {
+    600.0 * (font_px / 1000.0)
+}
+
+/// How many characters at `font_px` a line `width` pixels wide holds, as
+/// parley counts them at a scale factor of 1: the font's [`advance`] added
+/// one character at a time, each character fitting while the sum is no
+/// more than `width` - and at least one, which a line takes however narrow
+/// it is.
+pub(super) fn chars_per_line(width: f32, font_px: f32) -> usize {
+    let advance = advance(font_px);
+    let (mut sum, mut chars) = (0.0_f32, 0);
+    while sum + advance <= width {
+        sum += advance;
+        chars += 1;
+    }
+    chars.max(1)
+}
 
 /// The line-breaking class UAX #14 gives a printable ASCII character.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -202,6 +234,41 @@ pub(super) fn wrapped_lines(text: &str, chars: usize, break_words: bool) -> usiz
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// How many characters a line holds, against counts parley gave on
+    /// 2026-11-28 at widths an exact number of advances wide and a
+    /// thousandth of a pixel either side: at 26 px, 16 px and 18 px an
+    /// exact fit holds one character fewer than it seems to, because the
+    /// sum of the advances comes out a little over it; at 14 px it holds
+    /// them all, because the sum comes out a little under.
+    #[test]
+    fn a_line_holds_the_characters_whose_advances_fit_it() {
+        for (font_px, width, chars) in [
+            (26.0, 233.999, 14),
+            (26.0, 234.0, 14),
+            (26.0, 234.001, 15),
+            (26.0, 468.0, 29),
+            (26.0, 468.001, 30),
+            (26.0, 498.0, 31),
+            (26.0, 499.2, 31),
+            (26.0, 499.201, 32),
+            (16.0, 240.0, 24),
+            (16.0, 240.001, 25),
+            (18.0, 162.0, 14),
+            (18.0, 162.001, 15),
+            (14.0, 209.999, 24),
+            (14.0, 210.0, 25),
+        ] {
+            assert_eq!(
+                chars_per_line(width, font_px),
+                chars,
+                "{width} px at {font_px} px"
+            );
+        }
+        assert_eq!(chars_per_line(1.0, 26.0), 1, "a line takes one at least");
+        assert_eq!(advance(26.0), 0.6 * 26.0);
+        assert_ne!(advance(18.0), 0.6 * 18.0, "a unit in the last place apart");
+    }
 
     /// `text` cut at every place a line may break, as [`may_break_before`]
     /// says.

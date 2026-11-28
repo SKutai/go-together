@@ -29,7 +29,8 @@
 //! * **Tall** is the 1040x900 layout: Back, the Replay's label and Match
 //!   Settings across the top, the timer, the round and the result line
 //!   under them, the board, and the transport row under the board. Laid
-//!   out in that window it is exactly the screen as it has always been.
+//!   out in that window it is exactly the screen as it has always been,
+//!   but for a label that takes three lines there (below).
 //! * **Wide** lets the board fill the height above the transport row. Back
 //!   and Match Settings stay in the top corners, the label, the timer, the
 //!   round and the result line stand in a column under Back, and the
@@ -45,15 +46,16 @@
 //! Which of the two a window gets is the rule the Match screen chooses by
 //! too ([`crate::ui::arrangement`]): wide only where it would draw the board
 //! more than 4% larger than tall would, and past the cap by the window's
-//! shape alone. With this screen's margins ([`viewer_arrangements`]), every
-//! window narrower than about 1.20 times its height is tall, and a wider
-//! one is tall until wide gains that much. So the opening shape, 1040x900,
-//! is tall at every size, and a window 1040 px wide is wide up to 778 px
-//! tall and tall from 779. Past the cap a window is wide when it is more
-//! than about 1.20 times as wide as it is tall: 2560x1600, 3840x2160 and
-//! 5120x2880 are wide, as 2560x1440 is, and a portrait window is tall. A
-//! label that needs a third line in tall moves those figures, as the next
-//! section says.
+//! shape alone. With this screen's margins ([`viewer_arrangements`]), for a
+//! label that takes two lines in tall's header, every window narrower than
+//! about 1.20 times its height is tall, and a wider one is tall until wide
+//! gains that much. So the opening shape, 1040x900, is tall at every size,
+//! and a window 1040 px wide is wide up to 778 px tall and tall from 779.
+//! Past the cap a window is wide when it is more than about 1.20 times as
+//! wide as it is tall: 2560x1600, 3840x2160 and 5120x2880 are wide, as
+//! 2560x1440 is, and a portrait window is tall. A label that takes a third
+//! line in the window's header moves those figures, as the next section
+//! says.
 //!
 //! # Making room
 //!
@@ -70,17 +72,21 @@
 //!   default label, about 31 characters, takes three lines at 1040x600. In
 //!   a large window it holds such a label on one.
 //! * **Tall's header** gives the label the middle half of its row, as it
-//!   always has: 498 px in the narrowest window, where every label the game
-//!   writes by itself, and most a player writes, takes two lines at most.
-//!   One that takes a third there ([`TallLabelRoom`]) is given room for it,
-//!   a line more above the board. Where the height limits the board, as at
-//!   1040x900, that draws the board a line smaller, its bottom and the
-//!   transport row where they were; where the window has height to spare,
-//!   the header row rises half a line and the board and the transport row
-//!   drop half a line. For such a Replay 1040 px wide windows are wide up
-//!   to 809 px tall, and past the cap the choice turns at about 1.17 times
-//!   as wide as tall. Until this was made room for, such a label's last
-//!   line ran over the timer.
+//!   always has, and sets it in as many whole characters as fit there with
+//!   half a character to spare: 31 in the narrowest window, where every
+//!   label the game writes by itself, and most a player writes, takes two
+//!   lines at most. One that takes a third in the window's header
+//!   ([`TallLabelRoom`]) is given room for it, a line more above the board.
+//!   Where the height limits the board, as at 1040x900, that draws the
+//!   board a line smaller, its bottom and the transport row where they
+//!   were; where the window has height to spare, the header row rises half
+//!   a line and the board and the transport row drop half a line. It is
+//!   decided for each window, since a wider header can wrap a label onto
+//!   more lines as well as fewer. For a label that takes three lines in the
+//!   1040 px window's header, 1040 px wide windows are wide up to 809 px
+//!   tall; and past the cap the choice turns at about 1.17 times as wide as
+//!   tall, for a label that takes three in the window's own header. Until
+//!   this was made room for, such a label's last line ran over the timer.
 //! * **The score badges** are text drawn on the board, so the camera's zoom
 //!   would scale them too, and the floor on text size reads the sizes text
 //!   is set at, not the camera. Each is drawn at its own size whatever the
@@ -116,7 +122,7 @@
 use bevy::prelude::*;
 
 use super::player_index;
-use super::wrap::wrapped_lines;
+use super::wrap::{chars_per_line, wrapped_lines};
 use crate::app::visuals::{MIN_WINDOW_WIDTH, WorldFraming, cursor_visual_style};
 use crate::replay::ReplayFrame;
 use crate::rules::{BOARD_SIZE, Player, Point};
@@ -399,21 +405,40 @@ pub(super) fn viewer_selection_position(point: Point, player: Player, shared: bo
     position + Vec2::new(offset, 0.0)
 }
 
-/// How much room tall gives the Replay's label in the row between Back and
-/// Match Settings, which is half the window's width less the row's insets:
-/// 498 px, 31 characters at 26 px, in the narrowest window. Every label the
-/// game writes by itself takes two lines there at most, as do most a player
-/// writes, and two lines are what the row has always had room for. A label
-/// that takes three gets a line's more room above the board. Where the
-/// window's height limits the board, as at 1040x900, the board is drawn
-/// that much smaller - 0.949 of its size there - with the header row, the
-/// board's bottom and the transport row where they were, and the lines
-/// under the label a line lower; where the window has height to spare, the
-/// header row rises half a line and everything under the label drops half
-/// a line; and in between, a little of each.
+/// How tall sets the Replay's label, and how much room it gives it. The
+/// label has the middle half of the row between Back and Match Settings -
+/// half the window's width less the row's insets, 498 px in the narrowest
+/// window - and is set there in a node as wide as the whole characters that
+/// fit with half a character to spare, and half a character more
+/// ([`tall_label_chars`], [`ViewerLayout::tall_label_width`]): 31 characters
+/// at 26 px, in 491.4 px, in the narrowest window. `bevy_ui` rounds a node's
+/// edges to the display's pixels, so a label set across the whole middle
+/// could hold a character more or fewer than the layout counted: in a
+/// 1043 px window the middle is laid out 499.5 px wide, which holds 32, and
+/// `bevy_ui` draws it 499 px wide at a scale factor of 1, which holds 31;
+/// at another scale factor the rounding falls elsewhere. With half a
+/// character to spare either side, the count the layout makes is the count
+/// `bevy_ui` draws, at any scale factor.
 ///
-/// It is decided once, for the narrowest window, so that a Replay keeps it
-/// at every size; a wider window can only wrap the label onto fewer lines.
+/// Every label the game writes by itself takes two lines there at most, as
+/// do most a player writes, and two lines are what the row has always had
+/// room for. A label that takes three gets a line's more room above the
+/// board. Where the window's height limits the board, as at 1040x900, the
+/// board is drawn that much smaller - 0.949 of its size there - with the
+/// header row, the board's bottom and the transport row where they were,
+/// and the lines under the label a line lower; where the window has height
+/// to spare, the header row rises half a line and everything under the
+/// label drops half a line; and in between, a little of each.
+///
+/// It is decided for each window, by the characters that window's header
+/// holds: a wider header can wrap a label onto more lines as well as fewer.
+/// A space that does not fit on a line hangs past its end and the next line
+/// starts after it, but a space that fits is followed by the line-breaking
+/// rules, and no line starts with `!`: "Saturday night with my brothers !
+/// He won the final again" takes two lines at 31 characters, three at 32 -
+/// which the header holds in windows from 1059 to 1089 px wide - and two
+/// again from 33. So a resize across such a width moves the board by a
+/// line, for such a label.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum TallLabelRoom {
     TwoLines,
@@ -421,12 +446,11 @@ pub(super) enum TallLabelRoom {
 }
 
 impl TallLabelRoom {
-    /// The room `label` needs: the lines `bevy_ui` sets it on in the
-    /// narrowest window's header, as [`super::wrap`] works them out.
-    pub(super) fn for_label(label: &str) -> Self {
-        let width = (MIN_WINDOW_WIDTH as f32 - 2.0 * VIEWER_HEADER_INSET) / 2.0;
-        let chars = chars_per_line(width, VIEWER_LABEL_SIZE);
-        if wrapped_lines(label, chars, true) <= 2 {
+    /// The room `label` needs in tall in a window `window_width` pixels
+    /// wide: the lines `bevy_ui` sets it on in that window's header, as
+    /// [`super::wrap`] works them out.
+    pub(super) fn for_label(label: &str, window_width: f32) -> Self {
+        if wrapped_lines(label, tall_label_chars(window_width), true) <= 2 {
             Self::TwoLines
         } else {
             Self::ThreeLines
@@ -443,11 +467,15 @@ impl TallLabelRoom {
     }
 }
 
-/// How many characters of the game's monospaced font, at `font_px`, a line
-/// `width` logical pixels wide holds - a hundredth of a pixel short, so
-/// that a line that only just fits is not counted on.
-fn chars_per_line(width: f32, font_px: f32) -> usize {
-    ((width - 0.01) / line_width(1, font_px)).floor().max(1.0) as usize
+/// How many characters a line of tall's label holds in a window
+/// `window_width` pixels wide: as many as fit in the middle half of the
+/// header row with half a character to spare.
+pub(super) fn tall_label_chars(window_width: f32) -> usize {
+    let middle = (window_width - 2.0 * VIEWER_HEADER_INSET) / 2.0;
+    chars_per_line(
+        middle - line_width(1, VIEWER_LABEL_SIZE) / 2.0,
+        VIEWER_LABEL_SIZE,
+    )
 }
 
 /// The most lines any label takes `chars` characters wide. Each line but
@@ -605,6 +633,13 @@ impl ViewerLayout {
             HeaderLine::Result => TALL_LINE_TOPS[2],
         };
         self.drop + self.label_extra + opening
+    }
+
+    /// The width of tall's label: the characters a line of it holds in this
+    /// window ([`tall_label_chars`]), and half a character more.
+    pub(super) fn tall_label_width(&self) -> f32 {
+        line_width(tall_label_chars(self.window.x), VIEWER_LABEL_SIZE)
+            + line_width(1, VIEWER_LABEL_SIZE) / 2.0
     }
 
     /// The left, top and width of wide's column under Back: from the
@@ -1224,12 +1259,13 @@ mod tests {
 
     /// Where the arrangement turns, pinned on both sides: a window 1040 px
     /// wide is wide up to 778 px tall and tall from 779, or for a label
-    /// that takes a third line in tall, wide up to 809 and tall from 810.
-    /// The opening shape is tall at every size. Past the cap the shape
-    /// alone decides, at about 1.197 times as wide as tall, or 1.172 for
-    /// such a label: 0.002 narrower is tall and 0.002 wider wide, however
-    /// large the window; and shape by shape past the cap, the choice is the
-    /// one [`expected_wide`] works out for itself.
+    /// that takes a third line in that window's header, wide up to 809 and
+    /// tall from 810. The opening shape is tall at every size. Past the cap
+    /// the shape alone decides for a given room, at about 1.197 times as
+    /// wide as tall, or 1.172 for a label that takes a third line in the
+    /// window's own header: 0.002 narrower is tall and 0.002 wider wide,
+    /// however large the window; and shape by shape past the cap, the
+    /// choice is the one [`expected_wide`] works out for itself.
     #[test]
     fn the_arrangement_turns_where_the_module_docs_say() {
         for (label, last_wide, first_tall, boundary) in [
@@ -1465,10 +1501,19 @@ mod tests {
     /// The tallest wide's column grows: the longest label it can hold, the
     /// longest timer, round and result lines, and the gaps between them, at
     /// the column's width, with a pixel for each text that `bevy_ui` rounds
-    /// up to whole pixels.
+    /// up to whole pixels. `bevy_ui` also rounds the column's edges to the
+    /// display's pixels, so its texts may be set a pixel narrower or wider
+    /// than the layout's width, and a line hold a character fewer or more:
+    /// each text is counted at the most lines it takes at either.
     fn column_height(width: f32) -> f32 {
-        let lines = |text: &str, font_px: f32| column_lines(text, chars_per_line(width, font_px));
-        let label = longest_label_lines(chars_per_line(width, VIEWER_LABEL_SIZE));
+        let lines = |text: &str, font_px: f32| {
+            [width - 1.0, width + 1.0]
+                .map(|width| column_lines(text, chars_per_line(width, font_px)))
+                .into_iter()
+                .max()
+                .unwrap()
+        };
+        let label = longest_label_lines(chars_per_line(width - 1.0, VIEWER_LABEL_SIZE));
         text_height(label, VIEWER_LABEL_SIZE)
             + text_height(lines(LONGEST_TIMER, VIEWER_TIMER_SIZE), VIEWER_TIMER_SIZE)
             + text_height(lines(LONGEST_ROUND, VIEWER_ROUND_SIZE), VIEWER_ROUND_SIZE)
@@ -1741,11 +1786,11 @@ mod tests {
 
     /// The column's budget wraps the screen's own longest lines as
     /// `bevy_ui` does ([`super::super::wrap`]), against counts worked out by
-    /// hand, and does not count on a line that only just fits.
+    /// hand.
     #[test]
     fn the_budget_wraps_the_screens_lines_where_a_line_can_break() {
-        // 234 px is 15 characters at 26 px exactly, and a line that only
-        // just fits is not counted on.
+        // 234 px is 15 characters at 26 px exactly, which the layout engine
+        // makes a little over 234, so it holds 14.
         assert_eq!(chars_per_line(234.0, VIEWER_LABEL_SIZE), 14);
         assert_eq!(chars_per_line(234.5, VIEWER_LABEL_SIZE), 15);
         assert_eq!(chars_per_line(220.0, VIEWER_ROUND_SIZE), 22);
@@ -1780,6 +1825,8 @@ mod tests {
     /// same judgement to what `bevy_ui` draws.
     #[test]
     fn tall_gives_a_third_line_only_to_a_label_set_on_three() {
+        let narrowest = MIN_WINDOW_WIDTH as f32;
+        assert_eq!(tall_label_chars(narrowest), 31);
         use crate::replay::{default_replay_label, validate_label};
         use crate::rules::Score;
 
@@ -1818,7 +1865,7 @@ mod tests {
         for label in &two_lines {
             assert!(validate_label(label).is_ok(), "{label:?}");
             assert_eq!(
-                TallLabelRoom::for_label(label),
+                TallLabelRoom::for_label(label, narrowest),
                 TallLabelRoom::TwoLines,
                 "{label:?}"
             );
@@ -1839,13 +1886,72 @@ mod tests {
         ] {
             assert!(validate_label(label).is_ok(), "{label:?}");
             assert_eq!(
-                TallLabelRoom::for_label(label),
+                TallLabelRoom::for_label(label, narrowest),
                 TallLabelRoom::ThreeLines,
                 "{label:?}"
             );
         }
         assert!(validate_label(&format!("A{}", "b".repeat(60))).is_err());
         assert_eq!(LABEL_MAX_CHARS, 60);
+    }
+
+    /// The room tall's label is given is decided by each window's own
+    /// header. A line of the label holds as many whole characters as fit in
+    /// the middle half of the header row with half a character to spare -
+    /// 31 at 26 px from the narrowest window, 32 from a 1059 px one, since
+    /// at 1058 the 32nd only just fits, which the layout engine counts as
+    /// not fitting - and the label is set exactly that wide and half a
+    /// character more. And a label can take more lines in a wider header,
+    /// not only fewer: a space that fits on a line is followed by the
+    /// line-breaking rules, and no line starts with `!`. "Saturday night
+    /// with my brothers ! He won the final again" takes two lines at 31
+    /// characters ("Saturday night with my brothers " and "! He won the
+    /// final again"), three at 32 ("Saturday night with my ", "brothers !
+    /// He won the final " and "again"), and two again from 33 ("Saturday
+    /// night with my brothers !", the space after it past the line's end,
+    /// and "He won the final again"), which the header holds from a 1090 px
+    /// window.
+    #[test]
+    fn the_label_room_is_decided_by_the_windows_own_header() {
+        for (window, chars) in [
+            (1040.0, 31),
+            (1058.0, 31),
+            (1059.0, 32),
+            (1089.0, 32),
+            (1090.0, 33),
+            (1100.0, 33),
+            (1300.0, 39),
+            (2560.0, 80),
+        ] {
+            assert_eq!(tall_label_chars(window), chars, "{window}");
+            let layout = viewer_layout(Vec2::new(window, 900.0), TallLabelRoom::TwoLines);
+            let width = layout.tall_label_width();
+            assert!(
+                (width - (chars as f32 + 0.5) * 15.6).abs() < 1e-3,
+                "{window}: {width}"
+            );
+            assert!(
+                width <= (window - 44.0) / 2.0,
+                "{window}: the label fits its middle"
+            );
+        }
+        let label = "Saturday night with my brothers ! He won the final again";
+        for (window, room) in [
+            (1040.0, TallLabelRoom::TwoLines),
+            (1058.0, TallLabelRoom::TwoLines),
+            (1059.0, TallLabelRoom::ThreeLines),
+            (1060.0, TallLabelRoom::ThreeLines),
+            (1089.0, TallLabelRoom::ThreeLines),
+            (1090.0, TallLabelRoom::TwoLines),
+            (1300.0, TallLabelRoom::TwoLines),
+        ] {
+            assert_eq!(TallLabelRoom::for_label(label, window), room, "{window}");
+        }
+        // Tall, with either room, at the width where the room changes.
+        for room in LABEL_ROOMS {
+            let layout = viewer_layout(Vec2::new(1060.0, 900.0), room);
+            assert_eq!(layout.arrangement, Arrangement::Tall, "{room:?}");
+        }
     }
 
     /// The Key is set in one column wherever the window holds the panel
