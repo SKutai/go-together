@@ -1824,6 +1824,7 @@ mod tests {
         let mut app = real_layout_app(window);
         app.add_plugins(StatesPlugin)
             .insert_state(screen)
+            .add_plugins(crate::app::visuals::WindowLayoutPlugin)
             .add_plugins(UiFocusPlugin)
             .add_plugins(HudPlugin)
             .insert_resource(InputGate::default())
@@ -1893,9 +1894,10 @@ mod tests {
     /// over the Match, the modal becomes exactly what opening it at the new
     /// size makes - every node's place, the columns' line breaking and the
     /// page as divided between them - into two columns, back to one, and
-    /// back in the opening window to the modal first spawned there. With
-    /// the window's size written as the game's tracker writes it; a pass
-    /// that ran only on a change of screen would leave the modal as it was.
+    /// back in the opening window to the modal first spawned there. The
+    /// window itself is resized, and the game's own window tracking carries
+    /// the size to the layout; a pass that ran only on a change of screen
+    /// would leave the modal as it was.
     #[test]
     fn a_change_of_window_size_replaces_the_open_modal_as_a_fresh_open_would() {
         use crate::app::visuals::WindowSize;
@@ -1907,6 +1909,17 @@ mod tests {
             app.update();
             app.update();
         };
+        let resize = |app: &mut App, size: Vec2| {
+            {
+                let world = app.world_mut();
+                let mut windows =
+                    world.query_filtered::<&mut Window, With<bevy::window::PrimaryWindow>>();
+                let mut window = windows.single_mut(world).unwrap();
+                window.resolution.set(size.x, size.y);
+            }
+            app.update();
+            assert_eq!(app.world().resource::<WindowSize>().0, size);
+        };
         for screen in [AppScreen::Home, AppScreen::Match] {
             let mut app = help_over(screen, WindowSize::OPENING.0);
             open(&mut app);
@@ -1917,8 +1930,7 @@ mod tests {
                 Vec2::new(1280.0, 641.0),
                 Vec2::new(1920.0, 1080.0),
             ] {
-                app.insert_resource(WindowSize(size));
-                app.update();
+                resize(&mut app, size);
                 let moved = help_frame(&mut app);
                 let mut fresh = help_over(screen, size);
                 open(&mut fresh);
@@ -1927,8 +1939,7 @@ mod tests {
                     assert_ne!(moved, opening, "{size}: two columns are another modal");
                 }
             }
-            app.insert_resource(WindowSize::OPENING);
-            app.update();
+            resize(&mut app, WindowSize::OPENING.0);
             assert_eq!(help_frame(&mut app), opening, "{screen:?}");
         }
     }
