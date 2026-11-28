@@ -801,22 +801,22 @@ asset changes:
 7. close the window normally.
 
 Since 2026-11-28 the tests check help-page length as well:
-`every_page_stands_inside_its_modal_at_every_size` in `ui::help` lays every
-page out at every named size, over Home and over the Match, and holds the
-pagination row where the modal's own numbers put it and the page's text
-above it. A page too long for its room is not clipped: it pushes the row
-and Close down the modal, and the test fails on the row.
+`every_page_stands_inside_its_modal_at_every_size` in `ui::help` lays
+every page out at every named size, over Home and over the Match, and
+holds the pagination row where the modal's own numbers put it and the
+page's text above it. A page too long for its room is not clipped: it
+pushes the row and Close down the modal, and the test fails on the row.
 `every_page_fits_two_columns_at_the_minimum` holds every page to the two
 columns of the 1040x600 window, line for line against a count worked out
 apart from the game. Both run with the default bindings and with the
 longest key names bound, which lengthen Keyboard Controls, Ending,
-Territory & Restart and the three controller pages. A page that outgrows its room fails them. The margins
-are still worth knowing, because they say how far a page can grow before it
-does, once the 18 px gap the modal keeps between the page and the row is
-taken off: a page takes one more line only with at least 21.6 px plus that
-gap, about 40 px by the glyph-box metric below and 45 px in the table's
-terms, so Keyboard Controls, Round 1+ and Shared Controller Actions are
-full. Measured from screenshots of the
+Territory & Restart and the three controller pages. A page that outgrows
+its room fails them. The margins are still worth knowing, because they say
+how far a page can grow before it does, once the 18 px gap the modal keeps
+between the page and the row is taken off: a page takes one more line only
+with at least 21.6 px plus that gap, about 40 px by the glyph-box metric
+below and 45 px in the table's terms, so Keyboard Controls, Round 1+ and
+Shared Controller Actions are full. Measured from screenshots of the
 original nine pages at 1040x900, and by the probe below for the two terms
 pages added on 2026-10-05, as the gap between the last line of body text
 and the top of the pagination row, against a body line pitch of about
