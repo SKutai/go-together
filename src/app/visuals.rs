@@ -16,25 +16,27 @@
 //! [`WindowSize::layout`], which is the window's own size but never less
 //! than [`MIN_WINDOW_WIDTH`] by [`MIN_WINDOW_HEIGHT`]. [`WINDOW_WIDTH`] and
 //! [`WINDOW_HEIGHT`] are only the size the window opens at, and the window
-//! keeps it: it is not resizable. The Match screen and Home are laid out for
-//! any size; the Replay screens, Settings and the Help modal are still laid
-//! out for the opening size.
+//! keeps it: it is not resizable. The Match screen, Home and the Replay
+//! Viewer are laid out for any size; the Replay Library, Settings and the
+//! Help modal are still laid out for the opening size.
 //!
 //! Text and controls are `bevy_ui` nodes, which no camera transform touches,
 //! so they keep their size whatever the window does. What grows and shrinks
-//! is the world-space scene - the Match board with everything drawn on it,
-//! and Home's diamond - and it is placed and scaled by the one camera that
-//! draws it, [`MainCamera`], rather than by moving the scene: a screen
-//! writes [`WorldFraming`], the zoom and the world point at the window's
-//! centre, and [`frame_main_camera`] gives the camera that projection scale
-//! and translation. So the boards' own geometry - [`board_position`],
-//! [`GRID_SPACING`] and the rest - is the same at every size, and every
-//! mark on a board keeps its proportions to the cell. A screen with no
-//! world-space scene to place writes nothing - so far only the Match and
-//! Home have one - and the camera stays at a scale of 1 over the origin,
-//! as it always was: [`reset_world_framing_on_screen_change`] puts the
-//! framing back on every change of screen, so no screen inherits another's
-//! zoom.
+//! is the world-space scene - the Match board and the Replay Viewer's, each
+//! with everything drawn on it, and Home's diamond - and it is placed and
+//! scaled by the one camera that draws it, [`MainCamera`], rather than by
+//! moving the scene: a screen writes [`WorldFraming`], the zoom and the
+//! world point at the window's centre, and [`frame_main_camera`] gives the
+//! camera that projection scale and translation. So the boards' own
+//! geometry - [`board_position`], [`GRID_SPACING`] and the rest - is the
+//! same at every size, and every mark on a board keeps its proportions to
+//! the cell. Text drawn in world space, as the Viewer's score badges are,
+//! would be scaled with it, so the Viewer draws those at their own size
+//! whatever the zoom. A screen with no world-space scene to place writes
+//! nothing - so far only the Match, Home and the Viewer have one - and the
+//! camera stays at a scale of 1 over the origin, as it always was:
+//! [`reset_world_framing_on_screen_change`] puts the framing back on every
+//! change of screen, so no screen inherits another's zoom.
 //!
 //! # Key items
 //!
@@ -82,9 +84,9 @@ use crate::rules::{BOARD_SIZE, Cell, Player, Point};
 
 /// The window's size when the game opens, in logical pixels. An adapted
 /// layout does not read these: it reads [`WindowSize`], which starts at
-/// this size. Of the screens not yet adapted, the Replay Viewer still
-/// places itself from them; Settings, the Replay Library and the Help
-/// modal are laid out for the opening size with fixed sizes of their own.
+/// this size. The screens not yet adapted - Settings, the Replay Library
+/// and the Help modal - are laid out for the opening size with fixed sizes
+/// of their own.
 pub(crate) const WINDOW_WIDTH: u32 = 1040;
 pub(crate) const WINDOW_HEIGHT: u32 = 900;
 /// The smallest window the layouts are made for, in logical pixels. A
@@ -375,12 +377,12 @@ pub(crate) struct MainCamera;
 /// at the centre of the window.
 ///
 /// A screen whose layout places a world-space scene writes it - the Match
-/// every frame, for its board, and Home on entry and whenever the window's
-/// size changes, for its diamond; every other screen leaves it at
-/// [`Self::IDENTITY`], which [`reset_world_framing_on_screen_change`]
-/// restores on each change of screen. `bevy_ui` lays out in the window's
-/// own pixels whatever this says, so the framing moves and scales the world
-/// and nothing else.
+/// and the Replay Viewer every frame, for their boards, and Home on entry
+/// and whenever the window's size changes, for its diamond; every other
+/// screen leaves it at [`Self::IDENTITY`], which
+/// [`reset_world_framing_on_screen_change`] restores on each change of
+/// screen. `bevy_ui` lays out in the window's own pixels whatever this
+/// says, so the framing moves and scales the world and nothing else.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub(crate) struct WorldFraming {
     /// Logical pixels per world unit: the main camera's projection scale is

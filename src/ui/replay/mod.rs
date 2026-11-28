@@ -43,7 +43,8 @@ use viewer::ReplayViewerPlugin;
 /// Adds both replay screens.
 ///
 /// Each screen keeps its own chained pipeline - intent, then state, then
-/// display - and runs only while its screen is active, so a paused viewer costs
+/// display, with the Viewer's placing its furniture for the window's size
+/// first - and runs only while its screen is active, so a paused viewer costs
 /// nothing while the player is browsing the library.
 pub(super) struct ReplayUiPlugin;
 

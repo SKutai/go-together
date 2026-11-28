@@ -429,11 +429,12 @@ screen as it was first laid out passes the opening size,
 tested at several:
 `app::visuals::NAMED_WINDOW_SIZES` names the ones that matter, from the
 1040x600 minimum and a 1280x720 laptop's maximised window up to 2560x1440,
-and the Match screen and Home run their real-layout tests at all of them -
-every button reached by the pointer, every text inside the window, and on
-the Match nothing drawn meeting anything else. Their layouts are pure
-functions of the size as well (`ui::match_screen::geometry`,
-`ui::home::geometry`), so their own tests run every size in
+and the Match screen, Home and the Replay Viewer run their real-layout
+tests at all of them - every button reached by the pointer, every text
+inside the window, and on the Match and the Viewer nothing drawn meeting
+anything else. Their layouts are pure functions of the size as well
+(`ui::match_screen::geometry`, `ui::home::geometry`,
+`ui::replay::viewer::geometry`), so their own tests run every size in
 `app::visuals::layout_sweep` - every 20 px from the minimum to 2560x1440,
 the named sizes, a few fractional ones and a few larger windows - and
 check the same things from the layout's own boxes. The two halves
@@ -1020,13 +1021,18 @@ above nor this probe apply to it. It has no pagination row and no fixed
 height: its panel is as tall as its rows and centred in the window, so a
 longer row cannot run into anything inside the panel; it moves the panel's
 top and bottom edges toward the window's instead. What has to hold is that
-the panel fits the 900 px window, and no test checks that either. Measured on
-2026-10-06 with the capture probe below, reading the `ComputedNode` of the
-node filled with `PANEL_BACKGROUND`: 624 px tall with 138 px clear above and
-below, and 695 px with 102.5 px clear once the score badges' row was added
-(698 px at a `UiScale` of 1.0, where text rounds differently). A Key
-sentence wraps at 65 characters - 624 px of 16 px monospace - so the same
-`textwrap` count predicts its lines, and each line costs about 19.5 px.
+the panel fits the window, and since 2026-11-28 a test holds that:
+`the_key_stands_inside_the_window_in_either_form` in `ui::replay::viewer`
+lays the Key out at every named window size and at either side of the
+height where it turns to two columns, holds it 12 px inside the window,
+and holds its height in each form to the figure the layout chooses its
+form by - 698 px in one column and 494 in two, read from the `ComputedNode`
+of its panel at a scale factor of 1, where text rounds up the most (695 px
+in one column on a display at twice that). A row that grows changes those
+figures and fails the test until they are measured again. In one column
+a Key sentence wraps at 65 characters - 624 px of 16 px monospace - so the
+same `textwrap` count predicts its lines, and each line costs about 19.5
+px; in two columns, at 44.
 
 ### Capturing a screen to a file
 
