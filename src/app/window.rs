@@ -33,14 +33,16 @@
 //! once the maximised size has arrived, or [`MAXIMISE_PATIENCE`] later if
 //! the platform never sends one, as a desktop with no window manager does
 //! not. Either way no frame is drawn at a size the window is about to
-//! leave. Centring is Bevy's: it centres the window's inside, so a title
-//! bar stands above the middle. With no primary monitor known the window
-//! is shown where the platform puts it, at the opening size. That is the
-//! normal case on Wayland, where winit names no primary monitor and a
-//! window cannot be placed, and it is the case on an X server whose RandR
-//! lists no monitor, where winit's only answer is a 1x1 stand-in it never
-//! lists among the monitors. A browser's canvas is neither hidden nor
-//! placed: the page puts it where it stands.
+//! leave. Centring is Bevy's: it puts the window's frame where its inside
+//! would stand centred, so the window stands a title bar below the middle.
+//! With no primary monitor known the window is shown where the platform
+//! puts it, at the opening size. That is the normal case on Wayland, where
+//! winit names no primary monitor and a window cannot be placed; it is the
+//! case on an X server whose RandR lists no monitor, where winit's only
+//! answer is a 1x1 stand-in it never lists among the monitors; and it is
+//! the case on a Mac whose display is asleep as the game starts, when
+//! macOS lists no active display at all. A browser's canvas is neither
+//! hidden nor placed: the page puts it where it stands.
 //!
 //! # Fullscreen
 //!
@@ -85,24 +87,29 @@ use super::visuals::{
 use crate::platform::WindowPlatformConfig;
 
 /// How much more than the opening window a monitor needs, in logical
-/// pixels, to have room for it: nothing across, and 160 down. Bevy
-/// centres a window's inside on the whole screen and stands its title bar
-/// above that, so the window clears a bar along the screen's top or bottom
-/// edge only where the room left above and below its inside each holds
-/// the title bar and the bar: twice their sum. On Windows 11 that is
-/// 2 x (32 + 48): its title bar is 32 px (Microsoft's title bar design
-/// guidance,
+/// pixels, to have room for it: nothing across, and 160 down. Bevy centres
+/// a window by its inside's size but places its frame there: the frame's
+/// top-left corner, title bar and all, goes where the inside's would be if
+/// the inside were centred on the whole screen. So the window stands a
+/// title bar below the middle, with half the spare height above it and
+/// half less the title bar below it, and it clears a bar along the
+/// screen's bottom edge only where the spare height holds twice the title
+/// bar and the bar, and one along the top edge where it holds twice the
+/// bar. On Windows 11 that is 2 x (32 + 48): its title bar is 32 px
+/// (Microsoft's title bar design guidance,
 /// <https://learn.microsoft.com/en-us/windows/apps/design/basics/titlebar-design>),
 /// and its taskbar 48 px, measured on 2026-11-28 as the difference between
-/// a Windows 11 24H2 screen and its work area. On macOS a title bar is
-/// 28 pt and the menu bar of a display with a camera housing 33 pt, as
-/// measured on a 15-inch MacBook Air the same day, so 160 also clears a
-/// Dock up to 52 pt below; one shown larger was not measured. Across, the
-/// bars stand above and below a window unless a dock is moved to a side,
-/// and every common screen is wide enough to centre the window clear of
-/// one: the narrowest, 1280 wide, leaves 120 a side. An estimate, then,
-/// from those sources; with fewer than 160 px a 1036-px-tall Windows
-/// screen put the window's bottom 9 px under the taskbar, as measured.
+/// a Windows 11 24H2 screen and its work area. On macOS 26 a title bar is
+/// 32 pt and the menu bar of a display with a camera housing 33 pt, as
+/// measured on a 15-inch MacBook Air the same day, where a centred
+/// 1040x900 window's frame stood 104 pt down a 1107 pt screen: so 160 also
+/// clears that menu bar above and a Dock up to 48 pt below, and one shown
+/// larger was not measured. Across, the bars stand above and below a
+/// window unless a dock is moved to a side, and every common screen is
+/// wide enough to centre the window clear of one: the narrowest, 1280
+/// wide, leaves 120 a side. An estimate, then, from those sources; with
+/// fewer than 160 px a 1036-px-tall Windows screen put the window's bottom
+/// 9 px under the taskbar, as measured.
 pub(crate) const OPENING_ALLOWANCE: Vec2 = Vec2::new(0.0, 160.0);
 
 /// How long a window that asked to be maximised stays hidden waiting for

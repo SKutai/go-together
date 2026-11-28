@@ -558,9 +558,11 @@ canvas as its CSS `min-width` and `min-height`. A desktop window opens at
 is at least 1040x1060, and maximised where it is not: winit reports no work
 area - no taskbar, Dock or menu bar - only each monitor's size, so the room
 a window needs is its own size plus an allowance of 160 px down for those
-bars, an estimate whose sources `OPENING_ALLOWANCE` gives. It is twice the
-bars' height, because Bevy centres the window's inside on the whole screen,
-leaving half the spare height on each side of it. Bevy makes the
+bars, an estimate whose sources `OPENING_ALLOWANCE` gives. It is twice a
+title bar and a bar together, because Bevy puts a centred window's frame,
+title bar and all, where its inside would stand centred on the whole
+screen, so the window stands a title bar below the middle, and the room
+under it is half the spare height less the title bar. Bevy makes the
 window before it knows the monitors, so the window opens hidden and
 `place_the_opening_window` places it on the first frame and then shows it:
 at once when centred, and when maximised once the maximised size has
