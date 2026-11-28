@@ -254,6 +254,12 @@ fn deferred_startup_warnings(
 ///   display passes run after it and set theirs every frame; but the
 ///   display passes must keep to theirs, since one that replaced a whole
 ///   `Node` would undo the placement until the window's size next changed.
+///   The stage's other passes need neither edge, and are ordered by them
+///   all the same. Home's and Settings' write nothing a display pass
+///   writes - [`Self::SettingsDisplay`] shows and hides only nodes
+///   Settings' pass does not place, which is why no edge runs to it - and
+///   the Help modal's places the modal and its columns, which the HUD's
+///   display pass then shows and fills.
 ///
 /// Every other pair is deliberately left unordered - see
 /// [`configure_app_systems`]'s doc comment for why that is safe rather than
@@ -272,8 +278,10 @@ pub(crate) enum AppSystems {
     /// Live match: clock, input-release gate, hold gestures, player actions.
     MatchUpdate,
     /// Where each screen's furniture stands for the window's size, and the
-    /// main camera's framing of its world-space scene: the Match screen's
-    /// layout pass and Home's, each gated to its own screen.
+    /// main camera's framing of its world-space scene: the layout passes of
+    /// the Match screen, Home and Settings, each gated to its own screen,
+    /// and the Help modal's, which runs on every screen because the modal
+    /// belongs to none.
     ScreenLayout,
     /// HUD text and panel visibility shared by several screens.
     HudDisplay,
@@ -383,21 +391,27 @@ fn engine_plugins(asset_path: String, platform_window: WindowPlatformConfig) -> 
 /// [`AppSystems::SettingsInput`] and [`AppSystems::SettingsDisplay`] to
 /// Control Mapping; [`AppSystems::MatchUpdate`] and
 /// [`AppSystems::MatchDisplay`] to Match; each layout pass in
-/// [`AppSystems::ScreenLayout`] to its own screen) and never do real work in
-/// the same frame, so no edge between them would express anything true.
-/// Within a screen, a layout pass shares nothing with that screen's update
-/// or input systems. It reads [`visuals::WindowSize`], which furniture is
-/// new, each placed node's placement and current value, and the round
-/// text's `UiRole`, and writes only nodes' places, that text's
-/// justification and the camera's [`visuals::WorldFraming`] - none of which
-/// gameplay, or the marimba's input and animation, writes. Two systems are
-/// registered without a screen gate and are harmless anyway: gameplay's
-/// input-release gate runs on every screen but touches only `InputGate`,
+/// [`AppSystems::ScreenLayout`] but the Help modal's to its own screen) and
+/// never do real work in the same frame, so no edge between them would
+/// express anything true. Within a screen, a layout pass shares nothing
+/// with that screen's update or input systems. It reads
+/// [`visuals::WindowSize`], which furniture is new, each placed node's
+/// placement and current value, and the roles of the few texts it sets
+/// out, and writes only nodes' places - Settings' moving its two footer
+/// buttons between two parents as well - those texts' justification or
+/// line breaking, and the camera's [`visuals::WorldFraming`]: none of which
+/// gameplay, the marimba's input and animation, or a screen's input
+/// systems write. Three systems are registered without a screen gate and
+/// are harmless anyway: the Help modal's pass, which runs on every screen
+/// but writes only the modal's own nodes and its columns' line breaking,
+/// which no other system writes; gameplay's input-release gate, which runs
+/// on every screen but touches only `InputGate`,
 /// [`crate::input::SemanticInput`] and `GameplayPause`, none of which any
-/// Settings system reads or writes, and the marimba's input handler checks
-/// the screen itself and only drains keyboard messages elsewhere. This crate does not enable Bevy's
-/// system-ordering-ambiguity diagnostic, so an unordered pair here is a
-/// deliberate "no dependency exists," not an oversight.
+/// Settings system reads or writes; and the marimba's input handler, which
+/// checks the screen itself and only drains keyboard messages elsewhere.
+/// This crate does not enable Bevy's system-ordering-ambiguity diagnostic,
+/// so an unordered pair here is a deliberate "no dependency exists," not an
+/// oversight.
 ///
 /// For [`AppSystems::HudDisplay`] that claim has to be argued rather than
 /// read off a screen gate. Its one system, `ui::hud`'s

@@ -35,12 +35,14 @@ use bevy::ui::InteractionDisabled;
 use super::ControlMappingState;
 use super::bindings::mapping_binding_colors;
 use super::game::game_input_text;
+use super::geometry::{ERROR_SIZE, SettingsLayout, settings_layout};
 use super::{
     ControllerMappingBinding, ControllerMappingUiRole, GameInputError, GameInputValue,
     GameNumericInput, GameToggle, GameToggleValue, MappingBinding, MappingPanel, MappingUiRole,
     MatchMinimumLabel, PreferenceToggle, PreferenceValue, ResetMappingsModal, SettingsTabButton,
     SettingsTabText, VolumeStop, VolumeStopLabel, mapping_instruction, preference_enabled,
 };
+use crate::app::visuals::WindowSize;
 use crate::audio::{AudioChannel, UiSound};
 use crate::input::controller::ControllerSlotStatus;
 use crate::match_settings::{MatchSettings, duration_parts};
@@ -51,6 +53,7 @@ use crate::presentation::{
 use crate::settings::{GamePreferences, VolumeLevel};
 use crate::ui::ControlBindings;
 use crate::ui::button::PointerHighlight;
+use crate::ui::text_metrics::{CUT_MARK, line_width, wrap_lines};
 use crate::ui::widgets::selected_label;
 
 /// The Keyboard tab's binding rows plus the screen-wide instruction and error
@@ -383,14 +386,68 @@ pub(super) struct MappingButtons<'w, 's> {
     volumes: VolumeButtons<'w, 's>,
 }
 
+/// The error line's text as it is drawn. A message that fits the lines the
+/// frame has room for ([`SettingsLayout::error_line`]) - as many or fewer
+/// when wrapped at its spaces, at the characters a line holds a pixel short
+/// of its place, and no word longer than a line - is drawn as it is, wrapped
+/// by `bevy_ui`, as it always was. A longer one is cut: the game wraps it
+/// itself at those characters, a word longer than a line split, keeps the
+/// lines there is room for and ends the last with [`CUT_MARK`]. Nothing but
+/// the message that startup could not load the settings file is that long,
+/// since that one quotes what the file holds and the path it was read from;
+/// the whole of it stays in the screen's state, and in the log, which has
+/// it from startup.
+pub(super) fn shown_error(error: &str, layout: &SettingsLayout) -> String {
+    let (width, room) = layout.error_line();
+    let chars = ((width - 1.0) / line_width(1, ERROR_SIZE)).floor() as usize;
+    // Enough of the message for a line more than there is room for: each
+    // line takes at most a line's characters and the space after them, so
+    // the rest cannot change the lines kept, and a message as long as a
+    // settings file is never wrapped whole on every frame.
+    let enough: String = error.chars().take((room + 1) * (chars + 1)).collect();
+    let whole = enough.len() == error.len();
+    let fits = whole
+        && wrap_lines(error, chars).len() <= room
+        && error.split(' ').all(|word| word.chars().count() <= chars);
+    if fits {
+        return error.to_owned();
+    }
+    let mut lines = wrap_lines(&enough, chars);
+    // A run of spaces takes characters but makes no line, so a message cut
+    // short of its end may still wrap into the room: it is marked all the
+    // same.
+    if lines.len() > room || !whole {
+        lines.truncate(room);
+        if let Some(last) = lines.last_mut() {
+            let kept: String = last.chars().take(chars - CUT_MARK.len()).collect();
+            *last = format!("{kept}{CUT_MARK}");
+        }
+    }
+    lines.join("\n")
+}
+
+/// Fills every text on the screen but the Game tab's and styles every
+/// control but the tabs.
+///
+/// The instruction and the error line are the one pair whose showing
+/// depends on the arrangement. On top both are shown, the error under the
+/// instruction, as they always were. In the sidebar they share the top row
+/// with the title and the two buttons, which has room for one of them, so
+/// an error stands in the instruction's place while it is shown and the
+/// instruction comes back when it clears; the error says what to do, and the
+/// instruction would only repeat the tab's purpose beside it. Either way the
+/// error is held to the lines its place has room for ([`shown_error`]).
 pub(super) fn update_control_mapping_display(
     controls: ControlBindings,
     preferences: Res<GamePreferences>,
     mapping: Res<ControlMappingState>,
+    window: Res<WindowSize>,
     mut texts: MappingTexts,
     mut buttons: MappingButtons,
     mut reset_modal: Query<&mut Node, (With<ResetMappingsModal>, Without<MappingUiRole>)>,
 ) {
+    let layout = settings_layout(window.layout());
+    let error_in_the_instructions_place = layout.sidebar() && !mapping.error.is_empty();
     for (role, mut text, mut node) in &mut texts.roles {
         **text = match role {
             MappingUiRole::Instruction => mapping_instruction(mapping.tab).into(),
@@ -398,14 +455,27 @@ pub(super) fn update_control_mapping_display(
                 "Press a key...".into()
             }
             MappingUiRole::Binding(action) => controls.keyboard.key(*action).display_name().into(),
-            MappingUiRole::Error => mapping.error.clone(),
+            MappingUiRole::Error => shown_error(&mapping.error, &layout),
         };
-        if matches!(role, MappingUiRole::Error) {
-            node.display = if mapping.error.is_empty() {
-                Display::None
-            } else {
-                Display::Flex
-            };
+        match role {
+            MappingUiRole::Error => {
+                node.display = if mapping.error.is_empty() {
+                    Display::None
+                } else {
+                    Display::Flex
+                };
+            }
+            MappingUiRole::Instruction => {
+                let display = if error_in_the_instructions_place {
+                    Display::None
+                } else {
+                    Display::Flex
+                };
+                if node.display != display {
+                    node.display = display;
+                }
+            }
+            MappingUiRole::Binding(_) => {}
         }
     }
 

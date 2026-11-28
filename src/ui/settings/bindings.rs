@@ -14,7 +14,11 @@
 //! [`CONTROL_MAPPING_PLAYER_ORDER`] puts White/Player 2 first so the columns
 //! read left to right the way the board header does, and the focus ring
 //! walks them the same way: every row of the left column, then every row of
-//! the right, then - on the Keyboard tab - the shared row beneath.
+//! the right, then - on the Keyboard tab - the shared row beneath. The two
+//! columns stand side by side and centred together, as wide as
+//! [`super::geometry`] makes them for the window: their full 420 px
+//! wherever there is room. In the sidebar the shared row stands on one line
+//! beside its `SHARED` heading, so that the tab fits the smallest window.
 //! Controller rows are spawned even
 //! when no controller is connected, so the bindings stay discoverable;
 //! [`super::display`] draws those rows disabled and mutes their click cue,
@@ -36,6 +40,11 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::ui_widgets::Button;
 
+use super::geometry::{
+    BINDING_ROW_BORDER, BINDING_ROW_PADDING, BINDING_TEXT_SIZE, PLAYER_COLUMN_PADDING,
+    PLAYER_COLUMN_WIDTH, SettingsLayout,
+};
+use super::layout::{SettingsPlacement, placed};
 use super::ring::{RingOrder, panel_focus_order};
 use super::{
     ControlMappingState, ControllerMappingBinding, ControllerMappingUiRole, MappingBinding,
@@ -55,6 +64,13 @@ use crate::presentation::{
 use crate::rules::Player;
 use crate::settings::{GamePreferences, SettingsStore};
 
+/// What the error line says when a keyboard capture is handed a key no
+/// binding can hold, and when the controller being captured from goes away.
+pub(super) const UNSUPPORTED_KEY_MESSAGE: &str =
+    "That key is not supported. Press another key, or Escape to cancel.";
+pub(super) const CONTROLLER_DISCONNECTED_MESSAGE: &str =
+    "The assigned controller disconnected. Connect a controller and try again.";
+
 /// White/Player 2 first, so the settings columns read left to right the way
 /// the board header does.
 pub(super) const CONTROL_MAPPING_PLAYER_ORDER: [Player; 2] = [Player::Two, Player::One];
@@ -69,16 +85,13 @@ pub(super) const CONTROL_MAPPING_PLAYER_ORDER: [Player; 2] = [Player::Two, Playe
 pub(super) const COLUMN_HEADING_SIZE: f32 = 24.0;
 
 /// The Keyboard tab: one column per player, then the shared actions.
-pub(super) fn spawn_keyboard_panel(keyboard_panel: &mut ChildSpawnerCommands) {
+pub(super) fn spawn_keyboard_panel(
+    keyboard_panel: &mut ChildSpawnerCommands,
+    layout: &SettingsLayout,
+) {
     let mut ring = RingOrder::starting_at(panel_focus_order(MappingTab::Keyboard));
     keyboard_panel
-        .spawn(Node {
-            width: percent(100),
-            flex_grow: 1.0,
-            justify_content: JustifyContent::SpaceBetween,
-            column_gap: px(20),
-            ..default()
-        })
+        .spawn(player_columns_node(layout))
         .with_children(|columns| {
             for player in CONTROL_MAPPING_PLAYER_ORDER {
                 let (title, actions, accent) = match player {
@@ -93,7 +106,19 @@ pub(super) fn spawn_keyboard_panel(keyboard_panel: &mut ChildSpawnerCommands) {
                         player_accent(player),
                     ),
                 };
-                spawn_mapping_group(columns, title, actions, accent, &mut ring);
+                spawn_mapping_group(
+                    columns,
+                    placed(
+                        layout,
+                        SettingsPlacement::PlayerColumn,
+                        mapping_group_node(),
+                    ),
+                    None,
+                    title,
+                    actions,
+                    accent,
+                    &mut ring,
+                );
             }
         });
     keyboard_panel
@@ -105,6 +130,12 @@ pub(super) fn spawn_keyboard_panel(keyboard_panel: &mut ChildSpawnerCommands) {
         .with_children(|shared| {
             spawn_mapping_group(
                 shared,
+                placed(layout, SettingsPlacement::SharedGroup, mapping_group_node()),
+                Some(placed(
+                    layout,
+                    SettingsPlacement::SharedHeading,
+                    Node::default(),
+                )),
                 "SHARED",
                 &GameAction::SHARED,
                 TEXT_HEADING,
@@ -115,49 +146,89 @@ pub(super) fn spawn_keyboard_panel(keyboard_panel: &mut ChildSpawnerCommands) {
 
 /// The Controller tab: one column per player. There is no shared column -
 /// every controller action belongs to the profile of the pad that sends it.
-pub(super) fn spawn_controller_panel(controller_panel: &mut ChildSpawnerCommands) {
+pub(super) fn spawn_controller_panel(
+    controller_panel: &mut ChildSpawnerCommands,
+    layout: &SettingsLayout,
+) {
     let mut ring = RingOrder::starting_at(panel_focus_order(MappingTab::Controller));
     controller_panel
-        .spawn(Node {
-            width: percent(100),
-            flex_grow: 1.0,
-            justify_content: JustifyContent::SpaceBetween,
-            column_gap: px(20),
-            ..default()
-        })
+        .spawn(player_columns_node(layout))
         .with_children(|columns| {
             for player in CONTROL_MAPPING_PLAYER_ORDER {
                 let (title, accent) = match player {
                     Player::One => ("PLAYER 1 - BLACK", player_accent(player)),
                     Player::Two => ("PLAYER 2 - WHITE", player_accent(player)),
                 };
-                spawn_controller_mapping_group(columns, player, title, accent, &mut ring);
+                spawn_controller_mapping_group(
+                    columns,
+                    placed(
+                        layout,
+                        SettingsPlacement::PlayerColumn,
+                        mapping_group_node(),
+                    ),
+                    player,
+                    title,
+                    accent,
+                    &mut ring,
+                );
             }
         });
 }
 
+/// The row holding the two players' columns, side by side and centred
+/// together.
+fn player_columns_node(layout: &SettingsLayout) -> (Node, SettingsPlacement) {
+    placed(
+        layout,
+        SettingsPlacement::PlayerColumns,
+        Node {
+            width: percent(100),
+            flex_grow: 1.0,
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+    )
+}
+
+/// A column's heading node: 3 px above the first row, as it always was.
+fn column_heading_node() -> Node {
+    Node {
+        margin: UiRect::bottom(px(3)),
+        ..default()
+    }
+}
+
+/// Spawns one group of binding rows under its heading: a player's column,
+/// or the shared group, whose heading carries a placement of its own
+/// because in the sidebar it stands beside its row rather than over it.
 fn spawn_mapping_group(
     parent: &mut ChildSpawnerCommands,
+    group: (Node, SettingsPlacement),
+    heading: Option<(Node, SettingsPlacement)>,
     title: &'static str,
     actions: &[GameAction],
     accent: Color,
     ring: &mut RingOrder,
 ) {
     parent
-        .spawn((mapping_group_node(), BackgroundColor(SURFACE_BACKGROUND)))
+        .spawn((group, BackgroundColor(SURFACE_BACKGROUND)))
         .with_children(|group| {
-            group.spawn((
+            let (heading_node, heading_placement) = heading
+                .map_or((column_heading_node(), None), |(node, placement)| {
+                    (node, Some(placement))
+                });
+            let mut heading = group.spawn((
                 Text::new(title),
                 TextFont {
                     font_size: FontSize::Px(COLUMN_HEADING_SIZE),
                     ..default()
                 },
                 TextColor(accent),
-                Node {
-                    margin: UiRect::bottom(px(3)),
-                    ..default()
-                },
+                heading_node,
             ));
+            if let Some(placement) = heading_placement {
+                heading.insert(placement);
+            }
             for action in actions {
                 group
                     .spawn((
@@ -173,7 +244,7 @@ fn spawn_mapping_group(
                         row.spawn((
                             Text::new(action.label()),
                             TextFont {
-                                font_size: FontSize::Px(16.0),
+                                font_size: FontSize::Px(BINDING_TEXT_SIZE),
                                 ..default()
                             },
                             TextColor(TEXT_PRIMARY),
@@ -181,7 +252,7 @@ fn spawn_mapping_group(
                         row.spawn((
                             Text::new(""),
                             TextFont {
-                                font_size: FontSize::Px(16.0),
+                                font_size: FontSize::Px(BINDING_TEXT_SIZE),
                                 ..default()
                             },
                             TextColor(TEXT_HEADING),
@@ -197,13 +268,14 @@ fn spawn_mapping_group(
 /// restart gesture.
 fn spawn_controller_mapping_group(
     parent: &mut ChildSpawnerCommands,
+    group: (Node, SettingsPlacement),
     player: Player,
     title: &'static str,
     accent: Color,
     ring: &mut RingOrder,
 ) {
     parent
-        .spawn((mapping_group_node(), BackgroundColor(SURFACE_BACKGROUND)))
+        .spawn((group, BackgroundColor(SURFACE_BACKGROUND)))
         .with_children(|group| {
             group.spawn((
                 Text::new(title),
@@ -212,10 +284,7 @@ fn spawn_controller_mapping_group(
                     ..default()
                 },
                 TextColor(accent),
-                Node {
-                    margin: UiRect::bottom(px(3)),
-                    ..default()
-                },
+                column_heading_node(),
             ));
             group.spawn((
                 Text::new(""),
@@ -245,7 +314,7 @@ fn spawn_controller_mapping_group(
                         row.spawn((
                             Text::new(action.label()),
                             TextFont {
-                                font_size: FontSize::Px(16.0),
+                                font_size: FontSize::Px(BINDING_TEXT_SIZE),
                                 ..default()
                             },
                             TextColor(TEXT_PRIMARY),
@@ -253,7 +322,7 @@ fn spawn_controller_mapping_group(
                         row.spawn((
                             Text::new(""),
                             TextFont {
-                                font_size: FontSize::Px(16.0),
+                                font_size: FontSize::Px(BINDING_TEXT_SIZE),
                                 ..default()
                             },
                             TextColor(TEXT_HEADING),
@@ -274,8 +343,8 @@ fn spawn_controller_mapping_group(
 /// `Node` builders are used only here.
 pub(super) fn mapping_group_node() -> Node {
     Node {
-        width: px(420),
-        padding: UiRect::all(px(12)),
+        width: px(PLAYER_COLUMN_WIDTH),
+        padding: UiRect::all(px(PLAYER_COLUMN_PADDING)),
         flex_direction: FlexDirection::Column,
         row_gap: px(6),
         ..default()
@@ -286,8 +355,8 @@ pub(super) fn mapping_binding_node() -> Node {
     Node {
         width: percent(100),
         height: px(42),
-        padding: UiRect::horizontal(px(12)),
-        border: UiRect::all(px(1)),
+        padding: UiRect::horizontal(px(BINDING_ROW_PADDING)),
+        border: UiRect::all(px(BINDING_ROW_BORDER)),
         justify_content: JustifyContent::SpaceBetween,
         align_items: AlignItems::Center,
         ..default()
@@ -358,8 +427,7 @@ pub(super) fn capture_mapping_key(mut capture: MappingKeyCapture) {
         Ok(key) => key,
         Err(KeyCaptureError::Reserved) => return,
         Err(KeyCaptureError::Unsupported) => {
-            capture.mapping.error =
-                "That key is not supported. Press another key, or Escape to cancel.".into();
+            capture.mapping.error = UNSUPPORTED_KEY_MESSAGE.into();
             return;
         }
     };
@@ -446,8 +514,7 @@ pub(super) fn capture_controller_mapping(
 
     let Some(gamepad) = gamepads.assigned(player) else {
         mapping.capturing_controller = None;
-        mapping.error =
-            "The assigned controller disconnected. Connect a controller and try again.".into();
+        mapping.error = CONTROLLER_DISCONNECTED_MESSAGE.into();
         *capture.active = None;
         capture.state.reset();
         return;
@@ -683,8 +750,11 @@ mod tests {
             .commands()
             .spawn(Node::default())
             .with_children(|panel| {
-                spawn_keyboard_panel(panel);
-                spawn_controller_panel(panel);
+                let layout = super::super::geometry::settings_layout(
+                    crate::app::visuals::WindowSize::OPENING.0,
+                );
+                spawn_keyboard_panel(panel, &layout);
+                spawn_controller_panel(panel, &layout);
             });
         world.flush();
 

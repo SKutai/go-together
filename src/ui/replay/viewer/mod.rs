@@ -927,9 +927,8 @@ mod tests {
 
     /// Makes the primary window `size` logical pixels, as a player's
     /// resize does, and runs a frame; the window's size, which every layout
-    /// pass reads, follows it in that frame. The test app's camera keeps the
-    /// viewport it was made with, so `bevy_ui` goes on laying the screen out
-    /// at that size: what follows a resize here is what the passes write.
+    /// pass reads, follows it in that frame, and `bevy_ui` lays the screen
+    /// out at it, the test app's camera following the window.
     fn resize(app: &mut App, size: Vec2) {
         use crate::app::visuals::WindowSize;
         use bevy::window::PrimaryWindow;
@@ -954,9 +953,9 @@ mod tests {
     /// smaller than the minimum, where a fresh entry at the minimum writes
     /// them - and resizing back restores each exactly. With the countdown
     /// showing, so the one node the display pass shows and hides as well is
-    /// moved and stays shown. This holds what the passes write, not what
-    /// `bevy_ui` lays out from it, which the harness does at the size it
-    /// was made at ([`resize`]).
+    /// moved and stays shown. It compares what the passes write; the
+    /// pointer and layout tests hold what `bevy_ui` makes of it at each
+    /// size.
     #[test]
     fn a_change_of_window_size_moves_the_viewer_and_moving_back_restores_it() {
         use crate::app::visuals::WindowSize;

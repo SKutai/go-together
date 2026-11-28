@@ -14,7 +14,7 @@
 //! tab bar. The hidden panels drop out on their own instead: they are
 //! `Display::None`, which zeroes every node beneath them, and the candidate
 //! collector discards zero-size nodes. `hidden_panels_leave_the_ring_and_the_shown_one_joins_it_under_real_layout`
-//! pins that against real `bevy_ui` layout on this screen's own tree, three
+//! pins that against real `bevy_ui` layout on this screen's own tree, four
 //! levels of nesting included.
 //!
 //! # Bands
@@ -25,7 +25,9 @@
 //! own [`panel_focus_order`], the footer from [`FOOTER_FOCUS_ORDER`]. Within
 //! a band a [`RingOrder`] hands out consecutive positions in the order the
 //! spawner draws its controls, so the ring walks the screen the way the eye
-//! reads it. The Keyboard and Controller tabs are read column by column -
+//! reads it - except the sidebar's top row, whose Reset Controls and Back
+//! keep the footer's band and come last, as they do on top, although they
+//! stand first. The Keyboard and Controller tabs are read column by column -
 //! all of White/Player 2, then all of Black/Player 1, then on the Keyboard
 //! tab the shared row - because a binding column is one list a player works
 //! down.
@@ -47,9 +49,11 @@
 //! to a higher band clamps to the tab bar as re-entry does, switching to a
 //! lower one clamps to the new panel's last control, where the next key
 //! reveals the ring. That is a mixed-input case the pointer began, nothing
-//! there is destructive, and putting the memory back on the tab bar on
-//! every switch would need the core to expose its memory, which no screen
-//! does today.
+//! there is destructive, so the memory is left where the core put it. The
+//! core can move a screen's memory now - the Replay Library moves it with
+//! the cards a change of size carries down the page - but putting it back
+//! on the tab bar on every switch would only undo what the pointer chose,
+//! in a case where no wrong press can follow.
 //!
 //! The confirmation seeds on *Cancel*: it is order 0 and Confirm Reset is
 //! order 1, although they are drawn the other way round. With two entries
@@ -346,7 +350,8 @@ mod tests {
     #[test]
     fn settings_controls_are_focusable_in_drawn_order_and_the_overlay_root_is_not() {
         let mut app = App::new();
-        app.add_systems(Update, spawn_control_mapping_screen);
+        app.init_resource::<crate::app::visuals::WindowSize>()
+            .add_systems(Update, spawn_control_mapping_screen);
         app.update();
 
         let world = app.world_mut();
@@ -430,9 +435,14 @@ mod tests {
     /// their production sets and gates - entered through a real state
     /// transition. One frame has run on the screen, so it is spawned, laid
     /// out and collected, with the ring parked on its first control and not
-    /// yet drawn.
+    /// yet drawn. In the opening window, unless [`settings_app_at`] names
+    /// another.
     fn settings_app() -> App {
-        let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
+        settings_app_at(crate::app::visuals::WindowSize::OPENING.0)
+    }
+
+    fn settings_app_at(window: Vec2) -> App {
+        let mut app = real_layout_app(window);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .insert_state(AppScreen::Home)
             .add_plugins(UiFocusPlugin)
@@ -657,12 +667,24 @@ mod tests {
     /// The premise the single ring rests on, on this screen's own tree under
     /// real layout: only the shown panel's controls are in the ring with the
     /// tab bar and the footer, switching tabs through the ring swaps them
-    /// the same frame, three levels of `Display::None` nesting included -
+    /// the same frame, four levels of `Display::None` nesting included -
     /// and on the Game tab a numeric field whose limit is off is not in the
-    /// ring, and joins it the frame its checkbox is pressed.
+    /// ring, and joins it the frame its checkbox is pressed. In either
+    /// arrangement, and in the same order: the tabs, the tab's controls,
+    /// then Reset Controls and Back, which stay last although in the
+    /// sidebar they stand at the top.
     #[test]
     fn hidden_panels_leave_the_ring_and_the_shown_one_joins_it_under_real_layout() {
-        let mut app = settings_app();
+        for window in [
+            crate::app::visuals::WindowSize::OPENING.0,
+            crate::app::visuals::WindowSize::MINIMUM.0,
+        ] {
+            the_ring_walks_every_tab_in_order(window);
+        }
+    }
+
+    fn the_ring_walks_every_tab_in_order(window: Vec2) {
+        let mut app = settings_app_at(window);
         let sorted = |mut orders: Vec<u32>| {
             orders.sort_unstable();
             orders
@@ -1218,10 +1240,19 @@ mod tests {
     /// them. Each tab's sweep covers at least every control in its ring.
     #[test]
     fn the_pointer_reaches_every_control_on_every_tab_and_the_dialog_covers_the_rest() {
+        for window in [
+            crate::app::visuals::WindowSize::OPENING.0,
+            crate::app::visuals::WindowSize::MINIMUM.0,
+        ] {
+            the_pointer_reaches_every_control_in(window);
+        }
+    }
+
+    fn the_pointer_reaches_every_control_in(window: Vec2) {
         use crate::ui::button::{covered_at_their_centres, reachable_buttons};
         use crate::ui::focus::UiFocusState;
 
-        let mut app = settings_app();
+        let mut app = settings_app_at(window);
         for tab in [
             MappingTab::Preferences,
             MappingTab::Game,
