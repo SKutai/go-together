@@ -35,12 +35,14 @@ use bevy::ui::InteractionDisabled;
 use super::ControlMappingState;
 use super::bindings::mapping_binding_colors;
 use super::game::game_input_text;
+use super::geometry::settings_layout;
 use super::{
     ControllerMappingBinding, ControllerMappingUiRole, GameInputError, GameInputValue,
     GameNumericInput, GameToggle, GameToggleValue, MappingBinding, MappingPanel, MappingUiRole,
     MatchMinimumLabel, PreferenceToggle, PreferenceValue, ResetMappingsModal, SettingsTabButton,
     SettingsTabText, VolumeStop, VolumeStopLabel, mapping_instruction, preference_enabled,
 };
+use crate::app::visuals::WindowSize;
 use crate::audio::{AudioChannel, UiSound};
 use crate::input::controller::ControllerSlotStatus;
 use crate::match_settings::{MatchSettings, duration_parts};
@@ -383,14 +385,27 @@ pub(super) struct MappingButtons<'w, 's> {
     volumes: VolumeButtons<'w, 's>,
 }
 
+/// Fills every text on the screen but the Game tab's and styles every
+/// control but the tabs.
+///
+/// The instruction and the error line are the one pair whose showing
+/// depends on the arrangement. On top both are shown, the error under the
+/// instruction, as they always were. In the sidebar they share the top row
+/// with the title and the two buttons, which has room for one of them, so
+/// an error stands in the instruction's place while it is shown and the
+/// instruction comes back when it clears; the error says what to do, and the
+/// instruction would only repeat the tab's purpose beside it.
 pub(super) fn update_control_mapping_display(
     controls: ControlBindings,
     preferences: Res<GamePreferences>,
     mapping: Res<ControlMappingState>,
+    window: Res<WindowSize>,
     mut texts: MappingTexts,
     mut buttons: MappingButtons,
     mut reset_modal: Query<&mut Node, (With<ResetMappingsModal>, Without<MappingUiRole>)>,
 ) {
+    let error_in_the_instructions_place =
+        settings_layout(window.layout()).sidebar() && !mapping.error.is_empty();
     for (role, mut text, mut node) in &mut texts.roles {
         **text = match role {
             MappingUiRole::Instruction => mapping_instruction(mapping.tab).into(),
@@ -400,12 +415,25 @@ pub(super) fn update_control_mapping_display(
             MappingUiRole::Binding(action) => controls.keyboard.key(*action).display_name().into(),
             MappingUiRole::Error => mapping.error.clone(),
         };
-        if matches!(role, MappingUiRole::Error) {
-            node.display = if mapping.error.is_empty() {
-                Display::None
-            } else {
-                Display::Flex
-            };
+        match role {
+            MappingUiRole::Error => {
+                node.display = if mapping.error.is_empty() {
+                    Display::None
+                } else {
+                    Display::Flex
+                };
+            }
+            MappingUiRole::Instruction => {
+                let display = if error_in_the_instructions_place {
+                    Display::None
+                } else {
+                    Display::Flex
+                };
+                if node.display != display {
+                    node.display = display;
+                }
+            }
+            MappingUiRole::Binding(_) => {}
         }
     }
 

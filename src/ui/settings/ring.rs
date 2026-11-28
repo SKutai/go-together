@@ -346,7 +346,8 @@ mod tests {
     #[test]
     fn settings_controls_are_focusable_in_drawn_order_and_the_overlay_root_is_not() {
         let mut app = App::new();
-        app.add_systems(Update, spawn_control_mapping_screen);
+        app.init_resource::<crate::app::visuals::WindowSize>()
+            .add_systems(Update, spawn_control_mapping_screen);
         app.update();
 
         let world = app.world_mut();
@@ -430,9 +431,14 @@ mod tests {
     /// their production sets and gates - entered through a real state
     /// transition. One frame has run on the screen, so it is spawned, laid
     /// out and collected, with the ring parked on its first control and not
-    /// yet drawn.
+    /// yet drawn. In the opening window, unless [`settings_app_at`] names
+    /// another.
     fn settings_app() -> App {
-        let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
+        settings_app_at(crate::app::visuals::WindowSize::OPENING.0)
+    }
+
+    fn settings_app_at(window: Vec2) -> App {
+        let mut app = real_layout_app(window);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .insert_state(AppScreen::Home)
             .add_plugins(UiFocusPlugin)
@@ -657,12 +663,24 @@ mod tests {
     /// The premise the single ring rests on, on this screen's own tree under
     /// real layout: only the shown panel's controls are in the ring with the
     /// tab bar and the footer, switching tabs through the ring swaps them
-    /// the same frame, three levels of `Display::None` nesting included -
+    /// the same frame, four levels of `Display::None` nesting included -
     /// and on the Game tab a numeric field whose limit is off is not in the
-    /// ring, and joins it the frame its checkbox is pressed.
+    /// ring, and joins it the frame its checkbox is pressed. In either
+    /// arrangement, and in the same order: the tabs, the tab's controls,
+    /// then Reset Controls and Back, which stay last although in the
+    /// sidebar they stand at the top.
     #[test]
     fn hidden_panels_leave_the_ring_and_the_shown_one_joins_it_under_real_layout() {
-        let mut app = settings_app();
+        for window in [
+            crate::app::visuals::WindowSize::OPENING.0,
+            crate::app::visuals::WindowSize::MINIMUM.0,
+        ] {
+            the_ring_walks_every_tab_in_order(window);
+        }
+    }
+
+    fn the_ring_walks_every_tab_in_order(window: Vec2) {
+        let mut app = settings_app_at(window);
         let sorted = |mut orders: Vec<u32>| {
             orders.sort_unstable();
             orders
@@ -1218,10 +1236,19 @@ mod tests {
     /// them. Each tab's sweep covers at least every control in its ring.
     #[test]
     fn the_pointer_reaches_every_control_on_every_tab_and_the_dialog_covers_the_rest() {
+        for window in [
+            crate::app::visuals::WindowSize::OPENING.0,
+            crate::app::visuals::WindowSize::MINIMUM.0,
+        ] {
+            the_pointer_reaches_every_control_in(window);
+        }
+    }
+
+    fn the_pointer_reaches_every_control_in(window: Vec2) {
         use crate::ui::button::{covered_at_their_centres, reachable_buttons};
         use crate::ui::focus::UiFocusState;
 
-        let mut app = settings_app();
+        let mut app = settings_app_at(window);
         for tab in [
             MappingTab::Preferences,
             MappingTab::Game,
