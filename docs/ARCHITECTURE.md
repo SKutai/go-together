@@ -2971,7 +2971,11 @@ Two policies this boundary is meant to keep separate:
   the player did not trigger it, but it appears only on the screen that owns
   the data that failed to load, and it is the only place a player can see
   that cause at all (the deferred startup log carries the same string to a
-  developer, not to a screen).
+  developer, not to a screen). It shows as much of the cause as its line
+  holds: one line under the instruction with the tabs on top, two beside
+  the title in the sidebar. A longer warning is cut to that, so the end of
+  a file's path or the operating system's reason can be cut away, and only
+  the log has the whole string.
   The Match screen's ended-match status line is
   *not* scoped that way - it is rendered whether or not the player did
   anything - so `GameState.replay_notice` carries the generic sentence, not

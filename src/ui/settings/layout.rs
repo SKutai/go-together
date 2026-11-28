@@ -1416,9 +1416,10 @@ pub(super) mod tests {
     /// always were, and 12.6 at the smallest width, where the margins have
     /// narrowed for it - and 12.6 at 1043, 1059 and 1084 px wide too, where
     /// the contents' width is odd and a column's half pixel is rounded away.
-    /// The layout reckons the gap from the font's advance, 12.8 there;
-    /// `bevy_ui` lays each text box out up to a pixel wider than that, and
-    /// the glyphs stand inside their boxes.
+    /// The layout reckons the gap from the font's advance: 12.8 at 1040 px
+    /// wide, and 12.3 at those three, from a column of 417.5 px. `bevy_ui`
+    /// lays each text box out up to a pixel wider than its advance, and the
+    /// glyphs stand inside their boxes.
     #[test]
     fn the_longest_default_row_keeps_its_halves_apart_at_every_size() {
         let odd = [
@@ -1439,6 +1440,9 @@ pub(super) mod tests {
                 );
                 let gap = binding.min.x - label.max.x;
                 assert!(gap >= 12.0, "{window}: {gap} px between the halves");
+                if odd.contains(&window) {
+                    assert!((12.5..12.7).contains(&gap), "{window}: {gap}");
+                }
                 if !settings_layout(window).sidebar() {
                     assert!((14.5..14.7).contains(&gap), "{window}: {gap}");
                 }
@@ -1623,14 +1627,37 @@ pub(super) mod tests {
     /// A window smaller than the minimum - a browser's page can be - gets
     /// the frame the minimum gets: at 800x400 the screen's own readings of
     /// the window raise it to 1040x600, so every node of the frame, its text
-    /// and its place are what they are at 1040x600. Entered as the game
-    /// enters it, where the placement pass runs only on a change of size, so
-    /// the frame is the spawner's own.
+    /// and its place are what they are at 1040x600 - entered there, where the
+    /// frame is the spawner's own, and resized to it from the opening window
+    /// with a long warning on the error line, where the placement pass moves
+    /// the frame and the display pass cuts the warning. As the game enters
+    /// and resizes it, through the screen's own plugin.
     #[test]
     fn a_window_below_the_minimum_gets_the_minimums_frame() {
-        let mut below = entered_settings(Vec2::new(800.0, 400.0));
+        let below = Vec2::new(800.0, 400.0);
+        let mut entered = entered_settings(below);
         let mut minimum = entered_settings(WindowSize::MINIMUM.0);
-        assert_eq!(frame_tree(&mut below), frame_tree(&mut minimum));
+        assert_eq!(frame_tree(&mut entered), frame_tree(&mut minimum));
+        // A window resized below the minimum, the error line showing a
+        // message its place cuts: the placement pass, which runs on the
+        // change of size, and the display pass, which cuts the message to
+        // the place's width, both read the window raised to the minimum.
+        let warning = longest_load_warnings()[1].clone();
+        let mut resized = entered_settings(WindowSize::OPENING.0);
+        resized
+            .world_mut()
+            .resource_mut::<ControlMappingState>()
+            .error = warning.clone();
+        resized.update();
+        resize(&mut resized, below);
+        resized.update();
+        minimum
+            .world_mut()
+            .resource_mut::<ControlMappingState>()
+            .error = warning;
+        minimum.update();
+        minimum.update();
+        assert_eq!(frame_tree(&mut resized), frame_tree(&mut minimum));
     }
 
     /// When the window's size changes while Settings is shown, the frame
@@ -1774,14 +1801,17 @@ pub(super) mod tests {
         [sections.unwrap(), unread.unwrap()]
     }
 
-    /// The error line held to its place, on cuts worked out by hand: a
-    /// message that fits is shown whole; a longer one keeps the lines there
-    /// is room for, wrapped at the characters a line holds a pixel short of
-    /// the place, the last ending with "..."; a word longer than a line is
-    /// split; and characters are counted, not bytes.
+    /// The error line held to its place: a message that fits is shown
+    /// whole, the screen's own messages among them in both arrangements; a
+    /// longer one keeps the lines there is room for, wrapped at the
+    /// characters a line holds a pixel short of the place, the last ending
+    /// with "..." - also where a run of spaces is what was cut away; a word
+    /// longer than a line is split; and characters are counted, not bytes.
     #[test]
     fn the_error_line_is_cut_to_the_lines_it_has_room_for() {
+        use super::super::bindings::{CONTROLLER_DISCONNECTED_MESSAGE, UNSUPPORTED_KEY_MESSAGE};
         use super::super::display::shown_error;
+        use super::super::{CONNECT_A_CONTROLLER_MESSAGE, SETTINGS_NOT_SAVED_WARNING};
         use crate::ui::text_metrics::line_width;
 
         for window in [WindowSize::MINIMUM.0, WindowSize::OPENING.0] {
@@ -1791,6 +1821,26 @@ pub(super) mod tests {
             let chars = ((width - 1.0) / line_width(1, 14.0)).floor() as usize;
             let short = "Keyboard bindings were missing; using keyboard defaults.";
             assert_eq!(shown_error(short, &layout), short, "{window}");
+            // The screen's own messages, the longest of them 103 characters
+            // and filling the line on top, are all shown whole.
+            for message in [
+                SETTINGS_NOT_SAVED_WARNING,
+                UNSUPPORTED_KEY_MESSAGE,
+                CONTROLLER_DISCONNECTED_MESSAGE,
+                CONNECT_A_CONTROLLER_MESSAGE,
+            ] {
+                assert_eq!(shown_error(message, &layout), message, "{window}");
+            }
+            assert_eq!(SETTINGS_NOT_SAVED_WARNING.len(), 103);
+            // A value of 200 spaces, which take characters but make no
+            // line: cut, and marked as cut.
+            let spaces = format!(
+                "Preference show_match_timer was invalid (invalid type: string \"{}\", \
+                 expected a boolean); using its default.",
+                " ".repeat(200)
+            );
+            let shown = shown_error(&spaces, &layout);
+            assert!(shown.ends_with("..."), "{window}: {shown:?}");
             for long in longest_load_warnings()
                 .into_iter()
                 .chain(["\u{e9}".repeat(5_000), "word ".repeat(5_000)])

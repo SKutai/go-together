@@ -388,32 +388,35 @@ pub(super) struct MappingButtons<'w, 's> {
 
 /// The error line's text as it is drawn. A message that fits the lines the
 /// frame has room for ([`SettingsLayout::error_line`]) - as many or fewer
-/// when wrapped at its spaces, and no word longer than a line - is drawn as
-/// it is, wrapped by `bevy_ui`, as it always was. A longer one is cut: the
-/// game wraps it itself, at the characters a line holds a pixel short of
-/// its place, a word longer than a line split, keeps the lines there is
-/// room for and ends the last with [`CUT_MARK`]. Nothing but the message
-/// that startup could not load the settings file can be that long, since
-/// that one quotes what the file holds; the whole of it stays in the
-/// screen's state, and in the log, which has it from startup.
+/// when wrapped at its spaces, at the characters a line holds a pixel short
+/// of its place, and no word longer than a line - is drawn as it is, wrapped
+/// by `bevy_ui`, as it always was. A longer one is cut: the game wraps it
+/// itself at those characters, a word longer than a line split, keeps the
+/// lines there is room for and ends the last with [`CUT_MARK`]. Nothing but
+/// the message that startup could not load the settings file is that long,
+/// since that one quotes what the file holds and the path it was read from;
+/// the whole of it stays in the screen's state, and in the log, which has
+/// it from startup.
 pub(super) fn shown_error(error: &str, layout: &SettingsLayout) -> String {
     let (width, room) = layout.error_line();
-    let advance = line_width(1, ERROR_SIZE);
-    let holds = (width / advance).floor() as usize;
+    let chars = ((width - 1.0) / line_width(1, ERROR_SIZE)).floor() as usize;
     // Enough of the message for a line more than there is room for: each
     // line takes at most a line's characters and the space after them, so
     // the rest cannot change the lines kept, and a message as long as a
     // settings file is never wrapped whole on every frame.
-    let enough: String = error.chars().take((room + 1) * (holds + 1)).collect();
-    let fits = enough.len() == error.len()
-        && wrap_lines(error, holds).len() <= room
-        && error.split(' ').all(|word| word.chars().count() <= holds);
+    let enough: String = error.chars().take((room + 1) * (chars + 1)).collect();
+    let whole = enough.len() == error.len();
+    let fits = whole
+        && wrap_lines(error, chars).len() <= room
+        && error.split(' ').all(|word| word.chars().count() <= chars);
     if fits {
         return error.to_owned();
     }
-    let chars = ((width - 1.0) / advance).floor() as usize;
     let mut lines = wrap_lines(&enough, chars);
-    if lines.len() > room {
+    // A run of spaces takes characters but makes no line, so a message cut
+    // short of its end may still wrap into the room: it is marked all the
+    // same.
+    if lines.len() > room || !whole {
         lines.truncate(room);
         if let Some(last) = lines.last_mut() {
             let kept: String = last.chars().take(chars - CUT_MARK.len()).collect();

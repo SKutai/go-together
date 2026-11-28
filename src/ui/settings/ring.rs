@@ -49,9 +49,11 @@
 //! to a higher band clamps to the tab bar as re-entry does, switching to a
 //! lower one clamps to the new panel's last control, where the next key
 //! reveals the ring. That is a mixed-input case the pointer began, nothing
-//! there is destructive, and putting the memory back on the tab bar on
-//! every switch would need the core to expose its memory, which no screen
-//! does today.
+//! there is destructive, so the memory is left where the core put it. The
+//! core can move a screen's memory now - the Replay Library moves it with
+//! the cards a change of size carries down the page - but putting it back
+//! on the tab bar on every switch would only undo what the pointer chose,
+//! in a case where no wrong press can follow.
 //!
 //! The confirmation seeds on *Cancel*: it is order 0 and Confirm Reset is
 //! order 1, although they are drawn the other way round. With two entries
