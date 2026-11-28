@@ -2098,18 +2098,24 @@ mod tests {
     /// The opening window as `bevy_ui` lays it out through the game's own
     /// plugins, written out as numbers: Back and Match Settings in the
     /// header row, the label's node between them and the three lines under
-    /// it, and every control of the transport row. They are the numbers the
+    /// it, and every control of the transport row - and the board drawn by
+    /// the camera at its own size over the origin. They are the numbers the
     /// screen was laid out at before it was laid out for other sizes,
     /// measured on `main` on 2026-11-28 with the same reading. A slip in an
     /// arm of the placement that the opening window reaches shows here, and
     /// not only in the pure layout's arithmetic.
     #[test]
     fn the_opening_window_lays_the_viewer_out_where_it_always_did() {
-        use crate::app::visuals::WindowSize;
+        use crate::app::visuals::{WindowSize, WorldFraming};
         use bevy::ui::{ComputedNode, UiGlobalTransform};
 
         let mut app = viewer_app(WindowSize::OPENING.0, fixed_metadata_replay());
         app.update();
+        assert_eq!(
+            *app.world().resource::<WorldFraming>(),
+            WorldFraming::IDENTITY
+        );
+        assert_frames_its_board(&mut app, "the opening window");
         let rect = |left: f32, top: f32, width: f32, height: f32| {
             Rect::new(left, top, left + width, top + height)
         };

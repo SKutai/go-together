@@ -444,7 +444,7 @@ trusting the layout's own idea of where each box is, and the real layout
 checks that idea against `bevy_ui` at the sizes it runs. The room the
 Viewer's label needs is the one input that comes from a text: its lines
 are counted as `bevy_ui` breaks them (`ui::replay::viewer::wrap`), and
-`the_label_check_counts_the_lines_bevy_ui_sets` lays several hundred
+`the_label_check_counts_the_lines_bevy_ui_sets` lays over a thousand
 labels out with `bevy_ui` at the header's narrowest width and holds the
 count to the lines it sets each on, label for label.
 
