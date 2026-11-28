@@ -61,16 +61,52 @@ const showStartupError = (error) => {
   console.error("Go Together startup failed:", error);
 };
 
-// F11 is the browser's, for its own fullscreen. Stopped here, at the window
-// before anything under it hears the key, it never reaches the canvas, where
-// winit would cancel the browser's action for it as it does for every key,
-// nor the start handler below, which cancels the first key's. Nothing
-// cancels it, so the browser acts on it, and the game never sees it.
+// F11 is the browser's, for its own fullscreen, and on a Mac so is
+// Control-Command-F, macOS's own fullscreen shortcut, which Help names beside
+// F11 because a Mac's default settings keep F11 itself. Stopped here, at the
+// window before anything under it hears the key, neither reaches the canvas,
+// where winit would cancel the browser's action for it as it does for every
+// key, nor the start handler below, which cancels the first key's. Nothing
+// cancels them, so the browser acts on them, and the game never sees them.
+// Shift or Option with the chord make it another key, as they do in the
+// desktop game.
+const onAMac = /Mac/.test(navigator.platform || navigator.userAgent);
+const isTheChord = (event) =>
+  onAMac &&
+  event.code === "KeyF" &&
+  event.ctrlKey &&
+  event.metaKey &&
+  !event.shiftKey &&
+  !event.altKey;
+// As in the desktop game, the chord's F is the chord's until it is let go:
+// its repeats and its release stay the browser's even once Control and
+// Command are let go first, so a held chord never turns into an F that moves
+// a player. Each fresh press of F decides afresh, so a release the page never
+// hears - Safari sends none for a key let go while Command is held - holds
+// nothing back.
+let chordsF = false;
+const isTheBrowsers = (event) => {
+  if (event.key === "F11" || event.code === "F11") {
+    return true;
+  }
+  if (event.code !== "KeyF") {
+    return false;
+  }
+  if (event.type === "keyup") {
+    const wasTheChords = chordsF;
+    chordsF = false;
+    return wasTheChords;
+  }
+  if (!event.repeat) {
+    chordsF = isTheChord(event);
+  }
+  return chordsF || isTheChord(event);
+};
 for (const type of ["keydown", "keyup"]) {
   window.addEventListener(
     type,
     (event) => {
-      if (event.key === "F11" || event.code === "F11") {
+      if (isTheBrowsers(event)) {
         event.stopPropagation();
       }
     },

@@ -98,7 +98,9 @@ pub(crate) struct WindowPlatformConfig {
     pub(crate) fullscreen_key: bool,
     /// Whether Control-Command-F switches fullscreen too, as F11 does:
     /// macOS's own fullscreen shortcut, the game's on a Mac alone, where
-    /// the default settings keep F11 itself for volume and Show Desktop.
+    /// the default settings keep F11 itself for volume and Show Desktop. A
+    /// browser keeps the chord too, on a Mac: the page passes it to the
+    /// browser as it passes F11.
     pub(crate) fullscreen_chord: bool,
 }
 
