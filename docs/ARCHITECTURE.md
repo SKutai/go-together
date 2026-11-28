@@ -535,16 +535,15 @@ nothing adapted positions itself from them.
 **Text never changes size.** Interface nodes are laid out in the window's
 own pixels at their own sizes, so the 14px floor holds at every size. What
 grows and shrinks is the world-space scene - the Match board and the
-Replay Viewer's, each with every mark on it, and Home's diamond - and it is
-placed and scaled by the main camera, not by moving or resizing the scene.
-A screen writes `WorldFraming`, a zoom and the world point at the window's
-centre, and
-`frame_main_camera` gives the camera that projection scale and
-translation in `PostUpdate`, before the projection is recomputed.
-`bevy_ui` never sees the projection. So `board_position`, `GRID_SPACING`
-and the rest of the boards' geometry, and the tests of it, are the same at
-every size, and every stroke keeps its proportion to the cell. A screen
-with no world-space scene to place writes nothing:
+Replay Viewer's, each with every mark on it, and Home's diamond - and it
+is placed and scaled by the main camera, not by moving or resizing the
+scene. A screen writes `WorldFraming`, a zoom and the world point at the
+window's centre, and `frame_main_camera` gives the camera that projection
+scale and translation in `PostUpdate`, before the projection is
+recomputed. `bevy_ui` never sees the projection. So `board_position`,
+`GRID_SPACING` and the rest of the boards' geometry, and the tests of it,
+are the same at every size, and every stroke keeps its proportion to the
+cell. A screen with no world-space scene to place writes nothing:
 `reset_world_framing_on_screen_change`, in `StateTransition` beside the
 HUD's modal reset, puts the framing back to a scale of 1 over the origin
 on every change of screen, so Settings and the Replay Library never
@@ -553,8 +552,8 @@ and Home on entry and whenever the window's size changes, all after that
 reset. Text drawn in world space, as the Replay Viewer's score badges are,
 is scaled by the camera as well, and the 14px floor's scan reads the sizes
 text is set at, not a camera's zoom; so on a screen that zooms, such text
-has to be counter-scaled or moved into `bevy_ui`. The Viewer counter-scales
-its badges.
+has to be counter-scaled or moved into `bevy_ui`. The Viewer
+counter-scales its badges.
 
 **The Match screen** (`ui::match_screen::geometry`) has two arrangements.
 *Tall* is the 1040x900 layout, which in that window is the screen exactly
@@ -562,29 +561,29 @@ as it always was, pixel for pixel. *Wide* stands each player's stack
 beside the board from the title row down, puts the round panel to the
 heading's left and the Match timer to its right, and lets the board fill
 the height between the title row and the band under it. Either, in a
-window with more room than its board takes, stands centred down the
-window as one piece. The board ranges from 0.70 of its own size at the
-minimum to twice it. Which arrangement a window gets is the rule in
-`ui::arrangement`, which the Replay Viewer chooses by too, each screen from
-its own margins. Below the cap of twice the board's size, wide is chosen
-where it gives the board more than 4% more room than tall: so every window
-narrower than about 1.12 times its height is tall, and a wider one is tall
-until wide gains that much. The margins are fixed pixels, so that depends
-on the size as well as the shape - the opening shape stays tall up to
-about 1182x1023 and is wide above it. Past the cap, the window's shape
+window with more room than its board takes, stands centred down the window
+as one piece. The board ranges from 0.70 of its own size at the minimum to
+twice it. Which arrangement a window gets is the rule in
+`ui::arrangement`, which the Replay Viewer chooses by too, each screen
+from its own margins. Below the cap of twice the board's size, wide is
+chosen where it gives the board more than 4% more room than tall: so every
+window narrower than about 1.12 times its height is tall, and a wider one
+is tall until wide gains that much. The margins are fixed pixels, so that
+depends on the size as well as the shape - the opening shape stays tall up
+to about 1182x1023 and is wide above it. Past the cap, the window's shape
 alone decides - the choice its shape gets where the larger room just
-reaches the cap - so a window keeps its arrangement however large it grows.
-Nothing but the board shrinks, so the smallest windows are made to fit by
-moving: the line of end
-reasons is never wrapped and the stacks stand further from the board when
-it needs the room, the round panel takes two lines beside the heading when
-one does not fit, and the band under the board holds two lines of text or
-one with a bar. The module's docs give the numbers. `ui::match_screen::layout`
-spawns each piece where the layout says, marks it with its
-`MatchPlacement`, and moves it when the window's size changes; the
-countdown card is placed over the same rows of the board at any zoom by the
-rule `ui::countdown_card` shares with the Replay Viewer, and the capture
-marks, being world-space, scale with the stones they stand on.
+reaches the cap - so a window keeps its arrangement however large it
+grows. Nothing but the board shrinks, so the smallest windows are made to
+fit by moving: the line of end reasons is never wrapped and the stacks
+stand further from the board when it needs the room, the round panel takes
+two lines beside the heading when one does not fit, and the band under the
+board holds two lines of text or one with a bar. The module's docs give
+the numbers. `ui::match_screen::layout` spawns each piece where the layout
+says, marks it with its `MatchPlacement`, and moves it when the window's
+size changes; the countdown card is placed over the same rows of the board
+at any zoom by the rule `ui::countdown_card` shares with the Replay
+Viewer, and the capture marks, being world-space, scale with the stones
+they stand on.
 
 **Home** (`ui::home::geometry`) stays centred at its own size. Its diamond
 keeps its own size down to a window about 709 px tall, and in a shorter
@@ -600,44 +599,53 @@ shorter one it stands upright beside the panel.
 arrangements too, chosen by the same rule from its own margins. *Tall* is
 the 1040x900 layout, pixel for pixel in that window but for a label that
 takes three lines there, below. *Wide* lets the board fill the height
-above the transport row, keeps Back and Match Settings in
-the top corners, and stands the Replay's label, the timer, the round and
-the result line in a column under Back; the transport row stays under the
-board. Either centres the board across the window, where the countdown
-card is centred, and stands centred down a window with room to spare, as
-the Match does. The board ranges from 0.79 of its own size at the minimum
-to twice it. With these margins every window narrower than about 1.20
-times its height is tall, so the opening shape is tall at every size, and
-a window 1040 px wide is wide up to 778 px tall. Wide's column holds any
-label - up to 60 characters, wrapping onto as many lines as the column's
-width makes it - over the longest timer, round and result lines. Tall's
-header gives the label the two lines it always had room for, and a label
-that takes three there, its lines counted as `bevy_ui` breaks them
-(`ui::replay::viewer::wrap`), a line's more room above the board. Where the
-window's height limits the board, as at 1040x900, that draws the board a
-line smaller - 0.949 of its size there - with its bottom and the transport
-row where they were; where the window has height to spare, the header row
-rises half a line and the board and the transport row drop half a line.
-It is the one place a layout reads what a text says, since the Replay, and
-so its label, cannot change while the screen is open. Such a label used to
-run into the timer. The score badges are drawn
-at their own size whatever the board's zoom, and placed in window pixels -
-their offsets from their cursors, a pair's gap and the clamp at the
-window's edge - so they are placed again when the window's size changes.
-The Key, too tall for a short window, sets its rows in two columns below
-722 px. `ui::replay::viewer::layout` spawns each piece where the layout
-says and moves it, through one `place` function and a `ViewerPlacement`
-on each node, from a pass that runs first in the Viewer's own chain.
+above the transport row, keeps Back and Match Settings in the top corners,
+and stands the Replay's label, the timer, the round and the result line in
+a column under Back; the transport row stays under the board. Either
+centres the board across the window, where the countdown card is centred,
+and stands centred down a window with room to spare, as the Match does.
+The board ranges from 0.79 of its own size at the minimum to twice it.
+With these margins, for a label that takes two lines in tall's header,
+every window narrower than about 1.20 times its height is tall, so the
+opening shape is tall at every size, and a window 1040 px wide is wide up
+to 778 px tall. Wide's column holds any label - up to 60 characters,
+wrapping onto as many lines as the column's width makes it - over the
+longest timer, round and result lines. Tall's header gives the label the
+two lines it always had room for, and sets it in as many whole characters
+as fit in the middle of the header row with half a character to spare, so
+that the rounding of its node's edges to the display's pixels cannot
+change where its lines break. A label that takes three lines in a window's
+header, its lines counted as `bevy_ui` breaks them
+(`ui::replay::viewer::wrap`), gets a line's more room above the board.
+Where the window's height limits the board, as at 1040x900, that draws the
+board a line smaller - 0.949 of its size there - with its bottom and the
+transport row where they were; where the window has height to spare, the
+header row rises half a line and the board and the transport row drop half
+a line. It is decided for each window, since a wider header can wrap a
+label onto more lines as well as fewer, so a resize across such a width
+moves the board by a line for such a label; the turning points the
+module's docs give for a three-line label are for the header of the window
+in question. It is the one place a layout reads what a text says, since
+the Replay, and so its label, cannot change while the screen is open. Such
+a label used to run into the timer. The score badges are drawn at their
+own size whatever the board's zoom, and placed in window pixels - their
+offsets from their cursors, a pair's gap and the clamp at the window's
+edge - so they are placed again when the window's size changes. The Key,
+too tall for a short window, sets its rows in two columns below 722 px.
+`ui::replay::viewer::layout` spawns each piece where the layout says and
+moves it, through one `place` function and a `ViewerPlacement` on each
+node, from a pass that runs first in the Viewer's own chain.
 
 **The tests** sweep every layout over `app::visuals::layout_sweep` - every
 20 px from the minimum to 2560x1440, the named sizes, a few fractional
 ones and a few larger windows - and hold that nothing overlaps, nothing
 leaves the window, the board never falls below the smallest window's zoom
 nor grows past twice its size, and at 1040x900 every position is the one
-the screen always had; the real-layout tests run the same screens at the
-sizes in `NAMED_WINDOW_SIZES`, through the game's own schedule where the
-order of the passes matters. See
-[Pure tests versus ECS tests](TESTING.md#pure-tests-versus-ecs-tests).
+the screen always had, but for the Viewer's with a label that takes three
+lines there; the real-layout tests run the same screens at the sizes in
+`NAMED_WINDOW_SIZES`, through the game's own schedule where the order of
+the passes matters. See [Pure tests versus ECS
+tests](TESTING.md#pure-tests-versus-ecs-tests).
 
 ## Presentation: continuous vs change-driven display
 
@@ -690,9 +698,9 @@ instead of frame count:
   the purpose. Comparing the actual per-entity target value is what makes the
   distinction correctly.
 * **Boundary-gated redraws**, for the Replay Viewer's board specifically.
-  Unlike the live Match, a Replay's board, cursors, teleport markers, hidden
-  selections and score badges are not independent per-frame state: playback
-  changes them only by moving from one recorded event to the next
+  Unlike the live Match, a Replay's board, cursors, teleport markers,
+  hidden selections and score badges are not independent per-frame state:
+  playback changes them only by moving from one recorded event to the next
   (`Replay::playback_boundary_key`), and never between two events. The
   score badges also depend on the window's size, because they are drawn at
   their own size whatever the board's zoom and placed in the window's
@@ -704,26 +712,26 @@ instead of frame count:
   crossing, including a silent seek, on any change of the window's size,
   and on every entry to the screen, with no one-frame lag. The comparison
   itself borrows the cached key rather than rebuilding it, so the
-  steady-state path allocates nothing; the `replay_id` is cloned only on the
-  frames where the key actually changes and is stored.
-  That matters because the gate buys 180 entity iterations (81
-  intersections and the 81 rings behind them, two cursors, two score badges,
-  two Teleport Markers and twelve hidden-selection marks - each of those
-  fourteen one entity, with its strokes as children that move with it) whose
-  writes
-  are *already* compare-guarded - cloning a UUID twice per frame to save them
-  would have been at best a wash. The system only runs while the Viewer
-  screen is active, so leaving it does not itself re-run the system to reset
-  the cache, and two things follow. The cache key includes `replay_id`, not
-  just the event index: a *different* Replay opened afterward could
-  otherwise land on the same event index the previous one last drew and
-  incorrectly keep showing its board (a real bug caught by
+  steady-state path allocates nothing; the `replay_id` is cloned only on a
+  frame that redraws - the key changed, or the board was just spawned -
+  when the key is stored. That matters because the gate buys 180 entity
+  iterations (81 intersections and the 81 rings behind them, two cursors,
+  two score badges, two Teleport Markers and twelve hidden-selection
+  marks - each of those fourteen one entity, with its strokes as children
+  that move with it) whose writes are *already* compare-guarded - cloning a
+  UUID twice per frame to save them would have been at best a wash. The
+  system only runs while the Viewer screen is active, so leaving it does
+  not itself re-run the system to reset the cache, and two things follow.
+  The cache key includes `replay_id`, not just the event index: a
+  *different* Replay opened afterward could otherwise land on the same
+  event index the previous one last drew and incorrectly keep showing its
+  board (a real bug caught by
   `a_new_replay_at_the_same_boundary_index_is_never_mistaken_for_a_cached_one`
   during development). And a board just spawned is drawn whatever the key:
-  every entry spawns the board afresh, its cursors and badges at the world's
-  origin, so the *same* Replay opened again at the start where it was left
-  would otherwise match the key and leave them there until playback
-  crossed an event, as it did until 2026-11-28.
+  every entry spawns the board afresh, its cursors and badges at the
+  world's origin, so the *same* Replay opened again at the start where it
+  was left would otherwise match the key and leave them there until
+  playback crossed an event, as it did until 2026-11-28.
 * **Size-gated placement**, for where things stand. The Match screen's
   `place_match_furniture` and Home's `place_home_furniture`, both in the
   `ScreenLayout` stage, and the Replay Viewer's `place_viewer_furniture`,

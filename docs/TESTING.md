@@ -444,9 +444,15 @@ trusting the layout's own idea of where each box is, and the real layout
 checks that idea against `bevy_ui` at the sizes it runs. The room the
 Viewer's label needs is the one input that comes from a text: its lines
 are counted as `bevy_ui` breaks them (`ui::replay::viewer::wrap`), and
-`the_label_check_counts_the_lines_bevy_ui_sets` lays over a thousand
-labels out with `bevy_ui` at the header's narrowest width and holds the
-count to the lines it sets each on, label for label.
+`the_label_check_counts_the_lines_bevy_ui_sets` lays nearly twenty thousand
+labels out with `bevy_ui` at seven widths - the label's in narrow, middling
+and wide tall windows, wide's column, and three that are an exact number
+of characters - and holds the line each character is drawn on, read from
+its glyph, to the line the count puts it on, character by character. The
+labels put every punctuation mark at every place around a full line's end,
+and every two marks side by side there, so a change to any one
+line-breaking rule, or to the class of any one character, moves some
+character to another line there.
 
 It is also how a test presses a button. `ui::button` carries the helpers -
 `click`, `hover`, `mouse_button`, `queue_mouse_button` for a key in the same
@@ -1044,7 +1050,9 @@ characters - 624 px of 16 px monospace - so the same `textwrap` count
 predicts its lines, and each line costs about 19.5 px; in two columns, at
 44. The score badges' sentence points to the result line, which tall and
 wide put in different places, so it has a wording for each arrangement;
-the two wrap at the same places at either width.
+the two wrap at the same places at either width, and the test holds which
+the Key shows in each arrangement: in tall, the sentence it has always
+shown, byte for byte.
 
 ### Capturing a screen to a file
 
