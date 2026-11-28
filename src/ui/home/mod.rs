@@ -265,10 +265,11 @@ mod tests {
     /// reaches each of Home's four menu buttons at its centre with
     /// everything the screen can draw shown, the marimba included; every
     /// text stands inside the window; the panel is as tall as `geometry`
-    /// reckons, which is what the marimba's stance is worked out from; the
-    /// camera frames the diamond as `geometry` says; and the marimba's bars
-    /// stand inside the window, clear of the panel, running across under it
-    /// or up beside it. The title panel and the marimba stand above the
+    /// reckons, and the marimba's bars are drawn where it reckons them, which
+    /// are what the marimba's stance is worked out from; the camera frames
+    /// the diamond as `geometry` says; and the marimba's bars stand inside
+    /// the window, clear of the panel, running across under it or up beside
+    /// it. The title panel and the marimba stand above the
     /// screen's root on `GlobalZIndex`es of their own, and picking stops at
     /// the first node under the pointer whatever it is.
     #[test]
@@ -311,11 +312,21 @@ mod tests {
                     "{window}: a bar at {bar:?} covers the panel {panel:?}"
                 );
             }
+            // The bars stand where the layout reckons they are drawn, within
+            // a pixel: `bevy_ui` rounds the node and each bar in it to whole
+            // pixels, and an odd window puts both on a half.
+            let drawn = bars.iter().fold(bars[0], |all, bar| all.union(*bar));
+            let reckoned = layout.marimba_bars_rect();
+            assert!(
+                (drawn.min - reckoned.min).abs().max_element() <= 1.0
+                    && (drawn.max - reckoned.max).abs().max_element() <= 1.0,
+                "{window}: the bars are drawn at {drawn:?}, reckoned {reckoned:?}"
+            );
             // The lowest bar is the longest: across the window it stands at
             // the left, upright it lies at the bottom.
             let (lowest, highest) = (bars[0], bars[10]);
             match layout.marimba {
-                MarimbaStance::UnderPanel => {
+                MarimbaStance::UnderPanel(_) => {
                     assert!(lowest.height() > highest.height(), "{window}");
                     assert!(lowest.max.x < highest.min.x, "{window}");
                     assert!(bars.iter().all(|bar| bar.min.y > panel.max.y), "{window}");
@@ -393,6 +404,75 @@ mod tests {
             *app.world().resource::<WorldFraming>(),
             WorldFraming::IDENTITY
         );
+    }
+
+    /// Home entered through its own plugin and the game's window layout,
+    /// from another screen, in the smallest window, twice: each entry
+    /// frames the diamond at its zoom, after the change of screen has put
+    /// the framing back, so the main camera draws it shrunk; and leaving
+    /// puts the camera back to a scale of 1 over the origin. Home frames
+    /// the diamond on entry and again only when the window's size changes,
+    /// so a reset that ran after the screens' enter schedules would leave
+    /// the diamond drawn at its full size, here on the second entry above
+    /// all, where the size has not changed since the first.
+    #[test]
+    fn entering_home_in_a_short_window_frames_the_diamond_shrunk_every_time() {
+        use crate::app::motion::MotionPolicy;
+        use crate::app::visuals::{MainCamera, WindowLayoutPlugin, WindowSize};
+        use crate::audio::AudioCueQueue;
+        use crate::settings::GamePreferences;
+        use bevy::input::keyboard::KeyboardInput;
+
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .add_message::<KeyboardInput>()
+            .insert_state(AppScreen::ControlMapping)
+            .add_plugins(WindowLayoutPlugin)
+            .add_plugins(HomePlugin)
+            .insert_resource(WindowSize::MINIMUM)
+            .insert_resource(GameState::default())
+            .insert_resource(InputGate::default())
+            .insert_resource(HudState::default())
+            .insert_resource(AudioCueQueue::default())
+            .insert_resource(GamePreferences::default())
+            .init_resource::<MotionPolicy>()
+            .init_resource::<Time>();
+        let camera = app
+            .world_mut()
+            .spawn((
+                MainCamera,
+                Projection::Orthographic(OrthographicProjection::default_2d()),
+                Transform::default(),
+            ))
+            .id();
+        let drawn = |app: &App| {
+            let Projection::Orthographic(projection) =
+                app.world().get::<Projection>(camera).unwrap()
+            else {
+                panic!("an orthographic camera");
+            };
+            (*app.world().resource::<WorldFraming>(), projection.scale)
+        };
+        let go_to = |app: &mut App, screen: AppScreen| {
+            app.world_mut()
+                .resource_mut::<NextState<AppScreen>>()
+                .set(screen);
+            app.update();
+        };
+        app.update();
+        assert_eq!(drawn(&app), (WorldFraming::IDENTITY, 1.0));
+
+        let shrunk = home_layout(WindowSize::MINIMUM.0).framing();
+        assert!(
+            shrunk.zoom < 0.85,
+            "the diamond shrinks in the smallest window"
+        );
+        for entry in ["first", "second"] {
+            go_to(&mut app, AppScreen::Home);
+            assert_eq!(drawn(&app), (shrunk, 1.0 / shrunk.zoom), "{entry} entry");
+            go_to(&mut app, AppScreen::ControlMapping);
+            assert_eq!(drawn(&app), (WorldFraming::IDENTITY, 1.0), "{entry} exit");
+        }
     }
 
     #[test]

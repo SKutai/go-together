@@ -24,17 +24,22 @@
 //!
 //! # Where it stands
 //!
-//! Under the panel, across the window, or upright beside the panel in a
-//! window too short for that, as `super::geometry` decides. Upright, the
-//! instrument is the same one turned on its end: the bars lie across, the
-//! longest and lowest at the bottom, and the same key plays the same bar.
+//! Under the panel, across the window, where it has always stood beside
+//! the panel and the diamond, or upright beside the panel in a window too
+//! short for that, as `super::geometry` decides, with the instrument's
+//! dimensions. Upright, the instrument is the same one turned on its end:
+//! the bars lie across, the longest and lowest at the bottom, and the same
+//! key plays the same bar.
 
 use bevy::ecs::system::SystemParam;
 use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 
-use super::geometry::{MARIMBA_BOTTOM, MARIMBA_DEPTH, MARIMBA_LENGTH, MarimbaStance};
+use super::geometry::{
+    BAR_BREADTH, BAR_GAP, BAR_LENGTH_STEP, HOME_MARIMBA_BAR_COUNT, LOWEST_BAR_LENGTH,
+    MARIMBA_DEPTH, MARIMBA_LENGTH, MarimbaStance, PADDING_ACROSS, PADDING_ALONG,
+};
 use crate::app::{AppScreen, AppSystems};
 use crate::presentation::{marimba_bar, marimba_border};
 
@@ -68,7 +73,6 @@ use crate::audio::{AudioCueQueue, MarimbaNote, UiCue};
 use crate::ui::hud::{HudState, modal_open};
 
 const HOME_MARIMBA_REVEAL_COUNT: u8 = 20;
-const HOME_MARIMBA_BAR_COUNT: usize = 11;
 const HOME_MARIMBA_FADE_IN_SECONDS: f32 = 0.6;
 const HOME_MARIMBA_IDLE_SECONDS: f32 = 10.0;
 const HOME_MARIMBA_FADE_OUT_SECONDS: f32 = 0.8;
@@ -127,17 +131,6 @@ pub(super) struct HomeMarimbaVisual;
 #[derive(Component)]
 pub(super) struct HomeMarimbaBar(pub(super) usize);
 
-/// A bar's breadth, and its length: the lowest bar's, less this much for
-/// each step up the scale.
-const BAR_BREADTH: f32 = 23.0;
-const LOWEST_BAR_LENGTH: f32 = 72.0;
-const BAR_LENGTH_STEP: f32 = 3.2;
-/// The gap between two bars, and the padding around them: along the
-/// instrument, and across it.
-const BAR_GAP: f32 = 5.0;
-const PADDING_ALONG: f32 = 9.0;
-const PADDING_ACROSS: f32 = 8.0;
-
 pub(super) fn spawn_home_marimba(commands: &mut Commands, stance: MarimbaStance) {
     let mut root = Node {
         position_type: PositionType::Absolute,
@@ -176,26 +169,21 @@ pub(super) fn spawn_home_marimba(commands: &mut Commands, stance: MarimbaStance)
 /// for `stance`. Each stance sets every field it owns, so a marimba turned
 /// upright and back is the one it was.
 fn place_marimba(stance: MarimbaStance, node: &mut Node) {
+    let top_left = stance.top_left();
+    node.left = px(top_left.x);
+    node.top = px(top_left.y);
     match stance {
-        MarimbaStance::UnderPanel => {
-            node.left = percent(50);
-            node.top = Val::Auto;
-            node.bottom = px(MARIMBA_BOTTOM);
+        MarimbaStance::UnderPanel(_) => {
             node.width = px(MARIMBA_LENGTH);
             node.height = px(MARIMBA_DEPTH);
-            node.margin = UiRect::left(px(-MARIMBA_LENGTH / 2.0));
             node.padding = UiRect::axes(px(PADDING_ALONG), px(PADDING_ACROSS));
             node.flex_direction = FlexDirection::Row;
             node.column_gap = px(BAR_GAP);
             node.row_gap = Val::ZERO;
         }
-        MarimbaStance::Upright(top_left) => {
-            node.left = px(top_left.x);
-            node.top = px(top_left.y);
-            node.bottom = Val::Auto;
+        MarimbaStance::Upright(_) => {
             node.width = px(MARIMBA_DEPTH);
             node.height = px(MARIMBA_LENGTH);
-            node.margin = UiRect::DEFAULT;
             node.padding = UiRect::axes(px(PADDING_ACROSS), px(PADDING_ALONG));
             // The lowest bar first, at the bottom.
             node.flex_direction = FlexDirection::ColumnReverse;
@@ -211,7 +199,7 @@ fn place_bar(index: usize, stance: MarimbaStance, node: &mut Node) {
     let length = px(LOWEST_BAR_LENGTH - index as f32 * BAR_LENGTH_STEP);
     let breadth = px(BAR_BREADTH);
     (node.width, node.height) = match stance {
-        MarimbaStance::UnderPanel => (breadth, length),
+        MarimbaStance::UnderPanel(_) => (breadth, length),
         MarimbaStance::Upright(_) => (length, breadth),
     };
 }

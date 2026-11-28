@@ -546,9 +546,12 @@ marks, being world-space, scale with the stones they stand on.
 
 **Home** (`ui::home::geometry`) stays centred at its own size. In a window
 shorter than the opening one its diamond shrinks, through the camera, until
-its corners stay inside the window, but never below the panel's height;
-and the hidden marimba, which stands under the panel, stands upright beside
-it wherever under the panel it would meet the panel or the diamond.
+its corners stay inside the window, but never below the panel's height.
+The hidden marimba stands under the panel where it always has beside the
+panel and the diamond, moving with them in a taller window, wherever its
+bars - measured where they are drawn, not by the instrument's node - stay
+inside the window there, which is in windows at least 848 px tall; in a
+shorter one it stands upright beside the panel.
 
 **The tests** sweep every layout over `app::visuals::layout_sweep`, from the
 minimum to 2560x1440, and hold that nothing overlaps, nothing leaves the
