@@ -559,8 +559,9 @@ pub(crate) const NAMED_WINDOW_SIZES: [Vec2; 9] = [
 ];
 
 /// Every window size a pure layout is checked at: [`NAMED_WINDOW_SIZES`],
-/// every size from the minimum to 2560x1440 in steps of 20, and a few that
-/// a fractional scale factor gives, which are not whole pixels.
+/// every size from the minimum to 2560x1440 in steps of 20, a few that a
+/// fractional scale factor gives, which are not whole pixels, and a few
+/// larger windows, where a board can reach the most it grows.
 #[cfg(test)]
 pub(crate) fn layout_sweep() -> Vec<Vec2> {
     let mut sizes = NAMED_WINDOW_SIZES.to_vec();
@@ -576,6 +577,14 @@ pub(crate) fn layout_sweep() -> Vec<Vec2> {
         Vec2::new(2049.0, 1153.0) / 1.5,
         Vec2::new(1707.0, 961.0) / 1.25,
         Vec2::new(2401.0, 1351.0) / 1.25,
+    ]);
+    // A 2560x1600 screen, a 3840x2160 one at a scale factor of 1, and the
+    // portrait screens of a 2560x1440 and a 3840x2160 one.
+    sizes.extend([
+        Vec2::new(2560.0, 1600.0),
+        Vec2::new(3840.0, 2160.0),
+        Vec2::new(1440.0, 2560.0),
+        Vec2::new(2160.0, 3840.0),
     ]);
     sizes
 }

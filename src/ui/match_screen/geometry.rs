@@ -1,10 +1,12 @@
 //! Where everything on the Match screen stands, for a window of any size.
 //!
 //! Nothing here touches the ECS: [`match_layout`] is a pure function of the
-//! window's size, which is what lets the tests run every size from the
-//! minimum to 2560x1440 and check that nothing overlaps and nothing leaves
-//! the window. [`super::layout`] spawns the furniture where this says, and
-//! moves it whenever the window's size changes.
+//! window's size, which is what lets the tests run it at every size from
+//! the minimum to 2560x1440 in steps of 20 px, at the named sizes, at a few
+//! that a fractional scale factor gives and at a few larger windows, and
+//! check that nothing overlaps and nothing leaves the window.
+//! [`super::layout`] spawns the furniture where this says, and moves it
+//! whenever the window's size changes.
 //!
 //! # Two arrangements
 //!
@@ -18,24 +20,32 @@
 //!   Match timer and the round panel under it, each player's stack in a top
 //!   corner, and the end-gesture line and the two bars under the board.
 //!   Laid out in that window it is exactly the screen as it has always
-//!   been, pixel for pixel. In a window that leaves it room to spare, the
-//!   whole of it - board and interface together - stands centred down the
-//!   window, as one piece, and its stacks keep their distance from the
-//!   board.
+//!   been, pixel for pixel.
 //! * **Wide** puts things side by side. The board fills the height between
 //!   a title row and the band under the board; each player's stack - name,
 //!   Home or Help, capture count, Round 0 dots and control hints - stands
-//!   beside the board, from the top of the window; the round panel moves to
+//!   beside the board, from the title row down; the round panel moves to
 //!   the heading's left and the Match timer to its right; and the line of
 //!   end reasons stays under the heading. The end-gesture line and both bars
 //!   stay under the board, where the Help pages say the bar is.
 //!
-//! Wide is used only where it draws the board more than [`WIDE_GAIN`] times
-//! as large as tall would - 4% larger - so a window about the opening one's
-//! shape, or taller, keeps the familiar layout: 1040x900 is tall. Near that
-//! boundary a slightly larger window can get a board up to 4% smaller, as
-//! it crosses back into tall; the margin is what keeps the change of
-//! arrangement worth making.
+//! Either arrangement keeps the same room around its board at every size,
+//! and its stacks the same distance from it. In a window that leaves more
+//! room than that - one taller than tall needs, a wide one whose width
+//! limits the board, or one past the size where the board reaches twice
+//! its own - the whole of it, board and interface together, stands centred
+//! down the window as one piece.
+//!
+//! Wide is used only where it would draw the board more than [`WIDE_GAIN`]
+//! times as large as tall would - 4% larger - so a window about the opening
+//! one's shape, or taller, keeps the familiar layout: 1040x900 is tall. The
+//! choice is made from the room each arrangement leaves the board before
+//! the board's cap, so it follows the window's shape alone: a window keeps
+//! its arrangement as it grows past the size where both boards would reach
+//! twice their size, and 2560x1600 and 3840x2160 are wide, as 2560x1440 is.
+//! Near the boundary a slightly larger window can get a board up to 4%
+//! smaller, as it crosses back into tall; the margin is what keeps the
+//! change of arrangement worth making.
 //!
 //! # Making room
 //!
@@ -94,8 +104,9 @@ const TALL_COLUMN_TOP: f32 = 54.0;
 /// How far the bottom overlay stands above the bottom of the tall piece.
 const TALL_OVERLAY_BOTTOM: f32 = 18.0;
 
-/// The margin wide keeps from the window's top and bottom, and the least
-/// it keeps at the sides.
+/// The margin wide keeps from the top and bottom of its piece, which are
+/// the window's whenever the board fills the height, and the least it keeps
+/// at the sides.
 const EDGE: f32 = 12.0;
 /// The title row: the heading's one line, at the window's top margin.
 pub(super) const TITLE_ROW_HEIGHT: f32 = text_height(1, HEADING_SIZE);
@@ -128,7 +139,7 @@ const WIDE_BOTTOM: f32 = EDGE + BOTTOM_CONTENT + BOARD_GAP;
 /// the dots only in Round 0.
 const STACK_TOPS: [f32; 5] = [58.0, 94.0, 140.0, 174.0, 214.0];
 /// How far a wide stack rises from those tops, so that its first line, the
-/// player's name, stands at the window's top margin.
+/// player's name, stands at its piece's top margin, level with the heading.
 const WIDE_STACK_RISE: f32 = STACK_TOPS[0] - EDGE;
 /// From a stack's outer edge to where its name and its button start.
 const STACK_INSET: f32 = 10.0;
@@ -217,7 +228,9 @@ pub(super) struct MatchLayout {
     pub(super) arrangement: Arrangement,
     /// The board's wood, edge to edge, where it is drawn.
     pub(super) board: Rect,
-    /// How far down the window tall's piece stands; zero in wide.
+    /// How far down the window the piece - board and interface together -
+    /// stands: half the height the window has beyond what the piece needs,
+    /// and zero wherever the board fills the height.
     drop: f32,
     /// How far each stack's outer edge stands from its side of the window.
     stack_edge: f32,
@@ -229,24 +242,31 @@ pub(super) struct MatchLayout {
 /// Lays the Match screen out for a window of `window` logical pixels,
 /// which the caller has already raised to the minimum with
 /// `WindowSize::layout`.
+///
+/// The arrangement is chosen from the room each leaves the board before
+/// the board is capped at twice its size, so that the choice follows the
+/// window's shape; the cap is applied to the one chosen.
 pub(super) fn match_layout(window: Vec2) -> MatchLayout {
-    let tall = tall_board(window);
-    let wide = (window.y - WIDE_TOP - WIDE_BOTTOM)
-        .min(window.x - 2.0 * WIDE_SIDE)
-        .min(BOARD_OUTER_SIZE * MAX_ZOOM);
+    let (tall, wide) = (tall_room(window), wide_room(window));
+    let capped = |room: f32| room.min(BOARD_OUTER_SIZE * MAX_ZOOM);
     if wide > tall * WIDE_GAIN {
-        wide_layout(window, wide)
+        wide_layout(window, capped(wide))
     } else {
-        tall_layout(window, tall)
+        tall_layout(window, capped(tall))
     }
 }
 
-/// The board tall would draw in `window`: the room it keeps around a
-/// board, taken from the window, capped at twice the board's size.
-fn tall_board(window: Vec2) -> f32 {
-    (window.x - 2.0 * TALL_SIDE)
-        .min(window.y - TALL_TOP - TALL_BOTTOM)
-        .min(BOARD_OUTER_SIZE * MAX_ZOOM)
+/// The board tall would draw in `window`, before the cap: the room it
+/// keeps around a board, taken from the window.
+fn tall_room(window: Vec2) -> f32 {
+    (window.x - 2.0 * TALL_SIDE).min(window.y - TALL_TOP - TALL_BOTTOM)
+}
+
+/// The board wide would draw in `window`, before the cap: the height
+/// between the title row and the band under the board, or the width
+/// between the least room for the two stacks, whichever is less.
+fn wide_room(window: Vec2) -> f32 {
+    (window.y - WIDE_TOP - WIDE_BOTTOM).min(window.x - 2.0 * WIDE_SIDE)
 }
 
 fn tall_layout(window: Vec2, size: f32) -> MatchLayout {
@@ -264,8 +284,9 @@ fn tall_layout(window: Vec2, size: f32) -> MatchLayout {
 }
 
 fn wide_layout(window: Vec2, size: f32) -> MatchLayout {
+    let drop = (window.y - (WIDE_TOP + size + WIDE_BOTTOM)) / 2.0;
     let left = (window.x - size) / 2.0;
-    let top = WIDE_TOP + (window.y - WIDE_TOP - WIDE_BOTTOM - size) / 2.0;
+    let top = drop + WIDE_TOP;
     // The stacks stand their usual gap from the board, unless the line of
     // end reasons needs them further out: in wide it shares its band with
     // the Home and Help buttons, which start a stack's inset in.
@@ -280,7 +301,7 @@ fn wide_layout(window: Vec2, size: f32) -> MatchLayout {
         window,
         arrangement: Arrangement::Wide,
         board: Rect::new(left, top, left + size, top + size),
-        drop: 0.0,
+        drop,
         stack_edge,
         round_lines: if one_line <= title_slot_width(window, stack_edge) {
             Lines::One
@@ -331,12 +352,13 @@ impl MatchLayout {
         )
     }
 
-    /// The heading's top.
+    /// The heading's top: in wide, the top of the title row.
     pub(super) fn heading_top(&self) -> f32 {
-        match self.arrangement {
-            Arrangement::Tall => self.drop + TALL_HEADING_TOP,
-            Arrangement::Wide => EDGE,
-        }
+        self.drop
+            + match self.arrangement {
+                Arrangement::Tall => TALL_HEADING_TOP,
+                Arrangement::Wide => EDGE,
+            }
     }
 
     /// The top of the column under the heading, and the room it keeps at
@@ -347,7 +369,7 @@ impl MatchLayout {
     pub(super) fn column_top_and_padding(&self) -> (f32, f32) {
         match self.arrangement {
             Arrangement::Tall => (self.drop + TALL_COLUMN_TOP, 0.0),
-            Arrangement::Wide => (EDGE, TITLE_ROW_HEIGHT + UNDER_HEADING_ROW_GAP),
+            Arrangement::Wide => (self.drop + EDGE, TITLE_ROW_HEIGHT + UNDER_HEADING_ROW_GAP),
         }
     }
 
@@ -382,10 +404,11 @@ impl MatchLayout {
 
     /// The top of one item in each player's stack.
     pub(super) fn stack_top(&self, item: StackItem) -> f32 {
-        match self.arrangement {
-            Arrangement::Tall => self.drop + item.opening_top(),
-            Arrangement::Wide => item.opening_top() - WIDE_STACK_RISE,
-        }
+        self.drop
+            + match self.arrangement {
+                Arrangement::Tall => item.opening_top(),
+                Arrangement::Wide => item.opening_top() - WIDE_STACK_RISE,
+            }
     }
 
     /// How far one item in a stack stands in from its side of the window:
@@ -402,10 +425,11 @@ impl MatchLayout {
     /// How far the bottom overlay - the end-gesture line and the bars'
     /// slot - stands above the window's bottom.
     pub(super) fn overlay_bottom(&self) -> f32 {
-        match self.arrangement {
-            Arrangement::Tall => self.drop + TALL_OVERLAY_BOTTOM,
-            Arrangement::Wide => EDGE,
-        }
+        self.drop
+            + match self.arrangement {
+                Arrangement::Tall => TALL_OVERLAY_BOTTOM,
+                Arrangement::Wide => EDGE,
+            }
     }
 }
 
@@ -482,7 +506,7 @@ mod tests {
         let (timer_lines, timer_chars) = (1, TIMER_MAX_CHARS);
         if layout.has_title_row() {
             let (round_right, timer_left) = layout.title_inner_edges();
-            let middle = EDGE + TITLE_ROW_HEIGHT / 2.0;
+            let middle = layout.heading_top() + TITLE_ROW_HEIGHT / 2.0;
             let round_height = text_height(round_lines, ROUND_PANEL_SIZE);
             let timer_height = text_height(timer_lines, TIMER_SIZE);
             boxes.push((
@@ -621,9 +645,12 @@ mod tests {
 
     /// Every window gets a board between the smallest window's and twice its
     /// own size: inside the window, centred across it, square, and clear of
-    /// the bands above and below it. Wide is used exactly where it buys more
-    /// than [`WIDE_GAIN`] over tall, and so a larger window never gets a
-    /// board smaller by more than that.
+    /// the bands above and below it. Wide is used exactly where the room it
+    /// leaves the board, before the cap, is more than [`WIDE_GAIN`] times
+    /// tall's, and the board is that room, capped; so a larger window never
+    /// gets a board smaller by more than that. The two rooms are worked out
+    /// here from the margins, not by the functions under test, so that a
+    /// slip in either changes what the test expects of the other.
     #[test]
     fn the_board_grows_with_the_window_from_the_smallest_up_to_twice_its_size() {
         let smallest = match_layout(WindowSize::MINIMUM.0).zoom();
@@ -652,9 +679,19 @@ mod tests {
                 board.min.y >= top - 1e-3 && board.max.y <= size.y - bottom + 1e-3,
                 "{size}: {board:?}"
             );
-            let tall = tall_board(size);
-            let wide = layout.arrangement == Arrangement::Wide;
-            assert_eq!(wide, board.width() > tall * WIDE_GAIN, "{size}");
+            let tall_room = (size.x - 2.0 * TALL_SIDE).min(size.y - TALL_TOP - TALL_BOTTOM);
+            let wide_room = (size.y - WIDE_TOP - WIDE_BOTTOM).min(size.x - 2.0 * WIDE_SIDE);
+            let wide = wide_room > tall_room * WIDE_GAIN;
+            assert_eq!(
+                layout.arrangement == Arrangement::Wide,
+                wide,
+                "{size}: rooms {tall_room} and {wide_room}"
+            );
+            let room = if wide { wide_room } else { tall_room };
+            assert!(
+                (board.width() - room.min(2.0 * BOARD_OUTER_SIZE)).abs() < 1e-3,
+                "{size}: {board:?} for a room of {room}"
+            );
             both[usize::from(wide)] = true;
             for larger in [size + Vec2::new(20.0, 0.0), size + Vec2::new(0.0, 20.0)] {
                 assert!(
@@ -666,10 +703,12 @@ mod tests {
         assert_eq!(both, [true, true], "the sweep reaches both arrangements");
     }
 
-    /// At each named size, the arrangement and the board's zoom the layout
-    /// was chosen by, to the two places they were given in.
+    /// The figures this layout was designed to on 2026-11-27: at each named
+    /// size, its arrangement and the board's zoom, which the layout holds
+    /// to within 0.01 - tall at its own size in the opening window, and
+    /// wide everywhere else, from 0.70 at the minimum to 1.98 at 2560x1440.
     #[test]
-    fn the_named_windows_get_the_arrangements_they_were_decided_with() {
+    fn each_named_window_gets_the_arrangement_and_zoom_it_was_designed_for() {
         let expected = [
             (Arrangement::Tall, 1.00),
             (Arrangement::Wide, 0.70),
@@ -690,6 +729,31 @@ mod tests {
                 layout.zoom()
             );
         }
+    }
+
+    /// Past the sweep's largest window, the board stops at exactly twice
+    /// its size, and each window keeps the arrangement its shape gives it
+    /// before that: a window of a wide shape stays wide however large it
+    /// grows, as 2560x1440 is, and a portrait one stays tall, whether its
+    /// board reaches the cap or not.
+    #[test]
+    fn the_board_stops_at_twice_its_size_and_the_window_keeps_its_arrangement() {
+        for (size, arrangement, capped) in [
+            (Vec2::new(2560.0, 1440.0), Arrangement::Wide, false),
+            (Vec2::new(2560.0, 1600.0), Arrangement::Wide, true),
+            (Vec2::new(3840.0, 2160.0), Arrangement::Wide, true),
+            (Vec2::new(1440.0, 2560.0), Arrangement::Tall, false),
+            (Vec2::new(2160.0, 3840.0), Arrangement::Tall, true),
+        ] {
+            let layout = match_layout(size);
+            assert_eq!(layout.arrangement, arrangement, "{size}");
+            if capped {
+                assert_eq!(layout.zoom(), MAX_ZOOM, "{size}");
+            } else {
+                assert!(layout.zoom() < MAX_ZOOM - 0.01, "{size}: {}", layout.zoom());
+            }
+        }
+        assert_eq!(MAX_ZOOM, 2.0);
     }
 
     /// The heart of it: at every size, everything the screen can show at its
@@ -802,20 +866,50 @@ mod tests {
         assert_eq!(layout(900.0, 900.0), layout(1040.0, 900.0));
     }
 
-    /// A window taller than tall needs keeps tall's piece whole and centres
-    /// it: the heading, the stacks, the board and the line under it move
-    /// down together.
+    /// A window with more room than the piece needs keeps the piece whole
+    /// and centres it, in either arrangement: the heading, the stacks, the
+    /// board and the band under it move down together, by half the height
+    /// added. In tall, a window taller than the opening one; in wide, one
+    /// past the size where the board reaches its cap, and one whose width
+    /// limits the board, where the piece stands centred from the first.
     #[test]
-    fn a_tall_window_with_room_to_spare_centres_the_piece() {
+    fn a_window_with_room_to_spare_centres_the_piece_in_either_arrangement() {
+        let moved_down = |from: &MatchLayout, to: &MatchLayout, by: f32| {
+            let context = format!("{} -> {}", from.window, to.window);
+            assert_eq!(from.arrangement, to.arrangement, "{context}");
+            assert_eq!(from.board.size(), to.board.size(), "{context}");
+            let mut moves = vec![
+                to.heading_top() - from.heading_top(),
+                to.column_top_and_padding().0 - from.column_top_and_padding().0,
+                to.board.min.y - from.board.min.y,
+                to.overlay_bottom() - from.overlay_bottom(),
+            ];
+            moves.extend(STACK.map(|item| to.stack_top(item) - from.stack_top(item)));
+            assert!(
+                moves.iter().all(|moved| (moved - by).abs() < 1e-3),
+                "{context}: {moves:?}"
+            );
+        };
         let opening = layout(1040.0, 900.0);
         let taller = layout(1040.0, 1100.0);
         assert_eq!(taller.arrangement, Arrangement::Tall);
         assert_eq!(taller.zoom(), 1.0);
-        assert_eq!(taller.heading_top() - opening.heading_top(), 100.0);
-        assert_eq!(taller.board.min.y - opening.board.min.y, 100.0);
-        assert_eq!(taller.overlay_bottom() - opening.overlay_bottom(), 100.0);
-        for item in STACK {
-            assert_eq!(taller.stack_top(item) - opening.stack_top(item), 100.0);
-        }
+        moved_down(&opening, &taller, 100.0);
+
+        // 2560x1450.4 is the window whose height the capped board and its
+        // margins fill exactly.
+        let filled = layout(2560.0, 1450.4);
+        assert_eq!(filled.arrangement, Arrangement::Wide);
+        assert!((filled.heading_top() - EDGE).abs() < 1e-3);
+        let past_the_cap = layout(2560.0, 1650.4);
+        assert_eq!(past_the_cap.zoom(), MAX_ZOOM);
+        moved_down(&filled, &past_the_cap, 100.0);
+
+        // At 1040x880 the width limits a wide board to 666 px, which leaves
+        // 35.8 px above the heading and below the band under the board.
+        let narrow = layout(1040.0, 880.0);
+        assert_eq!(narrow.arrangement, Arrangement::Wide);
+        assert!((narrow.heading_top() - EDGE - 35.8).abs() < 1e-3);
+        assert!((narrow.overlay_bottom() - EDGE - 35.8).abs() < 1e-3);
     }
 }

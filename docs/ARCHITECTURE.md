@@ -522,14 +522,17 @@ on a screen that zooms, such text has to be counter-scaled or moved into
 
 **The Match screen** (`ui::match_screen::geometry`) has two arrangements.
 *Tall* is the 1040x900 layout, which in that window is the screen exactly
-as it always was, pixel for pixel; in a window with room to spare it stands
-centred down the window as one piece. *Wide* stands each player's stack
-beside the board from the top of the window, puts the round panel to the
+as it always was, pixel for pixel. *Wide* stands each player's stack
+beside the board from the title row down, puts the round panel to the
 heading's left and the Match timer to its right, and lets the board fill
-the height between the title row and the band under it. Wide is chosen only
-where it gives the board more than 4% more room than tall, which keeps a
-window of about the opening shape on the familiar layout; the board ranges
-from 0.70 of its own size at the minimum to twice it. Nothing but the board
+the height between the title row and the band under it. Either, in a
+window with more room than its board takes, stands centred down the
+window as one piece. Wide is chosen only where it gives the board more
+than 4% more room than tall, which keeps a window of about the opening
+shape on the familiar layout; the board ranges from 0.70 of its own size
+at the minimum to twice it, and the choice is made from the room before
+that cap, so a window keeps its arrangement however large it grows at the
+same shape. Nothing but the board
 shrinks, so the smallest windows are made to fit by moving: the line of end
 reasons is never wrapped and the stacks stand further from the board when
 it needs the room, the round panel takes two lines beside the heading when
