@@ -16,9 +16,9 @@
 //! [`WindowSize::layout`], which is the window's own size but never less
 //! than [`MIN_WINDOW_WIDTH`] by [`MIN_WINDOW_HEIGHT`]. [`WINDOW_WIDTH`] and
 //! [`WINDOW_HEIGHT`] are only the size the window opens at, and the window
-//! keeps it: it is not resizable. The Match screen and Home are laid out for
-//! any size; the Replay screens, Settings and the Help modal are still laid
-//! out for the opening size.
+//! keeps it: it is not resizable. The Match screen, Home, Settings, the
+//! Replay Library and the Help modal are laid out for any size; the Replay
+//! Viewer is still laid out for the opening size.
 //!
 //! Text and controls are `bevy_ui` nodes, which no camera transform touches,
 //! so they keep their size whatever the window does. What grows and shrinks
@@ -82,9 +82,8 @@ use crate::rules::{BOARD_SIZE, Cell, Player, Point};
 
 /// The window's size when the game opens, in logical pixels. An adapted
 /// layout does not read these: it reads [`WindowSize`], which starts at
-/// this size. Of the screens not yet adapted, the Replay Viewer still
-/// places itself from them; Settings, the Replay Library and the Help
-/// modal are laid out for the opening size with fixed sizes of their own.
+/// this size. The one screen not yet adapted, the Replay Viewer, still
+/// places itself from them.
 pub(crate) const WINDOW_WIDTH: u32 = 1040;
 pub(crate) const WINDOW_HEIGHT: u32 = 900;
 /// The smallest window the layouts are made for, in logical pixels. A

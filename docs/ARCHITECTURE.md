@@ -295,8 +295,14 @@ itself:
   since the display passes run after it and set theirs every frame; but
   the display passes must keep to theirs, since one that replaced a whole
   `Node` would undo the placement until the window's size next changed.
-  `ScreenLayout` holds Home's layout pass too, which shares nothing with
-  either.
+  `ScreenLayout` holds three more layout passes. Home's and Settings' share
+  nothing with either display pass, and Settings' writes nothing its own
+  screen's display stage does either: `SettingsDisplay` shows and hides the
+  tab panels, the instruction, the error lines and the reset confirmation,
+  none of which carries a placement, so no edge orders the two. The Help
+  modal's pass runs on every screen, since the modal belongs to none: it
+  places the modal and its columns, and `HudDisplay`, after it, shows the
+  modal and fills the columns.
 
 Every other pair of sets is deliberately left unordered. This project does
 not enable Bevy's system-order-ambiguity diagnostics, so two unordered
@@ -503,17 +509,18 @@ One case still needs an immediate, non-state-transition despawn:
 tagged for a given screen *right now*, without waiting for an `AppScreen`
 change. The Replay Library is the one caller: `refresh_library_screen`
 rebuilds the entire screen - header, toolbar, card list and any open dialog -
-in place after a search, sort, rename, or delete, none of which change
+in place after a search, sort, rename, or delete, or a change of the
+window's size that changes how the screen is laid out, none of which change
 `AppScreen`, so the built-in on-exit despawn never fires for that rebuild.
 Every other screen relies on the automatic mechanism exclusively.
 
 ## The window's size, and what answers to it
 
 The window opens at 1040x900 logical pixels, and every screen was first
-laid out for exactly that. The Match screen and Home are now laid out for
-any size from 1040x600 up; the window itself is still fixed at the opening
-size (`resizable: false`), and the Replay screens, Settings and the Help
-modal are still laid out for it alone.
+laid out for exactly that. The Match screen, Home, Settings, the Replay
+Library and the Help modal are now laid out for any size from 1040x600 up;
+the window itself is still fixed at the opening size (`resizable: false`),
+and the Replay Viewer is still laid out for it alone.
 
 **One input.** `app::visuals::WindowSize` is the primary window's logical
 size, kept equal to it by `track_window_size` in `PreUpdate` and written
@@ -582,6 +589,68 @@ them in a taller window, wherever its bars - measured where they are
 drawn, not by the instrument's node - stand at least 12 px above the
 window's bottom there, which is in windows at least 848 px tall; in a
 shorter one it stands upright beside the panel.
+
+**Settings** (`ui::settings::geometry`) has two arrangements, chosen by
+the window's height alone. *Tabs on top* is the 1040x900 layout, its
+930x830 panel with the four tabs in a row, used in every window at least
+854 px tall - the panel with 12 px above and below it. In the opening
+window it is the screen exactly as it always was, and in a larger one the
+same panel in the middle. A shorter window gets the *sidebar*: the panel
+takes the window less a 10 px margin, up to 1400 px wide; the title, the
+instruction and the Reset Controls and Back buttons share one row along
+its top, the tabs stand in a column down its left side, and the tab fills
+the rest. There Preferences sets its three switches side by side as cards,
+the Game tab's rows close up from 77 and 65 px to 66 and 56 - at 1040x600
+the tab would otherwise need 493 px of the 486 the sidebar leaves it - and
+the Keyboard tab's shared Restart Match binding stands on one line beside
+its heading. A binding error, which has no room for a line of its own
+there, stands in the instruction's place in the top row while it is shown.
+In both arrangements the two players' columns stand centred together, and
+the order of travel is the same: the tabs, the tab's controls, Reset
+Controls, then Back. The longest default row, the Controller tab's
+`Select / Revise Selection` on `South Button`, keeps at least 12 px between
+its halves at every width: in a window narrower than about 1058 px the
+sidebar's margins narrow to give it that, by 5 px each at the minimum.
+`ui::settings::layout` spawns each piece where the layout says, through one
+`place` function and a `SettingsPlacement` on each node, and
+`place_settings_furniture` moves them on a change of size, moving the
+footer's two buttons between the panel's foot and the top row as well.
+
+**The Replay Library** (`ui::replay::library::geometry`) shows a page of
+as many cards as fit the window's height. A card is 142 px tall, and the
+rest of the screen - the header, the toolbar, the notes above the list (a
+browser's retention note, and the line counting Replays that could not be
+read) and the paging row - is fixed height around the list: two cards at
+the 1040x600 minimum, three in a 1280x720 laptop's maximised window, four
+at 1040x900, twelve at 1920x1080 and sixteen at 2560x1440. The list is one
+column held to 1126 px and centred, or in a window at least 1700 px wide
+two columns side by side, held to 2200. In a window at least 1150 px wide,
+Home, the title and the toolbar share one header row, the search field
+narrowed from 500 px to 250, wherever that makes room for one more card.
+The paging buttons and the wheel move the list a card at a time, or in two
+columns a row of two, so that every card keeps its column. A change of size
+that changes the layout rebuilds the page, from `place_library_for_window`
+first in the screen's own chain; where the larger page would run past the
+list's end the first card moves back, and the focus ring moves with the
+cards, so it stays on the Replay it was on.
+
+**The Help modal** (`ui::help::geometry`) keeps its 820x760 and its one
+column in every window at least 844x784. A smaller window gets two
+columns: the modal takes the window less 12 px round it, with tighter
+padding and gaps, and sets its page in two columns 32 px apart, with Close
+at the right end of the pagination row. `bevy_ui` wraps a text within its
+own box but cannot carry it on into a second, so the game wraps the page
+itself, at the characters a column holds - known before layout, the font
+being monospaced - and divides it between the columns as it fills the
+page (`geometry::split_page`): between two paragraphs wherever that fits
+both columns, and within one where none does. At the minimum a column
+holds 43 characters and 19 lines, and every page fits. Over the Match the
+one column keeps the heading's line whole, and either covers the board or
+frames it evenly: it stands in the middle of the window where that does -
+the opening window, and any whose board is no larger - and otherwise
+centred on the board, or just under the heading, or as a last resort over
+it. `place_help_modal` moves it on a change of size or of screen, in the
+`ScreenLayout` stage on every screen, since the modal belongs to none.
 
 **The tests** sweep every layout over `app::visuals::layout_sweep` - every
 20 px from the minimum to 2560x1440, the named sizes, a few fractional
@@ -671,11 +740,15 @@ instead of frame count:
   `a_new_replay_at_the_same_boundary_index_is_never_mistaken_for_a_cached_one`
   during development).
 * **Size-gated placement**, for where things stand. The Match screen's
-  `place_match_furniture` and Home's `place_home_furniture`, both in the
-  `ScreenLayout` stage, move their nodes only on a frame the window's size
-  changed - or, on the Match, the frame its furniture was spawned, which its
-  spawners have already placed - and then only the nodes that moved,
-  compared as above. The Match's camera framing
+  `place_match_furniture`, Home's `place_home_furniture`, Settings'
+  `place_settings_furniture` and the Help modal's `place_help_modal`, all in
+  the `ScreenLayout` stage, move their nodes only on a frame the window's
+  size changed - or, on the Match, the frame its furniture was spawned,
+  which its spawners have already placed, and for the Help modal a frame
+  the screen under it changed - and then only the nodes that moved,
+  compared as above. The Replay Library rebuilds its page on such a frame
+  instead, and only when the new size lays it out differently, as it does
+  for every other change it shows. The Match's camera framing
   is the one placement compared every frame, because a change of screen
   resets it and the screen's first frame has to take it back. See
   [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it).
@@ -3107,7 +3180,10 @@ documentation, and tidies the guard away.
 
 ### Lay a screen out for any window size
 
-The Match screen and Home are the worked examples; see
+The Match screen and Home are the worked examples; Settings is the one for
+a screen with a display stage of its own, the Replay Library for a screen
+whose systems are in no stage, and the Help modal for one that belongs to
+no screen. See
 [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it)
 for why each step is the way it is.
 
@@ -3116,8 +3192,10 @@ for why each step is the way it is.
    place anything from `WINDOW_WIDTH` and `WINDOW_HEIGHT`, which are only
    the size the window opens at.
 2. Write the layout as a pure function of that size, in the screen's
-   `geometry.rs` beside its `layout.rs`, as `ui::match_screen::geometry` and
-   `ui::home::geometry` do. Keep every text at its size and find room by
+   `geometry.rs`, as `ui::match_screen::geometry` and `ui::home::geometry`
+   do - beside the `layout.rs` that spawns the screen, where it has one:
+   Home has none, and its pass, `place_home_furniture`, is in `ui::home`
+   itself. Keep every text at its size and find room by
    moving things; where a line must fit, size its place for the longest text
    it can hold, with `ui::text_metrics`, and add a test that holds each such
    budget to the text the screen really writes there. Some texts have no
@@ -3138,7 +3216,9 @@ for why each step is the way it is.
    `MatchDisplay` and `HudDisplay`; or, for a screen whose systems are in no
    stage, first in its own chain. A display pass that writes only other
    components of those nodes needs no edge: Home's marimba is shown and
-   hidden by its `Visibility`, in a stage of its own. Have each arrangement set every field it owns, so a node
+   hidden by its `Visibility`, in a stage of its own. Nor does one that
+   writes only other nodes: Settings' display stage shows and hides only
+   nodes its pass does not place. Have each arrangement set every field it owns, so a node
    moved into one arrangement and back is the node it was, and test that a
    change of size moves every node to where a fresh entry at the new size
    puts it.

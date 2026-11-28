@@ -429,11 +429,18 @@ screen as it was first laid out passes the opening size,
 tested at several:
 `app::visuals::NAMED_WINDOW_SIZES` names the ones that matter, from the
 1040x600 minimum and a 1280x720 laptop's maximised window up to 2560x1440,
-and the Match screen and Home run their real-layout tests at all of them -
-every button reached by the pointer, every text inside the window, and on
-the Match nothing drawn meeting anything else. Their layouts are pure
-functions of the size as well (`ui::match_screen::geometry`,
-`ui::home::geometry`), so their own tests run every size in
+and the Match screen, Home, Settings, the Replay Library and the Help
+modal run their real-layout tests at all of them - every button reached by
+the pointer, every text inside the window, on the Match nothing drawn
+meeting anything else, and on Settings and the Library no two texts
+meeting. Settings runs them on every tab and with its reset confirmation
+open, at the heights either side of its change of arrangement too; the
+Library with no Replays, one, a page, more than a page, the longest
+labels and each of its notes, and with each dialog open; Help on every
+page, over Home and over the Match. Their layouts are pure functions of
+the size as well (`ui::match_screen::geometry`, `ui::home::geometry`,
+`ui::settings::geometry`, `ui::replay::library::geometry`,
+`ui::help::geometry`), so their own tests run every size in
 `app::visuals::layout_sweep` - every 20 px from the minimum to 2560x1440,
 the named sizes, a few fractional ones and a few larger windows - and
 check the same things from the layout's own boxes. The two halves
@@ -760,12 +767,20 @@ asset changes:
 5. confirm Round 0 dots/cursor privacy and countdown/clack/marimba sounds behave
    without terminal warnings;
 6. open the Help modal (Help, during a match) and page through every page, confirming each
-   page's text ends clear of the pagination row - the modal never scrolls, and
-   no automated test measures whether the copy still fits; and
+   page reads well and ends clear of the pagination row - the modal never
+   scrolls, and while the tests hold every page clear of the row at every
+   named size, in one column and in two, only a reader sees whether a page
+   divided between two columns still reads naturally; and
 7. close the window normally.
 
-Step 6 is the only check on help-page length, so it is worth knowing what the
-margins are. Measured from screenshots of the original nine pages at
+Since 2026-11-28 the tests check help-page length as well:
+`every_page_stands_inside_its_modal_at_every_size` in `ui::help` lays every
+page out at every named size, over Home and over the Match, and holds its
+text above the pagination row, and `every_page_fits_two_columns_at_the_minimum`
+holds every page to the two columns of the 1040x600 window, line for line
+against a count worked out apart from the game. A page that outgrows its
+room fails them. The margins are still worth knowing, because they say how
+far a page can grow before it does. Measured from screenshots of the original nine pages at
 1040x900, and by the probe below for the two terms pages added on
 2026-10-05, as the gap between the last line of body text and the top of the
 pagination row, against a body line pitch of about 21.5 px:
@@ -854,14 +869,31 @@ upgrade from Bevy 0.19.1 to 0.20.0, each version in its own build: every
 text height, room and title box came out the same on both, to the half
 pixel, so the table stands. That run is also how the unit change above was
 found - the probe as it stood, multiplying the layout's size by the scale
-factor, reported -495 px of room on Keyboard Controls under 0.20.
+factor, reported -495 px of room on Keyboard Controls under 0.20. A
+twelfth, on 2026-11-28, when the modal was laid out for any window size,
+measured all eleven pages at 1040x900 through the headless real-layout app
+(`real_layout_app` in `ui::focus`, the same font and the same `bevy_ui`
+layout as the running game) by the glyph-box metric: 23, 45, 45, 66, 23,
+45, 174, 131, 326, 326 and 23 px, in the order of the pages. Those are the
+table's figures less the calibration, to within its spread, so the table
+stands; the title row's glyph boxes came out as before, the longest 648 px.
+
+In two columns the room is counted in lines. A column holds a whole number
+of them - 19 of 43 characters at the 1040x600 minimum, 21 of 54 at 1280x641 -
+and at the minimum the first column of Terms: Gray, Suicide, Ko & Territory
+and of Round 1+: Hidden Moves & Timing uses all 19; every other column
+there leaves a line or more, and at 1280x641 every page leaves three.
 
 The help body wraps at 69 characters of its monospace font, which makes a
 rewording's line count predictable before any run: wrap the paragraph at
 69 with Python's `textwrap` and count. The 2026-10-03 rewording used that
 to find wordings that kept both paragraphs at four lines, and the probe
 then confirmed it. It is a guide, not a substitute - the probe is still
-what says a page fits.
+what says a page fits. In two columns the game wraps the page itself, the
+same greedy way (`ui::help::geometry::wrap_lines`), at a column's
+characters, so `textwrap` at 43 (with `break_on_hyphens=False`) predicts a
+page's lines at the minimum, and `geometry::split_page` says where they
+divide between the columns.
 
 The probe itself used to be rewritten from this description each time it
 was needed, so here it is. Save it as `src/ui/layout_probe.rs`, add
@@ -1010,7 +1042,9 @@ pub(super) fn layout_probe(
 ```
 
 Hidden Moves, Keyboard Controls and Shared Controller Actions are the pages
-to re-measure first; each is within a line and a half of the row. The pages do not share vertical
+to re-measure first; each is within a line and a half of the row in one
+column, and in two Hidden Moves and Terms: Gray, Suicide, Ko & Territory
+fill a column at the minimum. The pages do not share vertical
 space - `help_page` returns one page's body and the modal shows one at a time
 - so lengthening one can never overflow another, and one probe run on the
 page you changed settles it.
