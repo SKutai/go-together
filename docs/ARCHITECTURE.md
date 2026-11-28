@@ -3259,8 +3259,9 @@ documentation, and tidies the guard away.
    `settings/display.rs` for the per-frame sync pass,
    `replay/viewer/geometry.rs` for where everything stands in a window of
    any size, which spawning, placing and drawing all depend on,
-   `replay/viewer/modals.rs` for two overlays that were a third of one
-   screen's spawn code.
+   `replay/viewer/modals.rs` and `replay/library/modals.rs` for a screen's
+   overlays or dialogs, which were a third of the Viewer's spawn code and a
+   fifth of the Library's.
 3. When a screen's *parts* differ from each other more than spawning differs
    from updating, cut by part instead. `ui/settings` is four tabs, and two of
    them carry state the others do not: `settings/game.rs` owns the
