@@ -847,9 +847,9 @@ mod tests {
     /// focus core, the HUD, the whole gameplay pipeline with semantic fusion
     /// in front of it, the window layout, and this screen's own plugin -
     /// entered through a real state transition and advanced until play is
-    /// live, in a window of `window` logical pixels, with the camera framing
-    /// the board where the layout puts it. Returns the app and the temporary
-    /// Replay root, which the caller removes.
+    /// live, in a window of `window` logical pixels, with the framing set
+    /// for the board where the layout puts it. Returns the app and the
+    /// temporary Replay root, which the caller removes.
     fn live_match_app(window: Vec2) -> (App, std::path::PathBuf) {
         use crate::app::configure_app_systems;
         use crate::app::visuals::WindowLayoutPlugin;
@@ -1953,7 +1953,7 @@ mod tests {
                     _ => 4,
                 };
                 assert_eq!(boxes.len(), expected_boxes, "{context}: {boxes:?}");
-                assert!(items.len() >= expected_boxes + 6, "{context}: {items:?}");
+                assert!(items.len() >= expected_boxes + 7, "{context}: {items:?}");
 
                 let inside = Rect::from_corners(Vec2::ZERO, window);
                 for (label, rect) in &items {
@@ -2711,7 +2711,10 @@ mod tests {
     /// on two. The separator was once a middle dot, which Bevy's bundled
     /// fallback font drew as a box, and the clock read `Round 01:30` beside
     /// `Round 3`, as if there were two rounds; it is a countdown, and now
-    /// says so. On two lines the countdown stands under its round.
+    /// says so. On two lines the countdown stands under its round. Beyond
+    /// the texts written out here, every form the panel writes, across the
+    /// rounds and the times it can show, is printable ASCII but for the one
+    /// line break of the two-line form.
     #[test]
     fn round_panel_text_is_printable_ascii_and_reads_as_a_countdown() {
         assert_eq!(round_panel_text(3, None, Lines::One), "Round 3");
@@ -2732,16 +2735,32 @@ mod tests {
             round_panel_text(3, Some(90), Lines::Two),
             "Round 3\n01:30 left"
         );
-        for text in [
-            round_panel_text(3, None, Lines::One),
-            round_panel_text(3, Some(90), Lines::One),
-            round_panel_text(3, Some(90), Lines::Two),
-        ] {
-            assert!(
-                text.chars()
-                    .all(|character| character == '\n' || (' '..='~').contains(&character)),
-                "{text:?} is not printable ASCII"
-            );
+        for round in [0, 1, 9, 10, 99, 100, 999, 1_000, 9_999, 10_000] {
+            for remaining in [
+                None,
+                Some(0),
+                Some(5),
+                Some(59),
+                Some(60),
+                Some(3_599),
+                Some(3_600),
+            ] {
+                for lines in [Lines::One, Lines::Two] {
+                    let text = round_panel_text(round, remaining, lines);
+                    let breaks = text.matches('\n').count();
+                    assert_eq!(
+                        breaks,
+                        usize::from(lines == Lines::Two && remaining.is_some()),
+                        "{text:?}"
+                    );
+                    assert!(
+                        text.chars().all(|character| {
+                            character == '\n' || (' '..='~').contains(&character)
+                        }),
+                        "{text:?} is not printable ASCII"
+                    );
+                }
+            }
         }
     }
 

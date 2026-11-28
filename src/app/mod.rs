@@ -249,8 +249,11 @@ fn deferred_startup_warnings(
 ///   write other parts of some of the same nodes - the HUD's which of four
 ///   panels are shown, the Match's what its texts say and which of its
 ///   hints and dot rows are drawn. Placing first means every display pass
-///   sees its nodes already where this frame's window puts them, and no
-///   pass has to rely on writing only fields the other leaves alone.
+///   sees its nodes already where this frame's window puts them, and the
+///   layout pass does not rely on the display passes writing only the
+///   fields it leaves alone. The display passes must still keep to their
+///   own fields: one that replaced a whole `Node` would undo the placement
+///   until the window's size next changed.
 ///
 /// Every other pair is deliberately left unordered - see
 /// [`configure_app_systems`]'s doc comment for why that is safe rather than
@@ -279,8 +282,10 @@ pub(crate) enum AppSystems {
     /// Match board, cursors, HUD text, the capture marks and their count
     /// lines, and the two bars below the board - hold progress while a
     /// gesture runs or a released end hold drains, and the round-time bar
-    /// otherwise. Where each of them stands is [`Self::ScreenLayout`]'s,
-    /// which runs first.
+    /// otherwise. Where things stand in the window is
+    /// [`Self::ScreenLayout`]'s, which runs first; this stage still places
+    /// what is drawn on the board, such as the cursors and the capture
+    /// marks.
     MatchDisplay,
 }
 
@@ -381,10 +386,11 @@ fn engine_plugins(asset_path: String, platform_window: WindowPlatformConfig) -> 
 /// [`AppSystems::ScreenLayout`] to its own screen) and never do real work in
 /// the same frame, so no edge between them would express anything true.
 /// Within a screen, a layout pass shares nothing with that screen's update
-/// or input systems: it reads only [`visuals::WindowSize`], and writes only
-/// nodes' places, one text's justification and the camera's
-/// [`visuals::WorldFraming`], none of which gameplay or the marimba's input
-/// and animation reads or writes. Two systems are registered without a screen gate
+/// or input systems. It reads [`visuals::WindowSize`], which furniture is
+/// new, each placed node's placement and current value, and the round
+/// text's `UiRole`, and writes only nodes' places, that text's
+/// justification and the camera's [`visuals::WorldFraming`] - none of which
+/// gameplay, or the marimba's input and animation, writes. Two systems are registered without a screen gate
 /// and are harmless anyway: gameplay's input-release gate runs on every
 /// screen but touches only `InputGate`, [`crate::input::SemanticInput`] and
 /// `GameplayPause`, none of which any Settings system reads or writes, and

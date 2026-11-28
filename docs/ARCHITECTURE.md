@@ -291,9 +291,11 @@ itself:
   the timer, round, end-reason and countdown panels are shown, the Match's
   what its texts say and which hints and dot rows are drawn. Placing first
   means a display pass always sees its nodes where this frame's window puts
-  them, without either pass having to keep to the fields the other leaves
-  alone. `ScreenLayout` holds Home's layout pass too, which shares nothing
-  with either.
+  them, and the layout pass does not rely on the display passes keeping to
+  the fields it leaves alone. They must keep to their own fields all the
+  same: a display pass that replaced a whole `Node` would undo the
+  placement until the window's size next changed. `ScreenLayout` holds
+  Home's layout pass too, which shares nothing with either.
 
 Every other pair of sets is deliberately left unordered. This project does
 not enable Bevy's system-order-ambiguity diagnostics, so two unordered
@@ -336,7 +338,7 @@ above: the only systems sharing mutable data with them, `handle_ui_buttons`
 on `NextState<AppScreen>` and the marimba's input handler on `AudioCueQueue`,
 find nothing to act on while a Replay screen is up.
 
-The seven edges above are the ordering *between* stages, not the whole
+The nine edges above are the ordering *between* stages, not the whole
 ordering story. Within a stage, a plugin that needs its own systems ordered
 (Settings input capture and display, the Match gameplay pipeline, the HUD's
 press-then-pause pair) still uses an explicit `.chain()` for that, and the
@@ -549,12 +551,14 @@ beside the board from the title row down, puts the round panel to the
 heading's left and the Match timer to its right, and lets the board fill
 the height between the title row and the band under it. Either, in a
 window with more room than its board takes, stands centred down the
-window as one piece. Wide is chosen only where it gives the board more
-than 4% more room than tall, which keeps a window of about the opening
-shape on the familiar layout; the board ranges from 0.70 of its own size
-at the minimum to twice it, and the choice is made from the room before
-that cap, so a window keeps its arrangement however large it grows at the
-same shape. Nothing but the board
+window as one piece. The board ranges from 0.70 of its own size at the
+minimum to twice it. Below that cap, wide is chosen where it gives the
+board more than 4% more room than tall, which keeps a window of about the
+opening shape on the familiar layout; the margins are fixed pixels, so the
+same shape can be tall at one size and wide at a larger one. Past the cap,
+the window's shape alone decides - the choice its shape gets where the
+larger room just reaches the cap - so a window keeps its arrangement
+however large it grows. Nothing but the board
 shrinks, so the smallest windows are made to fit by moving: the line of end
 reasons is never wrapped and the stacks stand further from the board when
 it needs the room, the round panel takes two lines beside the heading when
@@ -566,13 +570,14 @@ countdown card is placed over the same rows of the board at any zoom by the
 rule `ui::countdown_card` shares with the Replay Viewer, and the capture
 marks, being world-space, scale with the stones they stand on.
 
-**Home** (`ui::home::geometry`) stays centred at its own size. In a window
-shorter than the opening one its diamond shrinks, through the camera, until
-its corners stay inside the window, but never below the panel's height.
-The hidden marimba stands under the panel where it always has beside the
-panel and the diamond, moving with them in a taller window, wherever its
-bars - measured where they are drawn, not by the instrument's node - stay
-inside the window there, which is in windows at least 848 px tall; in a
+**Home** (`ui::home::geometry`) stays centred at its own size. Its diamond
+keeps its own size down to a window about 709 px tall, and in a shorter
+one shrinks, through the camera, until its corners stay inside the window,
+but never below the panel's height. The hidden marimba stands under the
+panel where it always has beside the panel and the diamond, moving with
+them in a taller window, wherever its bars - measured where they are
+drawn, not by the instrument's node - stand at least 12 px above the
+window's bottom there, which is in windows at least 848 px tall; in a
 shorter one it stands upright beside the panel.
 
 **The tests** sweep every layout over `app::visuals::layout_sweep` - every
@@ -3112,7 +3117,10 @@ for why each step is the way it is.
    `ui::home::geometry` do. Keep every text at its size and find room by
    moving things; where a line must fit, size its place for the longest text
    it can hold, with `ui::text_metrics`, and add a test that holds each such
-   budget to the text the screen really writes there.
+   budget to the text the screen really writes there. Some texts have no
+   longest once a limit is switched off - a round count, a clock, a score -
+   so size such a place for an assumption stated in its docs, say what
+   happens past it, and test a digit past it.
 3. Test the function over `app::visuals::layout_sweep()`: every box at its
    largest inside the window and clear of every other, and the opening
    window's positions written out as numbers and equal to what the screen
@@ -3120,11 +3128,15 @@ for why each step is the way it is.
 4. Mark every node whose place depends on the window with a placement
    component, and write places through one function that both the spawner
    and a placement pass call - the pass running when `WindowSize` changes,
-   and when the furniture first appears, in the `ScreenLayout` stage, so it
-   runs before the display passes that show and hide the same nodes. Have
-   each arrangement set every field it owns, so a node moved into one
-   arrangement and back is the node it was, and test that a change of size
-   moves every node to where a fresh entry at the new size puts it.
+   and when the furniture first appears. Run it before the display passes
+   that show and hide the same nodes: in the `ScreenLayout` stage, adding an
+   edge from that stage to the screen's own display stage alongside the
+   pass, since the stage is ordered only before `MatchDisplay` and
+   `HudDisplay`; or, for a screen whose systems are in no stage, first in
+   its own chain. Have each arrangement set every field it owns, so a node
+   moved into one arrangement and back is the node it was, and test that a
+   change of size moves every node to where a fresh entry at the new size
+   puts it.
 5. Place a world-space board through the main camera: write
    `WorldFraming::placing(board_centre_in_world, board_centre_in_window,
    size, zoom)` from the screen's first frame on, since every change of
@@ -3139,7 +3151,11 @@ for why each step is the way it is.
    every text inside the window. Then look at the named sizes with the
    capture probe in [docs/TESTING.md](TESTING.md#capturing-a-screen-to-a-file),
    its camera given the main camera's framing; the opening window's capture
-   should match the one taken before the change, pixel for pixel.
+   should match the one taken before the change, pixel for pixel. A capture
+   compared that way runs on a fixed time step
+   (`TimeUpdateStrategy::ManualDuration`), since in real time the clocks,
+   the bars that follow them and anything that fades move between any two
+   runs of the same build.
 
 ### Add an input action
 
