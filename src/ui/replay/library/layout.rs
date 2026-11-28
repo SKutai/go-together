@@ -44,7 +44,7 @@ use crate::replay::REPLAY_LABEL_RULE;
 use crate::replay_library::{ReplayCatalogEntry, ReplayLibrary, filter_and_sort_replays};
 use crate::rules::{BOARD_SIZE, Cell, Point};
 use crate::ui::focus::Focusable;
-use crate::ui::text_metrics::line_width;
+use crate::ui::text_metrics::{CUT_MARK, line_width};
 /// What the list says when the Library holds no Replays at all.
 const NO_REPLAYS_MESSAGE: &str =
     "No completed match replays yet.\nFinish and score a match to save it automatically.";
@@ -945,9 +945,6 @@ fn search_field_chars(width: f32) -> usize {
     let inside = width - 2.0 * (BUTTON_PADDING + BUTTON_BORDER);
     (inside / line_width(1, BUTTON_TEXT_SIZE)).floor() as usize
 }
-
-/// What marks an end of the search field's text cut away to fit.
-const CUT_MARK: &str = "...";
 
 /// The search field's `label` as it is shown on its one line of `chars`
 /// characters: whole where it fits, and otherwise as a field scrolls its

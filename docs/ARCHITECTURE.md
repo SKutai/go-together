@@ -659,12 +659,24 @@ being monospaced - and divides it between the columns as it fills the
 page (`geometry::split_page`): between two paragraphs wherever that fits
 both columns, and within one where none does. At the minimum a column
 holds 43 characters and 19 lines, and every page fits. Over the Match the
-one column keeps the heading's line whole, and either covers the board or
-frames it evenly: it stands in the middle of the window where that does -
-the opening window, and any whose board is no larger - and otherwise
-centred on the board, or just under the heading, or as a last resort over
-it. `place_help_modal` moves it on a change of size or of screen, in the
-`ScreenLayout` stage on every screen, since the modal belongs to none.
+one column keeps four promises, the earlier giving way to none of the
+later: inside the window with 12 px round it; the heading's line whole,
+wholly clear of the modal's top edge or wholly under the modal; the board
+covered, or framed evenly where it is larger than the modal; and a heading
+the modal stands under cleared by 15 px, as in the opening window. It
+stands at the place nearest the middle of the window, under the heading,
+that keeps all four, and where none does, at the nearest over the heading.
+Where neither keeps them all - a wide Match 831 to 839 px tall, and up to
+848 px at 1063 px wide, whose board is a little smaller than the modal -
+the gap gives way: the modal stands as low as the window allows, 6.2 to
+15 px under the heading's line, still covering the board. So a pixel's
+change of height moves it a pixel or less, except where the Match changes
+arrangement and at one height for each width, where it passes over the
+heading's line in one step of 47 to 56 px - between 871 and 872 px tall at
+1040 px wide, 849 and 850 at 1062, and 830 and 831 from 1063 on - which no
+rule that keeps the heading whole can avoid. `place_help_modal` moves it on
+a change of size or of screen, in the `ScreenLayout` stage on every
+screen, since the modal belongs to none.
 
 **The tests** sweep every layout over `app::visuals::layout_sweep` - every
 20 px from the minimum to 2560x1440, the named sizes, a few fractional

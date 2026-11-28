@@ -1779,7 +1779,8 @@ mod tests {
     /// breaks between paragraphs with three lines or more to spare.
     #[test]
     fn every_page_fits_two_columns_at_the_minimum() {
-        use geometry::{split_page, wrap_lines};
+        use crate::ui::text_metrics::wrap_lines;
+        use geometry::split_page;
 
         for (name, pages) in INDEPENDENT_SPLITS {
             let (w, h) = name.split_once('x').unwrap();
@@ -1987,6 +1988,27 @@ mod tests {
         hud.help_page = page;
         app.update();
         app.update();
+    }
+
+    /// A window smaller than the minimum - a browser's page can be - gets
+    /// the modal the minimum gets: at 800x400 the modal's own reading of the
+    /// window raises it to 1040x600, over Home and over the Match, so every
+    /// placed node and the page's two columns are what they are at 1040x600.
+    #[test]
+    fn a_window_below_the_minimum_gets_the_minimums_modal() {
+        use crate::app::visuals::WindowSize;
+
+        for screen in [AppScreen::Home, AppScreen::Match] {
+            let mut below = help_over(screen, Vec2::new(800.0, 400.0));
+            open_on_page(&mut below, 0);
+            let mut minimum = help_over(screen, WindowSize::MINIMUM.0);
+            open_on_page(&mut minimum, 0);
+            assert_eq!(
+                help_frame(&mut below),
+                help_frame(&mut minimum),
+                "{screen:?}"
+            );
+        }
     }
 
     /// A change of screen moves the open modal to where the new screen puts

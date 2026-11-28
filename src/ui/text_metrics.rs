@@ -36,6 +36,54 @@ pub(crate) const fn text_height(lines: usize, font_px: f32) -> f32 {
     lines as f32 * LINE_HEIGHT_PER_PX * font_px
 }
 
+/// What marks text cut away to fit a line: three full stops, since every
+/// string the game draws is printable ASCII and the font draws anything
+/// else, an ellipsis among them, as a missing glyph (`crate::architecture`).
+pub(crate) const CUT_MARK: &str = "...";
+
+/// Wraps `text` at `chars` characters a line, greedily, as `bevy_ui` wraps
+/// at spaces: each line takes as many whole words as fit, a word is split
+/// only where it is longer than a line, and the text's own line breaks are
+/// kept, so a blank line between paragraphs stays one blank line. It counts
+/// characters rather than bytes, for a text that quotes what the player
+/// wrote. For a layout that has to know how many lines a text takes, or
+/// sets them itself, before `bevy_ui` lays it out.
+pub(crate) fn wrap_lines(text: &str, chars: usize) -> Vec<String> {
+    let chars = chars.max(1);
+    let mut lines = Vec::new();
+    for source in text.split('\n') {
+        let mut line = String::new();
+        let mut length = 0;
+        for word in source.split(' ').filter(|word| !word.is_empty()) {
+            let mut word = word;
+            let mut word_length = word.chars().count();
+            if length > 0 && length + 1 + word_length <= chars {
+                line.push(' ');
+                line.push_str(word);
+                length += 1 + word_length;
+                continue;
+            }
+            if length > 0 {
+                lines.push(std::mem::take(&mut line));
+            }
+            while word_length > chars {
+                let at = word
+                    .char_indices()
+                    .nth(chars)
+                    .map_or(word.len(), |(index, _)| index);
+                let (head, tail) = word.split_at(at);
+                lines.push(head.to_owned());
+                word = tail;
+                word_length -= chars;
+            }
+            line.push_str(word);
+            length = word_length;
+        }
+        lines.push(line);
+    }
+    lines
+}
+
 /// The leading above a line's em box and below it, in logical pixels: half
 /// of what a line box adds to the font's size. Two line boxes may meet by
 /// this much without any of their glyphs doing so.
@@ -49,6 +97,30 @@ mod tests {
     use super::*;
     use bevy::prelude::*;
     use bevy::ui::ComputedNode;
+
+    /// The greedy wrap, on lines whose breaks are worked out by hand: words
+    /// fill a line to its last character and no further, the text's own
+    /// line breaks and blank lines stay, a word longer than a line is split,
+    /// and characters are counted, not bytes.
+    #[test]
+    fn the_wrap_fills_each_line_with_whole_words() {
+        assert_eq!(
+            wrap_lines("one two three four", 9),
+            ["one two", "three", "four"]
+        );
+        assert_eq!(wrap_lines("one two three", 13), ["one two three"]);
+        assert_eq!(wrap_lines("one two three", 12), ["one two", "three"]);
+        assert_eq!(wrap_lines("a b\n\nc d\ne", 3), ["a b", "", "c d", "e"]);
+        assert_eq!(wrap_lines("abcdefgh ij", 3), ["abc", "def", "gh", "ij"]);
+        assert_eq!(
+            wrap_lines("caf\u{e9} \u{e9}t\u{e9}", 4),
+            ["caf\u{e9}", "\u{e9}t\u{e9}"]
+        );
+        assert_eq!(
+            wrap_lines("\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}", 2),
+            ["\u{e9}\u{e9}", "\u{e9}\u{e9}", "\u{e9}"]
+        );
+    }
 
     /// Every size the game sets text at that a layout reads these for,
     /// laid out by `bevy_ui` with the game's font and read back: each node

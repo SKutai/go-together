@@ -31,26 +31,38 @@
 //! # Where the one column stands
 //!
 //! Over Home, in the middle of the window, as it always has. Over the
-//! Match it stands there too wherever that covers the board without its top
-//! edge crossing the heading's line - which is the opening window, and every
-//! window whose board is no larger. Where it does not, it stands centred on
-//! the board instead: over a board larger than itself, so that the board's
-//! wood frames it evenly rather than showing a sliver on one side and a band
-//! on the other, and over a smaller board where the middle of the window
-//! would put its top edge across the heading. Where neither keeps the
-//! heading whole - a wide window whose board is a little smaller than the
-//! modal, and whose heading the board's centre would still cross - it
-//! stands just under the heading, [`HEADING_GAP`] below it as in the
-//! opening window, which still covers the board; and in a wide window too
-//! short for even that, it covers the heading, its top edge level with the
-//! heading's. The tests hold, at every size with one column: the modal
-//! inside the window, the heading's line wholly clear of its top edge or
-//! wholly under the modal, and the board either under the modal or framed
-//! evenly round it.
+//! Match it keeps four promises, the earlier giving way to none of the
+//! later: it stands inside the window, with [`MARGIN`] round it; the
+//! heading's line stays whole, wholly clear of the modal's top edge or
+//! wholly under the modal; the board is covered, or where it is larger than
+//! the modal framed evenly round it, rather than showing a sliver on one
+//! side and a band on the other; and a heading the modal stands under is
+//! cleared by [`HEADING_GAP`], as in the opening window.
+//!
+//! The modal stands at the place nearest the middle of the window, under
+//! the heading, that keeps all four. Where no place under the heading does,
+//! it stands at the nearest over it, its top edge level with the heading's
+//! top or above it, covering the heading. Where neither does - a wide Match
+//! 831 to 839 px tall, and up to 848 px at 1063 px wide, whose board is a
+//! little smaller than the modal - the gap gives way: the modal stands as
+//! low as the window allows, its top edge 6.2 to 15 px under the heading's
+//! line, still covering the board. In the opening window the nearest place
+//! is the middle, the modal's top 70 px down as it always was.
+//!
+//! So a change of height of one pixel moves the modal by a pixel or less,
+//! except where the Match changes arrangement and at one height for each
+//! width, where the room under the heading runs out and the modal passes
+//! over the heading's line in one step of 47 to 56 px: between 871 and
+//! 872 px tall at 1040 px wide, where the Match is wide, between 849 and 850
+//! at 1062, and between 830 and 831 from 1063 px wide on. Any place in
+//! between would cross the heading's line, so no rule that keeps it whole
+//! avoids that step. The tests hold the four promises at every size with
+//! one column, and the step at every whole-pixel height of every width from
+//! 1040 to 2560 px.
 
 use bevy::prelude::*;
 
-use crate::ui::text_metrics::{line_width, text_height};
+use crate::ui::text_metrics::{line_width, text_height, wrap_lines};
 
 /// The modal as it always was, and its padding and the gap between its
 /// parts.
@@ -174,29 +186,12 @@ impl HelpLayout {
     /// over the Match. See the module docs for the rule, which only the one
     /// column has: two columns take the whole window.
     pub(crate) fn modal_offset(&self, over_match: Option<(Rect, Rect)>) -> f32 {
-        let height = self.modal_size.y;
-        let centred = (self.window.y - height) / 2.0;
         let Some((heading, board)) = over_match.filter(|_| !self.two_columns()) else {
             return 0.0;
         };
-        let lowest = self.window.y - MARGIN - height;
-        let fits = |top: f32| {
-            let foot = top + height;
-            let covers = top <= board.min.y && foot >= board.max.y;
-            let framed = board.min.y < top
-                && board.max.y > foot
-                && ((top - board.min.y) - (board.max.y - foot)).abs() < 0.5;
-            let heading_whole = top <= heading.min.y || top >= heading.max.y + HEADING_GAP;
-            (MARGIN..=lowest).contains(&top) && (covers || framed) && heading_whole
-        };
-        let on_board = board.center().y - height / 2.0;
-        let under_heading = heading.max.y + HEADING_GAP;
-        let over_heading = heading.min.y;
-        [centred, on_board, under_heading, over_heading]
-            .into_iter()
-            .find(|top| fits(*top))
-            .unwrap_or(on_board.clamp(MARGIN, lowest))
-            - centred
+        let height = self.modal_size.y;
+        let centred = (self.window.y - height) / 2.0;
+        top_over_match(self.window.y, height, heading, board) - centred
     }
 
     /// The modal's box, border included, in logical pixels from the window's
@@ -209,34 +204,28 @@ impl HelpLayout {
     }
 }
 
-/// Wraps `text` at `chars` characters a line, greedily: each line takes as
-/// many whole words as fit, words are split only where one is longer than a
-/// line, and the text's own line breaks are kept, so a blank line between
-/// paragraphs stays one blank line.
-pub(crate) fn wrap_lines(text: &str, chars: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    for source in text.split('\n') {
-        let mut line = String::new();
-        for word in source.split(' ').filter(|word| !word.is_empty()) {
-            let mut word = word;
-            if !line.is_empty() && line.len() + 1 + word.len() <= chars {
-                line.push(' ');
-                line.push_str(word);
-                continue;
-            }
-            if !line.is_empty() {
-                lines.push(std::mem::take(&mut line));
-            }
-            while word.len() > chars {
-                let (head, tail) = word.split_at(chars);
-                lines.push(head.to_owned());
-                word = tail;
-            }
-            line.push_str(word);
-        }
-        lines.push(line);
-    }
-    lines
+/// Where the top edge of a modal `height` px tall stands over the Match, in
+/// a window `window_height` px tall whose heading line and board are where
+/// `heading` and `board` say: the place nearest the middle of the window
+/// that keeps the module docs' four promises, under the heading or else
+/// over it, and failing both as low as the window allows.
+fn top_over_match(window_height: f32, height: f32, heading: Rect, board: Rect) -> f32 {
+    let centred = (window_height - height) / 2.0;
+    let lowest = window_height - MARGIN - height;
+    // The tops that cover the board, from the lowest to the highest; over a
+    // board larger than the modal, the one top that frames it evenly.
+    let (covers_from, covers_to) = if board.height() <= height {
+        (board.max.y - height, board.min.y)
+    } else {
+        let framed = board.center().y - height / 2.0;
+        (framed, framed)
+    };
+    let from = covers_from.max(MARGIN);
+    let to = covers_to.min(lowest);
+    let nearest = |from: f32, to: f32| (from <= to).then(|| centred.clamp(from, to));
+    nearest(from.max(heading.max.y + HEADING_GAP), to)
+        .or_else(|| nearest(from, to.min(heading.min.y)))
+        .unwrap_or(lowest)
 }
 
 /// Divides a page's wrapped `lines` between two columns of `room` lines
@@ -338,8 +327,10 @@ mod tests {
     }
 
     /// At every size, either arrangement: the modal stands inside the window
-    /// with at least 12 px round it, centred across it, and two columns
-    /// never longer a line than the one column's.
+    /// with at least 12 px round it, and two columns never longer a line
+    /// than the one column's. It is centred across the window by
+    /// construction (`modal_rect`); the real-layout tests check where
+    /// `bevy_ui` puts it.
     #[test]
     fn the_modal_stands_inside_every_window() {
         let mut arrangements = [false, false];
@@ -353,7 +344,6 @@ mod tests {
                     room.contains(modal.min) && room.contains(modal.max),
                     "{size}: the modal {modal:?}"
                 );
-                assert!((modal.center().x - size.x / 2.0).abs() < 1e-3, "{size}");
             }
             assert!(layout.column_chars <= 69, "{size}: {}", layout.column_chars);
             if layout.two_columns() {
@@ -363,72 +353,160 @@ mod tests {
         assert_eq!(arrangements, [true, true]);
     }
 
-    /// Over the Match, at every size with one column: the heading's line is
-    /// wholly clear of the modal's top edge, by the opening window's gap, or
-    /// wholly under the modal; and the board is wholly under the modal or
-    /// shows round it evenly, above as below. In the opening window the
-    /// modal stands where it always has. Over a board larger than the
-    /// modal, as at 1200x1200 or 1920x1080, it frames evenly; at 1040x880
-    /// the modal stands under the wide heading rather than across it.
-    #[test]
-    fn over_the_match_the_modal_keeps_off_the_heading_and_covers_or_frames_the_board() {
+    /// Where the modal's top stands over the Match in a window of `size`,
+    /// with where the Match's heading line and board stand there.
+    fn over_match_at(size: Vec2) -> (f32, Rect, Rect) {
         use crate::ui::match_screen::heading_and_board;
 
+        let (heading, board) = heading_and_board(size);
+        let top = help_layout(size).modal_rect(Some((heading, board))).min.y;
+        (top, heading, board)
+    }
+
+    /// Over the Match, at every whole-pixel size with one column from
+    /// 1040x784 to 2560x1440, the four promises in the module docs: the
+    /// modal inside the window with 12 px round it; the heading's line wholly
+    /// clear of its top edge or wholly under it; the board under it, or
+    /// framed evenly round it; and a heading it stands under cleared by
+    /// 15 px - or, where the modal stands as low as the window allows, by
+    /// 6.2 at the least. Over Home there is nothing to keep off: the middle
+    /// of the window.
+    #[test]
+    fn over_the_match_the_modal_keeps_its_four_promises_at_every_size() {
         let mut framed = 0;
-        for size in layout_sweep() {
-            let layout = help_layout(size);
-            if layout.two_columns() {
-                continue;
+        let mut narrowed = 0;
+        for width in 1040..=2560 {
+            for height in 784..=1440 {
+                let size = Vec2::new(width as f32, height as f32);
+                let layout = help_layout(size);
+                assert!(!layout.two_columns(), "{size}");
+                let (top, heading, board) = over_match_at(size);
+                let foot = top + layout.modal_size.y;
+                let lowest = size.y - MARGIN - layout.modal_size.y;
+                assert!(
+                    top >= MARGIN - 1e-3 && top <= lowest + 1e-3,
+                    "{size}: {top}"
+                );
+                let under = top >= heading.max.y - 1e-3;
+                let over = top <= heading.min.y + 1e-3;
+                assert!(under || over, "{size}: {top} crosses {heading:?}");
+                let above = top - board.min.y;
+                let below = board.max.y - foot;
+                let covered = above <= 1e-3 && below <= 1e-3;
+                let even = above > 0.0 && (above - below).abs() < 0.5;
+                assert!(covered || even, "{size}: {above} above, {below} below");
+                framed += usize::from(even);
+                if under {
+                    let gap = top - heading.max.y;
+                    if gap < HEADING_GAP - 1e-3 {
+                        assert!((top - lowest).abs() < 1e-3, "{size}: {gap} px under");
+                        assert!(gap >= 6.2 - 1e-3, "{size}: {gap} px under");
+                        narrowed += 1;
+                    }
+                }
             }
-            let (heading, board) = heading_and_board(size);
-            let modal = layout.modal_rect(Some((heading, board)));
-            let clear = modal.min.y >= heading.max.y + HEADING_GAP - 1e-3;
-            let under = modal.min.y <= heading.min.y + 1e-3;
-            assert!(clear || under, "{size}: {modal:?} crosses {heading:?}");
-            let above = modal.min.y - board.min.y;
-            let below = board.max.y - modal.max.y;
-            let covered = above <= 1e-3 && below <= 1e-3;
-            let even = above > 0.0 && (above - below).abs() < 0.5;
-            assert!(covered || even, "{size}: {above} above, {below} below");
-            framed += usize::from(even);
         }
         assert!(framed > 0, "some boards are larger than the modal");
-
-        let opening = WindowSize::OPENING.0;
-        let at = |size: Vec2| help_layout(size).modal_rect(Some(heading_and_board(size)));
-        assert_eq!(at(opening), Rect::new(110.0, 70.0, 930.0, 830.0));
-        for size in [Vec2::new(1200.0, 1200.0), Vec2::new(1920.0, 1080.0)] {
-            let (_, board) = heading_and_board(size);
-            let modal = at(size);
-            assert!(
-                board.min.y < modal.min.y && board.max.y > modal.max.y,
-                "{size}"
-            );
-        }
-        let narrow = Vec2::new(1040.0, 880.0);
-        let (heading, _) = heading_and_board(narrow);
-        assert!((at(narrow).min.y - (heading.max.y + HEADING_GAP)).abs() < 1e-3);
-        // Over Home there is nothing to keep off: the middle of the window.
+        assert!(narrowed > 0, "the gap gives way somewhere");
         for size in NAMED_WINDOW_SIZES {
             let layout = help_layout(size);
             assert_eq!(layout.modal_rect(None).center(), size / 2.0, "{size}");
         }
     }
 
-    /// The greedy wrap, on lines whose breaks are worked out by hand: words
-    /// fill a line to its last character and no further, the text's own
-    /// line breaks and blank lines stay, and a word longer than a line is
-    /// split.
+    /// The step a change of height of one pixel moves the modal by, over the
+    /// Match, at every whole-pixel height from 784 to 1440 of every width from
+    /// 1040 to 2560: a pixel or less, except where the Match changes
+    /// arrangement - which moves its board by more than a pixel - and at
+    /// exactly one height for each width, where the modal passes over the
+    /// heading's line in one step, from over the heading to under it.
     #[test]
-    fn the_wrap_fills_each_line_with_whole_words() {
-        assert_eq!(
-            wrap_lines("one two three four", 9),
-            ["one two", "three", "four"]
-        );
-        assert_eq!(wrap_lines("one two three", 13), ["one two three"]);
-        assert_eq!(wrap_lines("one two three", 12), ["one two", "three"]);
-        assert_eq!(wrap_lines("a b\n\nc d\ne", 3), ["a b", "", "c d", "e"]);
-        assert_eq!(wrap_lines("abcdefgh ij", 3), ["abc", "def", "gh", "ij"]);
+    fn a_pixel_of_height_moves_the_modal_a_pixel_or_less_but_once() {
+        for width in 1040..=2560 {
+            let mut switches = Vec::new();
+            let mut last: Option<(f32, Rect, Rect)> = None;
+            for height in 784..=1440 {
+                let size = Vec2::new(width as f32, height as f32);
+                let now = over_match_at(size);
+                if let Some((top, heading, board)) = last {
+                    let step = (now.0 - top).abs();
+                    let match_moved = (now.2.min - board.min).abs().max_element() > 1.0 + 1e-3
+                        || (now.2.max - board.max).abs().max_element() > 1.0 + 1e-3;
+                    if step > 1.0 + 1e-3 && !match_moved {
+                        let was_over = top <= heading.min.y + 1e-3;
+                        let is_under = now.0 >= now.1.max.y - 1e-3;
+                        assert!(
+                            was_over && is_under,
+                            "{size}: a step of {step} px, from {top} to {}",
+                            now.0
+                        );
+                        switches.push(height);
+                    }
+                }
+                last = Some(now);
+            }
+            assert_eq!(switches.len(), 1, "{width}: {switches:?}");
+        }
+    }
+
+    /// Both sides of every place the rule changes, to the pixel: the opening
+    /// window and a pixel shorter; where the modal passes over the heading -
+    /// 871 and 872 px tall at 1040 wide, 849 and 850 at 1062, and 830 and 831
+    /// from 1063 wide on; and where the room under the heading runs out and
+    /// the gap gives way - 848 and 849 at 1063 wide, 839 and 840 from 1072
+    /// on - down to 6.2 px at 831. Over a board larger than the modal, as at
+    /// 1920x1080, it frames the board evenly.
+    #[test]
+    fn the_rule_changes_where_the_module_docs_say() {
+        let at = |w: f32, h: f32| over_match_at(Vec2::new(w, h));
+        let top = |w: f32, h: f32| at(w, h).0;
+        let gap = |w: f32, h: f32| {
+            let (top, heading, _) = at(w, h);
+            top - heading.max.y
+        };
+        let over = |w: f32, h: f32| {
+            let (top, heading, _) = at(w, h);
+            (top - heading.min.y).abs() < 1e-3
+        };
+        assert_eq!(top(1040.0, 900.0), 70.0);
+        assert!((top(1040.0, 899.0) - 69.8).abs() < 1e-3);
+        assert!((gap(1040.0, 899.0) - HEADING_GAP).abs() < 1e-3);
+        for (width, last_over) in [
+            (1040.0, 871.0),
+            (1062.0, 849.0),
+            (1063.0, 830.0),
+            (1280.0, 830.0),
+            (2560.0, 830.0),
+        ] {
+            assert!(over(width, last_over), "{width}x{last_over}");
+            let first_under = last_over + 1.0;
+            assert!(
+                gap(width, first_under) >= 6.2 - 1e-3,
+                "{width}x{first_under}"
+            );
+            assert!(
+                top(width, first_under) - top(width, last_over) > 40.0,
+                "{width}x{first_under}: the one step"
+            );
+        }
+        assert!((gap(1280.0, 831.0) - 6.2).abs() < 1e-3);
+        for (width, last_narrowed) in [(1063.0, 848.0), (1072.0, 839.0), (1280.0, 839.0)] {
+            let lowest = last_narrowed - MARGIN - ONE_COLUMN_MODAL.y;
+            assert!((top(width, last_narrowed) - lowest).abs() < 1e-3);
+            assert!(
+                gap(width, last_narrowed) < HEADING_GAP,
+                "{width}x{last_narrowed}"
+            );
+            assert!(
+                (gap(width, last_narrowed + 1.0) - HEADING_GAP).abs() < 1e-3,
+                "{width}x{}",
+                last_narrowed + 1.0
+            );
+        }
+        let (top, _, board) = at(1920.0, 1080.0);
+        let foot = top + ONE_COLUMN_MODAL.y;
+        assert!(board.min.y < top && board.max.y > foot);
+        assert!(((top - board.min.y) - (board.max.y - foot)).abs() < 0.5);
     }
 
     fn lines(counts: &[usize]) -> Vec<String> {

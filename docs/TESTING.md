@@ -923,7 +923,7 @@ leaves. In one column `bevy_ui` wraps the page, and breaks a line after a
 hyphen as `textwrap` does by default: at 1040x900 Shared Controller Actions
 wraps `mid-match` and takes 24 lines, where a wrap at spaces alone counts
 25. In two columns the game wraps the page itself, at spaces alone but
-otherwise the same greedy way (`ui::help::geometry::wrap_lines`), at a column's
+otherwise the same greedy way (`ui::text_metrics::wrap_lines`), at a column's
 characters, so `textwrap` at 43 (with `break_on_hyphens=False`) predicts a
 page's lines at the minimum, and `geometry::split_page` says where they
 divide between the columns. The two-column test compares those counts, not
