@@ -373,7 +373,8 @@ larger - and only the first is closed.
   left confused for the sake of a shorter help; see "The help defines its
   own words" above. The count here was right as a count of what a player
   reads: "liberty" appeared seven times in the help's copy, all on the rules
-  pages. A grep over `src/ui/help/mod.rs` finds eleven, because four are test
+  pages. A grep over the help's source that day, `src/ui/help.rs` (since
+  moved to `src/ui/help/mod.rs`), found eleven, because four were test
   assertions pinning that copy.
 - ~~**The end-of-match banner is terse**, reading like `Player 1 wins! - Manual`,
   and mixes "Player 1" with "BLACK" in one line. The end-reason labels

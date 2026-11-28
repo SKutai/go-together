@@ -401,16 +401,17 @@ fn engine_plugins(asset_path: String, platform_window: WindowPlatformConfig) -> 
 /// buttons between two parents as well - those texts' justification or
 /// line breaking, and the camera's [`visuals::WorldFraming`]: none of which
 /// gameplay, the marimba's input and animation, or a screen's input
-/// systems write. The Help modal's pass, which runs on every screen, writes
-/// only the modal's own nodes and its columns' line breaking, which no
-/// other system writes. Two systems are
-/// registered without a screen gate and are harmless anyway: gameplay's
-/// input-release gate runs on every screen but touches only `InputGate`,
+/// systems write. Three systems are registered without a screen gate and
+/// are harmless anyway: the Help modal's pass, which runs on every screen
+/// but writes only the modal's own nodes and its columns' line breaking,
+/// which no other system writes; gameplay's input-release gate, which runs
+/// on every screen but touches only `InputGate`,
 /// [`crate::input::SemanticInput`] and `GameplayPause`, none of which any
-/// Settings system reads or writes, and the marimba's input handler checks
-/// the screen itself and only drains keyboard messages elsewhere. This crate does not enable Bevy's
-/// system-ordering-ambiguity diagnostic, so an unordered pair here is a
-/// deliberate "no dependency exists," not an oversight.
+/// Settings system reads or writes; and the marimba's input handler, which
+/// checks the screen itself and only drains keyboard messages elsewhere.
+/// This crate does not enable Bevy's system-ordering-ambiguity diagnostic,
+/// so an unordered pair here is a deliberate "no dependency exists," not an
+/// oversight.
 ///
 /// For [`AppSystems::HudDisplay`] that claim has to be argued rather than
 /// read off a screen gate. Its one system, `ui::hud`'s

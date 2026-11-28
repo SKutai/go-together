@@ -6,9 +6,13 @@
 //! every production string to. So a line's advance is its length in
 //! characters times one advance, and a line box is a fixed multiple of the
 //! font's size. A layout that has to know before `bevy_ui` runs whether a
-//! line fits - the Match screen's title row, which chooses between one line
-//! and two for its clocks - reads these. `bevy_ui` is still what lays the
-//! text out and draws it, and the test here holds the two to each other.
+//! line fits, or how tall it stands, reads these: the Match screen's title
+//! row, which chooses between one line and two for its clocks; Home,
+//! Settings and the Replay Library, which leave room for their titles and
+//! notes; the Library's search field, which cuts its text to the characters
+//! its one line holds; and the Help modal, whose two columns hold a known
+//! number of characters and lines. `bevy_ui` is still what lays the text
+//! out and draws it, and the test here holds the two to each other.
 //!
 //! A different font, or Bevy laying text out differently, is what would
 //! make these untrue, and the test is what would say so.
@@ -50,13 +54,18 @@ mod tests {
     /// laid out by `bevy_ui` with the game's font and read back: each node
     /// is as wide as the estimate and as tall, to the pixel the layout
     /// rounds to. The texts are the longest the Match screen's title row
-    /// and corners are made to hold, two of them on two lines.
+    /// and corners are made to hold, two of them on two lines, and the
+    /// titles Home, Settings, the Replay Library and the Help modal leave
+    /// room for - the Help modal's longest - at their sizes.
     #[test]
     fn the_estimates_are_what_bevy_ui_lays_the_game_font_out_at() {
         use crate::app::visuals::WindowSize;
         use crate::ui::focus::real_layout_app;
 
-        let texts: [(&str, f32); 9] = [
+        let texts: [(&str, f32); 12] = [
+            ("Go Together", 68.0),
+            ("Match Replays", 38.0),
+            ("Terms: Gray, Suicide, Ko & Territory", 30.0),
             ("GO TOGETHER", 34.0),
             ("WHITE 789", 24.0),
             ("TIME  999:59", 18.0),

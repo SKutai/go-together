@@ -444,10 +444,12 @@ meeting. Settings runs them on every tab and with its reset confirmation
 open, at the heights either side of its change of arrangement too; the
 Library with no Replays, one, a page, more than a page, the longest
 labels and each of its notes, and with each dialog open; Help on every
-page, over Home and over the Match. Their layouts are pure functions of
-the size as well (`ui::match_screen::geometry`, `ui::home::geometry`,
+page, over Home and over the Match. Their layouts are pure functions as
+well (`ui::match_screen::geometry`, `ui::home::geometry`,
 `ui::settings::geometry`, `ui::replay::library::geometry`,
-`ui::help::geometry`), so their own tests run every size in
+`ui::help::geometry`) - of the size, and the Library's of the lines of
+notes over its list and the Help modal's of where the Match stands its
+heading and board too - so their own tests run every size in
 `app::visuals::layout_sweep` - every 20 px from the minimum to 2560x1440,
 the named sizes, a few fractional ones and a few larger windows - and
 check the same things from the layout's own boxes. The two halves

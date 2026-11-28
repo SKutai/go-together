@@ -312,8 +312,9 @@ disjoint data - not because the ambiguity is silently tolerated. No feature
 plugin orders itself against another feature plugin's systems; it declares
 which `AppSystems` stage a system belongs to, plus its own
 screen's `run_if` gate. The HUD's systems are in stages
-(`HudInput`, `HudDisplay`) but carry no screen gate, because they serve
-several screens.
+(`HudInput`, `HudDisplay`, and the Help modal's placement pass in
+`ScreenLayout`) but carry no screen gate, because they serve several
+screens.
 
 So for `HudDisplay` that safety has to be argued rather than read off a
 gate: its one system, `update_shared_display`, is live alongside
@@ -527,8 +528,13 @@ size, kept equal to it by `track_window_size` in `PreUpdate` and written
 only when the size really changes. A screen's layout is a pure function of
 `WindowSize::layout()`, which is that size raised to the 1040x600 minimum,
 so a window or a browser page smaller than the minimum is laid out as the
-minimum would be. `WINDOW_WIDTH` and `WINDOW_HEIGHT` are only the opening
-size; nothing adapted positions itself from them.
+minimum would be. Two read a little more, which a change of size does not
+change: the Replay Library's layout reads how many lines of notes stand
+over its list, and the Help modal's place reads the screen it is open
+over - over the Match, where the Match's heading and board stand, which
+are laid out from the size in their turn. `WINDOW_WIDTH` and
+`WINDOW_HEIGHT` are only the opening size; nothing adapted positions
+itself from them.
 
 **Text never changes size.** Interface nodes are laid out in the window's
 own pixels at their own sizes, so the 14px floor holds at every size. What
@@ -601,7 +607,8 @@ instruction and the Reset Controls and Back buttons share one row along
 its top, the tabs stand in a column down its left side, and the tab fills
 the rest. There Preferences sets its three switches side by side as cards,
 the Game tab's rows close up from 77 and 65 px to 66 and 56 - at 1040x600
-the tab would otherwise need 493 px of the 486 the sidebar leaves it - and
+the tab would otherwise need 493 px of the 486 the sidebar leaves it, as
+measured on 2026-11-28 - and
 the Keyboard tab's shared Restart Match binding stands on one line beside
 its heading. A binding error, which has no room for a line of its own
 there, stands in the instruction's place in the top row while it is shown.
@@ -642,7 +649,8 @@ resized while another screen was shown.
 
 **The Help modal** (`ui::help::geometry`) keeps its 820x760 and its one
 column in every window at least 844x784. A smaller window gets two
-columns: the modal takes the window less 12 px round it, with tighter
+columns: the modal takes the window less 12 px round it, up to 1588 px
+wide, where each column is as wide as the one column's page, with tighter
 padding and gaps, and sets its page in two columns 32 px apart, with Close
 at the right end of the pagination row. `bevy_ui` wraps a text within its
 own box but cannot carry it on into a second, so the game wraps the page
@@ -808,7 +816,8 @@ row - both pinned by a test.
 
 The Replay Library is almost entirely outside both mechanisms by design. It
 has no board to draw, so `update_library_button_styles` restyles its
-dozen-odd buttons with plain unconditional writes, and every other visible
+buttons - 13 at the 1040x600 minimum, up to 55 with sixteen cards at
+2560x1440 - with plain unconditional writes, and every other visible
 change goes through the wholesale rebuild described under entity ownership
 above. The one exception arrived with its focus ring: that system compares
 before inserting or removing `InteractionDisabled`, because the marker decides
@@ -3288,15 +3297,24 @@ gated on the settings schema version that introduced it, the
 the tests in `ui::settings::ring` that list every control in the focus
 ring and count the Preferences tab's. The refresh pass in
 `ui::settings::display` needs nothing: it reads `preference_enabled`. The
-Preferences panel has no overflow clip and little room left - it ended
-17px above the footer with three toggle rows, and 15.5px once the 14px text
-floor landed (2026-10-07) - so a fourth row needs the capture probe in
-`docs/TESTING.md` run over the Settings screen before it is called done.
-The Game tab is the opposite case: its panel *does* clip, at 535px, so
-what does not fit is hidden rather than overflowing, and a new limit row
-there must keep `the_game_tab_fits_its_panel_at_its_most_crowded` in
-`ui::settings::game` passing - it had about 16px to spare at its most
-crowded on 2026-10-07.
+Preferences panel has no overflow clip and little room left in either
+arrangement. With the tabs on top it ended 17px above the footer with
+three toggle rows, and 15.5px once the 14px text floor landed (2026-10-07).
+In the sidebar, where the switches stand side by side as cards and a
+fourth would join them, it ends 14px above the bottom of its room at the
+1040x600 minimum (2026-11-28). So a new preference needs the capture probe
+in `docs/TESTING.md` run over the Settings screen, at 1040x900 and at the
+minimum, and `every_tab_fits_and_every_control_is_reached_at_every_size`
+in `ui::settings::layout` passing, before it is called done. The Game tab
+is the opposite case: its panel *does* clip, at 535px, so with the tabs on
+top what does not fit is hidden rather than overflowing. The sidebar
+leaves it less room than that - 486px at the minimum - so there the clip
+guards nothing. A new limit row must keep
+`the_game_tab_fits_its_panel_at_its_most_crowded` in `ui::settings::game`
+passing, which holds the rows inside the room in both arrangements. With
+the tabs on top the tab had about 16px to spare at its most crowded on
+2026-10-07; in the sidebar its rows were closed up on 2026-11-28 to fit the
+minimum at its most crowded.
 
 A Match rule touches more, because it is persisted twice - once in the
 settings file and once in every Replay that snapshots the preset:

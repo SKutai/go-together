@@ -14,11 +14,14 @@
 //! window's size in logical pixels, which [`track_window_size`] keeps equal
 //! to the window. A layout is a pure function of that size, computed for
 //! [`WindowSize::layout`], which is the window's own size but never less
-//! than [`MIN_WINDOW_WIDTH`] by [`MIN_WINDOW_HEIGHT`]. [`WINDOW_WIDTH`] and
-//! [`WINDOW_HEIGHT`] are only the size the window opens at, and the window
-//! keeps it: it is not resizable. The Match screen, Home, Settings, the
-//! Replay Library and the Help modal are laid out for any size; the Replay
-//! Viewer is still laid out for the opening size.
+//! than [`MIN_WINDOW_WIDTH`] by [`MIN_WINDOW_HEIGHT`] - and, for two, of a
+//! little more that a change of size does not change: the Replay Library's
+//! of the lines of notes over its list, and the Help modal's place of the
+//! screen it is open over. [`WINDOW_WIDTH`] and [`WINDOW_HEIGHT`] are only
+//! the size the window opens at, and the window keeps it: it is not
+//! resizable. The Match screen, Home, Settings, the Replay Library and the
+//! Help modal are laid out for any size; the Replay Viewer is still laid out
+//! for the opening size.
 //!
 //! Text and controls are `bevy_ui` nodes, which no camera transform touches,
 //! so they keep their size whatever the window does. What grows and shrinks
