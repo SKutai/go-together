@@ -40,6 +40,8 @@ use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use bevy::ui_widgets::Button;
 
+use super::geometry::SettingsLayout;
+use super::layout::{SettingsPlacement, placed};
 use super::ring::{RingOrder, panel_focus_order};
 use super::{
     ControlMappingState, GameInputError, GameInputValue, GameNumericInput, GameToggle,
@@ -283,7 +285,10 @@ pub(super) fn capture_game_numeric_input(
 /// session above is per *input*, not per setting. The ring walks each row
 /// left to right - checkbox, then its field or minutes-and-seconds pair -
 /// and the rows top to bottom, one [`RingOrder`] threaded through the lot.
-pub(super) fn spawn_game_panel(panel: &mut ChildSpawnerCommands) {
+/// The rows are as tall as `layout` makes them: closer together in the
+/// sidebar, so that the tab fits the smallest window (see
+/// [`super::geometry`]).
+pub(super) fn spawn_game_panel(panel: &mut ChildSpawnerCommands, layout: &SettingsLayout) {
     let mut ring = RingOrder::starting_at(panel_focus_order(MappingTab::Game));
     panel
         .spawn((
@@ -301,6 +306,7 @@ pub(super) fn spawn_game_panel(panel: &mut ChildSpawnerCommands) {
         .with_children(|game| {
             spawn_integer_game_row(
                 game,
+                layout,
                 MatchSettingField::RoundLimit,
                 GameNumericInput::RoundLimit,
                 "End after this many ordinary rounds.",
@@ -308,7 +314,7 @@ pub(super) fn spawn_game_panel(panel: &mut ChildSpawnerCommands) {
             );
             spawn_duration_game_row(
                 game,
-                MatchSettingField::RoundTime,
+                layout,
                 GameNumericInput::RoundTimeMinutes,
                 GameNumericInput::RoundTimeSeconds,
                 "Maximum time for each ordinary round.",
@@ -317,6 +323,7 @@ pub(super) fn spawn_game_panel(panel: &mut ChildSpawnerCommands) {
             );
             spawn_integer_game_row(
                 game,
+                layout,
                 MatchSettingField::NoStoneRoundLimit,
                 GameNumericInput::NoStoneRoundLimit,
                 "End after consecutive ordinary rounds where the board does not change.",
@@ -324,7 +331,7 @@ pub(super) fn spawn_game_panel(panel: &mut ChildSpawnerCommands) {
             );
             spawn_duration_game_row(
                 game,
-                MatchSettingField::MatchTime,
+                layout,
                 GameNumericInput::MatchTimeMinutes,
                 GameNumericInput::MatchTimeSeconds,
                 "Maximum total match time.",
@@ -333,17 +340,19 @@ pub(super) fn spawn_game_panel(panel: &mut ChildSpawnerCommands) {
             );
             spawn_integer_game_row(
                 game,
+                layout,
                 MatchSettingField::PointTarget,
                 GameNumericInput::PointTarget,
                 "End when either player reaches this score.",
                 &mut ring,
             );
-            spawn_capture_points_row(game, &mut ring);
+            spawn_capture_points_row(game, layout, &mut ring);
         });
 }
 
 fn spawn_integer_game_row(
     parent: &mut ChildSpawnerCommands,
+    layout: &SettingsLayout,
     field: MatchSettingField,
     input: GameNumericInput,
     description: &'static str,
@@ -351,6 +360,7 @@ fn spawn_integer_game_row(
 ) {
     spawn_game_row(
         parent,
+        layout,
         GameToggle::Limit(field),
         field.label(),
         description,
@@ -361,17 +371,22 @@ fn spawn_integer_game_row(
     );
 }
 
+/// A limit set as minutes and seconds: the row for the field the two inputs
+/// edit.
 fn spawn_duration_game_row(
     parent: &mut ChildSpawnerCommands,
-    field: MatchSettingField,
+    layout: &SettingsLayout,
     minutes: GameNumericInput,
     seconds: GameNumericInput,
     description: &'static str,
     show_minimum: bool,
     ring: &mut RingOrder,
 ) {
+    let field = minutes.field();
+    debug_assert_eq!(seconds.field(), field, "both inputs edit one field");
     spawn_game_row(
         parent,
+        layout,
         GameToggle::Limit(field),
         field.label(),
         description,
@@ -404,6 +419,7 @@ fn spawn_duration_game_row(
 
 fn spawn_game_row(
     parent: &mut ChildSpawnerCommands,
+    layout: &SettingsLayout,
     toggle: GameToggle,
     label: &'static str,
     description: &'static str,
@@ -411,14 +427,17 @@ fn spawn_game_row(
     spawn_controls: impl FnOnce(&mut ChildSpawnerCommands, &mut RingOrder),
 ) {
     parent
-        .spawn(Node {
-            width: percent(100),
-            min_height: px(77),
-            padding: UiRect::axes(px(10), px(5)),
-            justify_content: JustifyContent::SpaceBetween,
-            align_items: AlignItems::Center,
-            ..default()
-        })
+        .spawn(placed(
+            layout,
+            SettingsPlacement::GameRow,
+            Node {
+                width: percent(100),
+                padding: UiRect::axes(px(10), px(5)),
+                justify_content: JustifyContent::SpaceBetween,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+        ))
         .with_children(|row| {
             row.spawn(Node {
                 width: px(455),
@@ -552,16 +571,23 @@ fn spawn_numeric_input(
         ));
 }
 
-fn spawn_capture_points_row(parent: &mut ChildSpawnerCommands, ring: &mut RingOrder) {
+fn spawn_capture_points_row(
+    parent: &mut ChildSpawnerCommands,
+    layout: &SettingsLayout,
+    ring: &mut RingOrder,
+) {
     parent
-        .spawn(Node {
-            width: percent(100),
-            min_height: px(65),
-            padding: UiRect::axes(px(10), px(5)),
-            justify_content: JustifyContent::SpaceBetween,
-            align_items: AlignItems::Center,
-            ..default()
-        })
+        .spawn(placed(
+            layout,
+            SettingsPlacement::LastGameRow,
+            Node {
+                width: percent(100),
+                padding: UiRect::axes(px(10), px(5)),
+                justify_content: JustifyContent::SpaceBetween,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+        ))
         .with_children(|row| {
             row.spawn(Node {
                 flex_direction: FlexDirection::Column,
@@ -1163,31 +1189,41 @@ mod tests {
     }
 
     /// The Game tab at its most crowded, laid out with its text by `bevy_ui`
-    /// itself in the fixed 1040x900 window, once for every error a row can
-    /// show: every limit enabled, and Round Time at its maximum so that the
-    /// Match Time row's caption is its longest, `Min 60:00`.
+    /// itself at every size the screen's real-layout tests run at, once for
+    /// every error a row can show: every limit enabled, Round Time at its
+    /// maximum so that the Match Time row's caption is its longest, `Min
+    /// 60:00`, and the screen's own error line showing too, which on top
+    /// takes a line above the tabs.
     ///
-    /// Two things have to hold, and a node's declared size shows neither.
-    /// The panel clips what does not fit under its `max_height` rather than
-    /// growing, so a row pushed too far down is cut off with nothing visibly
-    /// overflowing - and an error line that wraps is the thing that pushes,
-    /// the longest wrapping at 14px. And a row's controls keep their own
+    /// Three things have to hold, and a node's declared size shows none of
+    /// them. The panel clips what does not fit under its `max_height` rather
+    /// than growing, and when its parent is shorter than its rows it is
+    /// squeezed to the parent's height and clips them there; either way a
+    /// row pushed too far down is cut off with nothing visibly overflowing -
+    /// and an error line that wraps is the thing that pushes, the longest
+    /// wrapping at 14px. So the rows must end inside the panel's padding,
+    /// each at least its own height. And a row's controls keep their own
     /// width: the Match Time row's controls and its 455px of copy are wider
     /// together than the row, which flexbox resolves by squeezing every
     /// child, and squeezing a caption wraps it. The 12px caption was
     /// already drawn as `Min` above `60:00` this way before the text floor
     /// (2026-10-07) widened it; the controls now refuse to shrink and the
-    /// copy gives way instead.
+    /// copy gives way instead. And the panel itself must stand inside the
+    /// room the frame leaves a tab, which a panel taller than that room
+    /// runs out of: in the sidebar of the smallest window the rows fit it
+    /// only at their closer heights.
     #[test]
     fn the_game_tab_fits_its_panel_at_its_most_crowded() {
         use bevy::text::TextLayoutInfo;
         use bevy::ui::ComputedNode;
 
-        use super::super::MappingPanel;
-        use super::super::display::update_mapping_tab_panels;
-        use super::super::layout::spawn_control_mapping_screen;
+        use super::super::geometry::settings_layout;
+        use super::super::layout::SettingsPlacement;
+        use super::super::layout::tests::{
+            contents_room, laid_out_settings, node_rect, placed_entity, real_layout_sizes,
+        };
+        use super::super::{MappingPanel, SETTINGS_NOT_SAVED_WARNING};
         use crate::match_settings::DURATION_MAX_SECONDS;
-        use crate::ui::focus::real_layout_app;
 
         fn line_count(layout: &TextLayoutInfo) -> usize {
             layout
@@ -1207,98 +1243,143 @@ mod tests {
             GameNumericInput::MatchTimeSeconds,
             GameNumericInput::PointTarget,
         ];
-        for input in inputs {
-            for error in [NumericParseError::Empty, NumericParseError::NotDigits] {
-                let message = game_error_message(input, error);
-                let mut settings = MatchSettings::default();
-                for field in [
-                    MatchSettingField::RoundLimit,
-                    MatchSettingField::RoundTime,
-                    MatchSettingField::NoStoneRoundLimit,
-                    MatchSettingField::MatchTime,
-                    MatchSettingField::PointTarget,
-                ] {
-                    settings.set_enabled(field, true);
-                }
-                settings.set_value(MatchSettingField::RoundTime, DURATION_MAX_SECONDS.into());
-                let mut mapping = ControlMappingState::new(None);
-                mapping.tab = MappingTab::Game;
-                mapping.game_error = Some((input, message.clone()));
-                let mut app = real_layout_app(crate::app::visuals::WindowSize::OPENING.0);
-                app.insert_resource(settings)
-                    .insert_resource(mapping)
-                    .add_systems(Startup, spawn_control_mapping_screen)
-                    .add_systems(
-                        Update,
-                        (update_game_settings_display, update_mapping_tab_panels),
-                    );
-                app.update();
-                let world = app.world_mut();
+        for window in real_layout_sizes() {
+            for input in inputs {
+                for error in [NumericParseError::Empty, NumericParseError::NotDigits] {
+                    let message = game_error_message(input, error);
+                    let context = format!("{window}, {message:?}");
+                    let mut settings = MatchSettings::default();
+                    for field in [
+                        MatchSettingField::RoundLimit,
+                        MatchSettingField::RoundTime,
+                        MatchSettingField::NoStoneRoundLimit,
+                        MatchSettingField::MatchTime,
+                        MatchSettingField::PointTarget,
+                    ] {
+                        settings.set_enabled(field, true);
+                    }
+                    settings.set_value(MatchSettingField::RoundTime, DURATION_MAX_SECONDS.into());
+                    let mut mapping = ControlMappingState::new(None);
+                    mapping.tab = MappingTab::Game;
+                    mapping.game_error = Some((input, message.clone()));
+                    mapping.error = SETTINGS_NOT_SAVED_WARNING.into();
+                    let mut app = laid_out_settings(window, mapping, settings);
+                    let world = app.world_mut();
 
-                // The error is really on screen, or a pass would say nothing.
-                let mut texts = world.query::<(&Text, &TextLayoutInfo)>();
-                let shown = texts
-                    .iter(world)
-                    .find(|(text, _)| text.0 == message)
-                    .map(|(_, layout)| line_count(layout));
-                assert!(
-                    shown.is_some_and(|lines| lines > 0),
-                    "{message:?} is not drawn"
-                );
-
-                // The surface takes its content's height up to `max_height`
-                // and clips the rest, so it reaching that height is the
-                // overflow. Its rows' boxes cannot show it: in a column too
-                // short for them they shrink rather than spill.
-                let surface = world
-                    .query::<(&MappingPanel, &Children)>()
-                    .iter(world)
-                    .find(|(panel, _)| panel.0 == MappingTab::Game)
-                    .map(|(_, children)| children[0])
-                    .expect("the Game panel holds its surface");
-                let mut surfaces = world.query::<(&Node, &ComputedNode)>();
-                let (declared, laid_out) = surfaces.get(world, surface).unwrap();
-                let Val::Px(max_height) = declared.max_height else {
-                    panic!("the Game panel's surface has a fixed maximum height");
-                };
-                let height = laid_out.size.y * laid_out.inverse_scale_factor;
-                assert!(
-                    height < max_height - 0.5,
-                    "with {message:?} showing, the Game tab's rows need {height}px or more of a \
-                     panel that shows {max_height}px and clips the rest"
-                );
-
-                let mut controls = world.query_filtered::<(&Node, &ComputedNode), (
-                    With<Button>,
-                    Or<(With<GameToggle>, With<GameNumericInput>)>,
-                )>();
-                for (declared, laid_out) in controls.iter(world) {
-                    let Val::Px(width) = declared.width else {
-                        panic!("a Game tab control has a fixed width");
-                    };
-                    let drawn = laid_out.size.x * laid_out.inverse_scale_factor;
-                    assert!(
-                        (drawn - width).abs() < 0.5,
-                        "with {message:?} showing, a {width}px control is drawn {drawn}px wide"
-                    );
-                }
-
-                let mut minimum =
-                    world.query_filtered::<(&Text, &TextLayoutInfo), With<MatchMinimumLabel>>();
-                let (minimum, minimum_layout) = minimum.single(world).unwrap();
-                assert_eq!(minimum.0, "Min 60:00", "the caption at its longest");
-                let mut captions = vec![("Min 60:00", line_count(minimum_layout))];
-                captions.extend(
-                    texts
+                    // The error is really on screen, or a pass would say nothing.
+                    let mut texts = world.query::<(&Text, &TextLayoutInfo)>();
+                    let shown = texts
                         .iter(world)
-                        .filter(|(text, _)| text.0 == "MM:SS")
-                        .map(|(_, layout)| ("MM:SS", line_count(layout))),
-                );
-                assert_eq!(captions.len(), 2, "both captions are on the tab");
-                for (caption, lines) in captions {
-                    assert_eq!(
-                        lines, 1,
-                        "with {message:?} showing, {caption:?} is drawn on {lines} lines"
+                        .find(|(text, _)| text.0 == message)
+                        .map(|(_, layout)| line_count(layout));
+                    assert!(shown.is_some_and(|lines| lines > 0), "{context}: not drawn");
+
+                    let (panel, surface) = world
+                        .query::<(Entity, &MappingPanel, &Children)>()
+                        .iter(world)
+                        .find(|(_, panel, _)| panel.0 == MappingTab::Game)
+                        .map(|(entity, _, children)| (entity, children[0]))
+                        .expect("the Game panel holds its surface");
+                    let rows: Vec<Entity> =
+                        world.get::<Children>(surface).unwrap().iter().collect();
+                    let mut surfaces = world.query::<(&Node, &ComputedNode)>();
+                    let (declared, laid_out) = surfaces.get(world, surface).unwrap();
+                    let Val::Px(max_height) = declared.max_height else {
+                        panic!("the Game panel's surface has a fixed maximum height");
+                    };
+                    let Val::Px(padding) = declared.padding.bottom else {
+                        panic!("the Game panel's surface has a fixed padding");
+                    };
+                    let height = laid_out.size.y * laid_out.inverse_scale_factor;
+                    assert!(
+                        height < max_height - 0.5,
+                        "{context}: the rows need {height}px or more of a surface that shows \
+                         {max_height}px and clips the rest"
+                    );
+                    let min_heights: Vec<f32> = rows
+                        .iter()
+                        .map(|row| {
+                            let (declared, _) = surfaces.get(world, *row).unwrap();
+                            let Val::Px(min) = declared.min_height else {
+                                panic!("a Game tab row has a fixed least height");
+                            };
+                            min
+                        })
+                        .collect();
+
+                    let mut controls = world.query_filtered::<(&Node, &ComputedNode), (
+                        With<Button>,
+                        Or<(With<GameToggle>, With<GameNumericInput>)>,
+                    )>();
+                    for (declared, laid_out) in controls.iter(world) {
+                        let Val::Px(width) = declared.width else {
+                            panic!("a Game tab control has a fixed width");
+                        };
+                        let drawn = laid_out.size.x * laid_out.inverse_scale_factor;
+                        assert!(
+                            (drawn - width).abs() < 0.5,
+                            "{context}: a {width}px control is drawn {drawn}px wide"
+                        );
+                    }
+
+                    let mut minimum =
+                        world.query_filtered::<(&Text, &TextLayoutInfo), With<MatchMinimumLabel>>();
+                    let (minimum, minimum_layout) = minimum.single(world).unwrap();
+                    assert_eq!(minimum.0, "Min 60:00", "the caption at its longest");
+                    let mut captions = vec![("Min 60:00", line_count(minimum_layout))];
+                    captions.extend(
+                        texts
+                            .iter(world)
+                            .filter(|(text, _)| text.0 == "MM:SS")
+                            .map(|(_, layout)| ("MM:SS", line_count(layout))),
+                    );
+                    assert_eq!(captions.len(), 2, "both captions are on the tab");
+                    for (caption, lines) in captions {
+                        assert_eq!(lines, 1, "{context}: {caption:?} is drawn on {lines} lines");
+                    }
+
+                    // No row squeezed below its own height, the last ending
+                    // inside the surface's padding, and the surface inside
+                    // its panel.
+                    let surface_rect = node_rect(&app, surface);
+                    for (row, min) in rows.iter().zip(min_heights) {
+                        let rect = node_rect(&app, *row);
+                        assert!(
+                            rect.height() >= min - 0.5,
+                            "{context}: a row is {} tall of its {min}",
+                            rect.height()
+                        );
+                    }
+                    let last = node_rect(&app, *rows.last().unwrap());
+                    assert!(
+                        last.max.y <= surface_rect.max.y - padding + 0.5,
+                        "{context}: the last row ends at {} in a surface ending at {}",
+                        last.max.y,
+                        surface_rect.max.y
+                    );
+                    let panel_rect = node_rect(&app, panel);
+                    assert!(
+                        panel_rect.inflate(0.5).contains(surface_rect.min)
+                            && panel_rect.inflate(0.5).contains(surface_rect.max),
+                        "{context}: the surface {surface_rect:?} leaves {panel_rect:?}"
+                    );
+                    // And the panel inside the room the frame gives a tab,
+                    // which a taller tab would grow the contents past: they
+                    // end where the room ends, and on top start lower by the
+                    // screen's error line, which takes its line from them.
+                    let contents = placed_entity(&mut app, SettingsPlacement::Contents);
+                    let contents = node_rect(&app, contents);
+                    let room = contents_room(&settings_layout(window));
+                    assert!(
+                        (contents.max - room.max).abs().max_element() <= 1.0
+                            && (contents.min.x - room.min.x).abs() <= 1.0
+                            && contents.min.y >= room.min.y - 1.0,
+                        "{context}: the contents {contents:?} leave their room {room:?}"
+                    );
+                    assert!(
+                        contents.inflate(0.5).contains(panel_rect.min)
+                            && contents.inflate(0.5).contains(panel_rect.max),
+                        "{context}: the panel {panel_rect:?} leaves the contents {contents:?}"
                     );
                 }
             }

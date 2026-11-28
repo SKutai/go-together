@@ -51,10 +51,12 @@ not part of a release build in any case.
   error display holds to that standard: the Replay rename/delete dialogs and
   the Settings screen's startup load warning deliberately show the detailed
   message, on the reasoning that a cause named in response to the player's
-  own attempt is actionable on a local desktop game. That reasoning is local
-  to a single-process game, so a future networked host must not assume every
-  on-screen error string is already safe to relay to a remote peer; it would
-  need its own review at that point.
+  own attempt is actionable on a local desktop game. The load warning shows
+  as much of it as its line on screen holds and is cut beyond that, so a
+  long path or cause reaches the log whole but the screen only in part.
+  That reasoning is local to a single-process game, so a future networked
+  host must not assume every on-screen error string is already safe to relay
+  to a remote peer; it would need its own review at that point.
 
 The web shell uses a restrictive Content Security Policy as defense in depth and
 has no service worker. Same-origin hosting still controls the page, and CSP does

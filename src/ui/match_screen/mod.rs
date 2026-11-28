@@ -443,7 +443,11 @@ fn update_match_display(
             UiRole::Countdown => countdown_text(&game).unwrap_or_default().into(),
             UiRole::ControlHint(player) => control_hint_text(*player, &controls.keyboard),
             UiRole::Gesture => gesture_text.clone(),
-            UiRole::HelpTitle | UiRole::HelpBody | UiRole::HelpPage | UiRole::ReturnHomeBody => {
+            UiRole::HelpTitle
+            | UiRole::HelpBody
+            | UiRole::HelpBodyContinued
+            | UiRole::HelpPage
+            | UiRole::ReturnHomeBody => {
                 continue;
             }
         };
@@ -595,6 +599,15 @@ const fn live_cursor_visibility(phase: MatchPhase) -> Visibility {
     } else {
         Visibility::Hidden
     }
+}
+
+/// Where the Match screen's heading line and its board's wood stand in a
+/// window of `window` logical pixels, which the caller has already raised
+/// to the minimum: what the Help modal, open over the Match, keeps its edge
+/// off and covers or frames (see `ui::help`).
+pub(super) fn heading_and_board(window: Vec2) -> (Rect, Rect) {
+    let layout = match_layout(window);
+    (layout.heading_line(), layout.board)
 }
 
 /// Both players' current keyboard Select keys, joined for prose: `M and 2`.
@@ -1045,13 +1058,11 @@ mod tests {
     /// at their centres over a live board, under real layout and real
     /// picking - nothing the HUD draws over the board stops it - and every
     /// text stands inside the window; with either modal open, the pointer
-    /// reaches that modal's buttons and neither HUD button. The Help modal
-    /// keeps its one size for now, so it is opened only in a window that
-    /// holds it.
+    /// reaches that modal's buttons and neither HUD button - the Help modal
+    /// in one column or in two, whichever the window gives it.
     #[test]
     fn the_pointer_reaches_the_hud_buttons_and_a_modal_covers_them() {
         use crate::ui::button::{covered_at_their_centres, reachable_buttons};
-        use crate::ui::help::{HELP_MODAL_HEIGHT, HELP_MODAL_WIDTH};
 
         for window in NAMED_WINDOW_SIZES {
             let (mut app, root) = live_match_app(window);
@@ -1073,11 +1084,7 @@ mod tests {
             );
             assert_every_text_is_inside(&mut app, window, &format!("{window}"));
 
-            let help_fits = window.x > HELP_MODAL_WIDTH && window.y > HELP_MODAL_HEIGHT;
             for modal in ["Help", "Return Home"] {
-                if modal == "Help" && !help_fits {
-                    continue;
-                }
                 {
                     let mut hud = app.world_mut().resource_mut::<HudState>();
                     hud.help_open = modal == "Help";

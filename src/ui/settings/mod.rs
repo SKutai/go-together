@@ -9,7 +9,10 @@
 //! navigation, but the *error* is not cleared on entry, so a controls file
 //! that failed to load at startup is still reported the first time the player
 //! opens Settings. It is then dismissed like any other error - by a successful
-//! save, a tab switch, or starting or cancelling a capture.
+//! save, a tab switch, or starting or cancelling a capture. That report quotes
+//! what the file holds, so it can be far longer than the error line's place;
+//! the display pass cuts it to the lines there is room for
+//! (`display::shown_error`), and the log keeps it whole.
 //!
 //! # Data flow
 //!
@@ -50,7 +53,7 @@
 //! two; [`handle_mapping_escape`] names the same-frame pairs whose outcome
 //! that ordering decides.
 //!
-//! # Why this screen has five submodules
+//! # Why this screen has six submodules
 //!
 //! Most screens divide into a `mod.rs` and a `layout.rs`; this one introduced
 //! the `display.rs` third. Four tabs later that was no longer enough, and the
@@ -63,7 +66,11 @@
 //!   am the row now being captured", and the capture systems are the only
 //!   readers of that meaning, so the rows and the capture live together.
 //! * [`layout`] - the frame those panels hang in, the reset-confirmation
-//!   modal, and the Preferences panel, whose toggles have no state to own.
+//!   modal, and the Preferences panel, whose toggles have no state to own;
+//!   and the pass that keeps the frame where [`geometry`] puts it.
+//! * [`geometry`] - where the frame stands for the window's size, as a pure
+//!   function of it, which the spawners and that pass both read and the
+//!   tests run at every size the layouts are checked at.
 //! * [`display`] - the whole screen's per-frame refresh, all four tabs
 //!   together, because it runs as one pass in
 //!   [`AppSystems::SettingsDisplay`].
@@ -80,6 +87,7 @@
 mod bindings;
 mod display;
 mod game;
+mod geometry;
 mod layout;
 mod ring;
 
@@ -88,6 +96,7 @@ use bevy::prelude::*;
 
 use super::button::{ButtonActivation, UiButtonPlugin};
 use super::hud::HudAction;
+use crate::app::visuals::WindowSize;
 use crate::app::{AppScreen, AppSystems};
 use crate::audio::{AudioChannel, AudioCue, AudioCueQueue, UiCue, volume_preview};
 use crate::input::GameAction;
@@ -105,7 +114,7 @@ use display::{
     update_settings_tab_buttons,
 };
 use game::{GameEditor, capture_game_numeric_input, commit_active_game_editor, game_input_text};
-use layout::spawn_control_mapping_screen;
+use layout::{place_settings_furniture, spawn_control_mapping_screen};
 use ring::yield_focus_while_capturing;
 
 /// Owns the settings screen lifecycle, capture systems and display refresh.
@@ -155,6 +164,13 @@ impl Plugin for SettingsPlugin {
                     .chain()
                     .run_if(in_state(AppScreen::ControlMapping))
                     .in_set(AppSystems::SettingsDisplay),
+            )
+            .add_systems(
+                Update,
+                place_settings_furniture
+                    .run_if(in_state(AppScreen::ControlMapping))
+                    .run_if(resource_changed::<WindowSize>)
+                    .in_set(AppSystems::ScreenLayout),
             );
     }
 }
@@ -555,8 +571,7 @@ fn handle_mapping_buttons(
             mapping.error.clear();
         } else {
             mapping.capturing_controller = None;
-            mapping.error =
-                "Connect a controller for this player before changing its bindings.".into();
+            mapping.error = CONNECT_A_CONTROLLER_MESSAGE.into();
         }
     }
 }
@@ -760,13 +775,18 @@ fn handle_mapping_escape(
     audio.ui(UiCue::Cancel);
 }
 
+/// What the error line says when a controller row is pressed for a player
+/// with no controller assigned.
+pub(super) const CONNECT_A_CONTROLLER_MESSAGE: &str =
+    "Connect a controller for this player before changing its bindings.";
+
 /// Shown in place of the raw storage error whenever a settings write fails,
 /// across every tab. The wording is deliberately reassuring rather than
 /// technical - a player does not need to know *why* saving failed, only that
 /// their change is still in effect and what they stand to lose - and
 /// deliberately identical every time, so the same failure does not read as a
 /// new, distinct problem on every subsequent edit.
-const SETTINGS_NOT_SAVED_WARNING: &str = "Your changes are active for this session but could not be saved. They may be lost when the game closes.";
+pub(super) const SETTINGS_NOT_SAVED_WARNING: &str = "Your changes are active for this session but could not be saved. They may be lost when the game closes.";
 
 /// Writes the whole control configuration to the platform settings store - an
 /// atomic `controls.json` natively, a `localStorage` key in a browser.
@@ -1600,6 +1620,7 @@ mod tests {
             .insert_resource(KeyboardBindings::default())
             .insert_resource(ControllerBindings::default())
             .insert_resource(ControllerAssignments::default())
+            .init_resource::<WindowSize>()
             .add_systems(Startup, spawn_control_mapping_screen)
             .add_systems(Update, update_control_mapping_display);
         app.update();

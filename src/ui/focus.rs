@@ -69,6 +69,12 @@
 //! outlives a screen transition on purpose - it is what puts Home's ring
 //! back where it was after a Match or a visit to Settings - and a second
 //! screen with a ring must neither inherit that position nor overwrite it.
+//! One screen moves its own memory: the Replay Library, whose cards are
+//! keyed by their place on the page, moves the remembered place with them
+//! when a change of the window's size moves every card down the page, so
+//! that the ring stays on the Replay it was on (`ui::replay::library::ring`
+//! says when). [`UiFocusState::remembered`] and
+//! [`UiFocusState::move_remembered`] are how.
 //! [`refresh_focus_candidates`] re-reads the marked buttons
 //! after [`UiSystems::Layout`] each frame (so it sees the layout the player
 //! sees), drops anything whose [`ComputedNode`] size is zero - a
@@ -300,8 +306,8 @@ pub(crate) struct Focusable {
 
 /// The focus ring, invisible until [`update_focus_indicator`] colours it.
 ///
-/// `Outline` draws outside the node and takes no part in layout, so nothing
-/// reflows at the fixed window size. Keeping the component in place and
+/// `Outline` draws outside the node and takes no part in layout, so
+/// drawing the ring moves nothing. Keeping the component in place and
 /// writing only its `color` avoids the archetype moves that repeated
 /// insertion and removal would cause - `Outline`'s own docs recommend
 /// exactly this.
@@ -346,6 +352,20 @@ impl UiFocusState {
 
     fn memory(&self, screen: AppScreen) -> FocusMemory {
         self.memory.get(&screen).copied().unwrap_or_default()
+    }
+
+    /// Where the ring is remembered within `group` on `screen`, if it has
+    /// been anywhere there.
+    pub(crate) fn remembered(&self, screen: AppScreen, group: FocusGroup) -> Option<u32> {
+        self.memory(screen).get(group)
+    }
+
+    /// Remembers `order` as the ring's place within `group` on `screen`, as
+    /// though the ring had moved there: for a screen that moves its own
+    /// controls under the ring and means the ring to move with them. The
+    /// next collection resolves it as it resolves any remembered place.
+    pub(crate) fn move_remembered(&mut self, screen: AppScreen, group: FocusGroup, order: u32) {
+        self.remember(screen, group, order);
     }
 
     fn remember(&mut self, screen: AppScreen, group: FocusGroup, order: u32) {
@@ -996,9 +1016,13 @@ fn update_focus_indicator(
 /// itself out from it is laid out for that window; a test of a screen as
 /// it was first laid out, for the opening window, passes the opening size,
 /// `WindowSize::OPENING.0`. `window` is in whole pixels, as a physical
-/// window is. Keys are not part of it: a test presses them by
-/// writing `ButtonInput<KeyCode>` directly, which `InputPlugin` would clear
-/// before the ring could read it.
+/// window is. A test that resizes the primary window is laid out at the
+/// new size from that frame on, since the camera follows the window as the
+/// renderer's camera system would keep it; [`WindowSize`] follows only
+/// where the test adds the game's own window tracking
+/// (`app::visuals::WindowLayoutPlugin`). Keys are not part of it: a test
+/// presses them by writing `ButtonInput<KeyCode>` directly, which
+/// `InputPlugin` would clear before the ring could read it.
 ///
 /// [`WindowSize`]: crate::app::visuals::WindowSize
 #[cfg(test)]
@@ -1069,7 +1093,8 @@ pub(crate) fn engine_ui_app(window: Vec2) -> App {
     .add_systems(
         PreUpdate,
         (mouse_button_input_system, touch_screen_input_system).in_set(InputSystems),
-    );
+    )
+    .add_systems(PreUpdate, follow_the_primary_window);
     app.world_mut().spawn((
         Camera2d,
         Camera {
@@ -1088,6 +1113,31 @@ pub(crate) fn engine_ui_app(window: Vec2) -> App {
         },
     ));
     app
+}
+
+/// Keeps the camera of [`engine_ui_app`] the size and scale factor of the
+/// primary window, render target and viewport, as the renderer's camera
+/// system keeps a real one: without it, a test that resized the window
+/// would have `bevy_ui` lay out, and picking hit-test, at the size the app
+/// was made with.
+#[cfg(test)]
+fn follow_the_primary_window(
+    windows: Query<&Window, (With<bevy::window::PrimaryWindow>, Changed<Window>)>,
+    mut cameras: Query<&mut Camera>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let physical_size = window.physical_size();
+    for mut camera in &mut cameras {
+        if let Some(target) = camera.computed.target_info.as_mut() {
+            target.physical_size = physical_size;
+            target.scale_factor = window.scale_factor();
+        }
+        if let Some(viewport) = camera.viewport.as_mut() {
+            viewport.physical_size = physical_size;
+        }
+    }
 }
 
 /// Where one `Text` was drawn, read from a laid-out app by
@@ -1839,6 +1889,79 @@ mod tests {
              if it no longer does, the candidate collector needs an explicit \
              active-group resource instead of the zero-size test"
         );
+    }
+
+    /// The harness lays out at the size the primary window has now: a node
+    /// that fills the window fills the opening window, then, on the first
+    /// frame after the window is resized, the new one, with the pointer
+    /// reaching it at the new window's far corner - and the opening window
+    /// again when it is resized back, the pointer no longer reaching it at
+    /// that corner; and the window's logical size when its scale factor
+    /// doubles, which halves that size.
+    #[test]
+    fn the_harness_lays_out_at_the_windows_new_size_after_a_resize() {
+        use crate::app::visuals::WindowSize;
+
+        let mut app = real_layout_app(WindowSize::OPENING.0);
+        let page = app
+            .world_mut()
+            .spawn((
+                Node {
+                    width: percent(100),
+                    height: percent(100),
+                    ..default()
+                },
+                Button,
+            ))
+            .id();
+        app.update();
+        let size = |app: &App| app.world().get::<ComputedNode>(page).unwrap().size();
+        assert_eq!(size(&app), WindowSize::OPENING.0);
+        let mut last = WindowSize::OPENING.0;
+        for window in [Vec2::new(1920.0, 1080.0), WindowSize::OPENING.0] {
+            {
+                let world = app.world_mut();
+                let mut windows =
+                    world.query_filtered::<&mut Window, With<bevy::window::PrimaryWindow>>();
+                windows
+                    .single_mut(world)
+                    .unwrap()
+                    .resolution
+                    .set(window.x, window.y);
+            }
+            app.update();
+            assert_eq!(size(&app), window);
+            // Picking follows too, at the far corner of the larger window:
+            // growing, the pointer reaches the node at a point the old window
+            // did not have; shrinking, it does not at a point only the old
+            // window had.
+            let grew = window.x > last.x;
+            let corner = window.max(last) - Vec2::splat(2.0);
+            crate::ui::button::move_pointer(&mut app, corner);
+            let hovered = app
+                .world()
+                .get::<bevy::picking::hover::Hovered>(page)
+                .unwrap()
+                .get();
+            assert_eq!(hovered, grew, "{window}: the pointer at {corner}");
+            last = window;
+        }
+        // And its scale factor: at two physical pixels to the logical one,
+        // the window's 1040x900 pixels are 520x450 logical ones, which the
+        // node fills - where a camera left at a scale factor of 1 would lay
+        // it out at the physical size.
+        let logical = {
+            let world = app.world_mut();
+            let mut windows =
+                world.query_filtered::<&mut Window, With<bevy::window::PrimaryWindow>>();
+            let mut window = windows.single_mut(world).unwrap();
+            window.resolution.set_scale_factor_override(Some(2.0));
+            window.size()
+        };
+        assert_eq!(logical, WindowSize::OPENING.0 / 2.0);
+        app.update();
+        let node = app.world().get::<ComputedNode>(page).unwrap();
+        assert_eq!(node.size() * node.inverse_scale_factor(), logical);
     }
 
     /// The same premise through the production collector: under real layout
