@@ -396,8 +396,10 @@ fn clamp_and_follow(
     if let Some(place) = ring::remembered_card(focus) {
         let card = ui.scroll_offset + place;
         if card >= first + cards {
-            let row = card - card % layout.columns;
-            first = layout.first_card(row + layout.columns - cards, count);
+            // A page that ends with the ring's card; `first_card` starts it
+            // at a row's first card, which in two columns makes the card's
+            // row the page's last.
+            first = layout.first_card(card + layout.columns - cards, count);
         }
     }
     if first != ui.scroll_offset {
