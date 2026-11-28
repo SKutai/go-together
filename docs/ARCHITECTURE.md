@@ -631,8 +631,8 @@ two lines it always had room for, and sets it in as many whole characters
 as fit in the middle of the header row with half a character to spare, so
 that the rounding of its node's edges to the display's pixels cannot
 change where its lines break. A label that takes three lines in a window's
-header, its lines counted as `bevy_ui` breaks them
-(`ui::replay::viewer::wrap`), gets a line's more room above the board.
+header, its lines counted as `bevy_ui` breaks them (`ui::line_breaks`),
+gets a line's more room above the board.
 Where the window's height limits the board, as at 1040x900, that draws the
 board a line smaller - 0.949 of its size there - with its bottom and the
 transport row where they were; where the window has height to spare, the

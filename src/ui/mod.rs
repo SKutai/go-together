@@ -35,6 +35,9 @@
 //!   Library's search and rename fields and the Game tab's numeric fields.
 //! * [`text_metrics`] - how long and how tall a line of the game's text is
 //!   drawn, for a layout that has to know before `bevy_ui` lays it out.
+//! * [`line_breaks`] - where `bevy_ui` breaks the lines of the game's text,
+//!   followed exactly, for a layout that has to know how many lines a text
+//!   takes.
 //!
 //! # Bevy lifecycle
 //!
@@ -57,6 +60,7 @@ mod focus;
 pub(crate) mod help;
 mod home;
 pub(crate) mod hud;
+mod line_breaks;
 pub(crate) mod match_screen;
 mod replay;
 pub(crate) mod settings;

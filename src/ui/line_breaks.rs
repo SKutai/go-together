@@ -1,6 +1,7 @@
-//! Where `bevy_ui` breaks the lines of the Viewer's text, worked out
+//! Where `bevy_ui` breaks the lines of the game's text, worked out
 //! without laying it out: how many characters a line holds, and how many
-//! lines a text takes at so many characters to a line.
+//! lines a text takes at so many characters to a line. The Replay Viewer
+//! reads it to give its label the lines it takes.
 //!
 //! Every text in the game is printable ASCII in a monospaced font (see
 //! [`crate::ui::text_metrics`]), so a line's width is its length in
@@ -43,10 +44,10 @@
 //! for 650,000 texts of up to 60 characters at the sizes and widths the
 //! Viewer sets them at; and the count of characters against parley at
 //! 32,636 widths, every exact fit among them. They agreed on every one.
-//! In the game, a test in [`super`] lays a corpus of labels out with
-//! `bevy_ui` at several widths and holds where each of their lines starts
-//! to this, character for character, which a change to any one rule here
-//! fails.
+//! In the game, a test in `ui::replay::viewer` lays a corpus of labels out
+//! with `bevy_ui` at several widths and holds where each of their lines
+//! starts to this, character for character, which a change to any one rule
+//! here fails.
 
 /// The font's advance at `font_px`, in pixels at a scale factor of 1, as
 /// parley scales it: 600 units of a 1000-unit em, the size divided by the
@@ -61,7 +62,7 @@ fn advance(font_px: f32) -> f32 {
 /// one character at a time, each character fitting while the sum is no
 /// more than `width` - and at least one, which a line takes however narrow
 /// it is.
-pub(super) fn chars_per_line(width: f32, font_px: f32) -> usize {
+pub(crate) fn chars_per_line(width: f32, font_px: f32) -> usize {
     let advance = advance(font_px);
     let (mut sum, mut chars) = (0.0_f32, 0);
     while sum + advance <= width {
@@ -134,7 +135,7 @@ const fn class(byte: u8) -> Class {
 /// quotation marks, of which ASCII has none. Their other changes, to `,`
 /// `.` `:` `;` after a space, to numbers and to a hyphen that starts a
 /// word, ICU does not apply, and nor does this.
-pub(super) fn may_break_before(text: &[u8], index: usize) -> bool {
+pub(crate) fn may_break_before(text: &[u8], index: usize) -> bool {
     use Class::*;
 
     let (before, after) = (class(text[index - 1]), class(text[index]));
@@ -179,7 +180,7 @@ pub(super) fn may_break_before(text: &[u8], index: usize) -> bool {
 /// Calls `line` with where each line of `text` starts, set `chars`
 /// characters to a line as the layout engine fills its lines; with
 /// `break_words`, a word too long for a line breaks inside it.
-pub(super) fn for_each_line(
+pub(crate) fn for_each_line(
     text: &[u8],
     chars: usize,
     break_words: bool,
@@ -225,7 +226,7 @@ pub(super) fn for_each_line(
 /// `break_words`, as a text set with `LineBreak::WordOrCharacter` takes
 /// them, breaking inside a word too long for a line, and otherwise as one
 /// set with `LineBreak::WordBoundary`, the default.
-pub(super) fn wrapped_lines(text: &str, chars: usize, break_words: bool) -> usize {
+pub(crate) fn wrapped_lines(text: &str, chars: usize, break_words: bool) -> usize {
     let mut lines = 0;
     for_each_line(text.as_bytes(), chars, break_words, |_| lines += 1);
     lines

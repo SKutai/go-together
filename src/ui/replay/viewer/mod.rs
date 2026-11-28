@@ -29,10 +29,6 @@
 //!   stone, a hidden selection or a score badge. Spawning, placing and
 //!   per-frame drawing all depend on it and it depends on none of them, so
 //!   it cannot live in any.
-//! * [`wrap`] - where `bevy_ui` breaks a line of text, which [`geometry`]
-//!   reads to know how many lines the Replay's label takes. It depends on
-//!   nothing in the game, which lets it be checked against the text layout
-//!   engine's own line breaker.
 //! * [`layout`] - spawns the board, the cursors, the markers, the hidden
 //!   selections, the badges and the transport bar, once, on entry, and the
 //!   pass that keeps them where the window's size puts them.
@@ -49,7 +45,6 @@ mod display;
 mod geometry;
 mod layout;
 mod modals;
-mod wrap;
 
 use bevy::prelude::*;
 
@@ -1631,25 +1626,26 @@ mod tests {
     /// Every label of [`label_corpus`], laid out by `bevy_ui` at each of
     /// [`CORPUS_WIDTHS`] as tall sets its label, and its lines read back
     /// character by character from where `bevy_ui` put each glyph: every
-    /// character stands on the line [`wrap`] puts it on, at the number of
-    /// characters [`wrap::chars_per_line`] says the width holds, and every
-    /// label is set on as many lines as `wrap` counts, empty last ones
-    /// included - [`wrap::wrapped_lines`], the count tall's room is decided
-    /// by, among them. So tall gives a third line to exactly the labels `bevy_ui`
-    /// sets on three, and a change to any one of `wrap`'s rules moves some
-    /// character here onto another line.
+    /// character stands on the line `ui::line_breaks` puts it on, at the
+    /// number of characters its `chars_per_line` says the width holds, and
+    /// every label is set on as many lines as it counts, empty last ones
+    /// included - its `wrapped_lines`, the count tall's room is decided
+    /// by, among them. So tall gives a third line to exactly the labels
+    /// `bevy_ui` sets on three, and a change to any one of `line_breaks`'
+    /// rules moves some character here onto another line.
     #[test]
     fn the_label_check_counts_the_lines_bevy_ui_sets() {
         use super::geometry::VIEWER_LABEL_SIZE;
         use super::layout::header_text;
         use crate::app::visuals::WindowSize;
         use crate::ui::focus::real_layout_app;
+        use crate::ui::line_breaks;
         use bevy::text::TextLayoutInfo;
 
         let mut app = real_layout_app(WindowSize::OPENING.0);
         let mut laid_out = Vec::new();
         for width in CORPUS_WIDTHS {
-            let chars = wrap::chars_per_line(width, VIEWER_LABEL_SIZE);
+            let chars = line_breaks::chars_per_line(width, VIEWER_LABEL_SIZE);
             let root = app
                 .world_mut()
                 .spawn(Node {
@@ -1681,7 +1677,7 @@ mod tests {
             let context = format!("{width} px, {chars} characters: {label:?}");
             assert_eq!(layout.glyphs.len(), label.len(), "{context}: a glyph each");
             let mut starts = Vec::new();
-            wrap::for_each_line(label.as_bytes(), *chars, true, |start| starts.push(start));
+            line_breaks::for_each_line(label.as_bytes(), *chars, true, |start| starts.push(start));
             let lines_of: Vec<u32> = (0..label.len())
                 .map(|index| (starts.partition_point(|start| *start <= index) - 1) as u32)
                 .collect();
@@ -1690,7 +1686,7 @@ mod tests {
             let set = lines_set(layout);
             assert_eq!(set, starts.len(), "{context}: the lines");
             assert_eq!(
-                wrap::wrapped_lines(label, *chars, true),
+                line_breaks::wrapped_lines(label, *chars, true),
                 set,
                 "{context}: the count the room is decided by"
             );

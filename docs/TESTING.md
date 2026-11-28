@@ -460,7 +460,7 @@ checks that idea against `bevy_ui` at the sizes it runs. The room the
 Viewer's label needs is the one input to a layout's geometry that comes
 from a text - Help's columns, Settings' error line and the Library's search
 field read their texts too, but only to set those texts: its lines are
-counted as `bevy_ui` breaks them (`ui::replay::viewer::wrap`), and
+counted as `bevy_ui` breaks them (`ui::line_breaks`), and
 `the_label_check_counts_the_lines_bevy_ui_sets` lays nearly twenty thousand
 labels out with `bevy_ui` at seven widths - the label's in narrow, middling
 and wide tall windows, wide's column, and three that are an exact number

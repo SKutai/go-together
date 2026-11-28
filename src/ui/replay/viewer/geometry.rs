@@ -122,11 +122,11 @@
 use bevy::prelude::*;
 
 use super::player_index;
-use super::wrap::{chars_per_line, wrapped_lines};
 use crate::app::visuals::{MIN_WINDOW_WIDTH, WorldFraming, cursor_visual_style};
 use crate::replay::ReplayFrame;
 use crate::rules::{BOARD_SIZE, Player, Point};
 use crate::ui::arrangement::{Arrangement, Arrangements, MAX_ZOOM, Margins};
+use crate::ui::line_breaks::{chars_per_line, wrapped_lines};
 use crate::ui::text_metrics::{line_width, text_height};
 
 /// Side of the square each player's Teleport Marker is drawn on before it
@@ -448,7 +448,7 @@ pub(super) enum TallLabelRoom {
 impl TallLabelRoom {
     /// The room `label` needs in tall in a window `window_width` pixels
     /// wide: the lines `bevy_ui` sets it on in that window's header, as
-    /// [`super::wrap`] works them out.
+    /// [`crate::ui::line_breaks`] works them out.
     pub(super) fn for_label(label: &str, window_width: f32) -> Self {
         if wrapped_lines(label, tall_label_chars(window_width), true) <= 2 {
             Self::TwoLines
@@ -750,7 +750,6 @@ pub(super) fn score_badge_position(
 
 #[cfg(test)]
 mod tests {
-    use super::super::wrap::for_each_line;
     use super::*;
     use crate::app::visuals::{
         CursorVisualStyle, NAMED_WINDOW_SIZES, OUTLINE_ARM, STAR_POINT_RADIUS, STONE_RADIUS,
@@ -758,6 +757,7 @@ mod tests {
     };
     use crate::rules::Cell;
     use crate::ui::arrangement::WIDE_GAIN;
+    use crate::ui::line_breaks::for_each_line;
     use crate::ui::text_metrics::half_leading;
 
     /// Pins the decorative star-point table: exactly the five traditional
@@ -1785,8 +1785,8 @@ mod tests {
     }
 
     /// The column's budget wraps the screen's own longest lines as
-    /// `bevy_ui` does ([`super::super::wrap`]), against counts worked out by
-    /// hand.
+    /// `bevy_ui` does ([`crate::ui::line_breaks`]), against counts worked
+    /// out by hand.
     #[test]
     fn the_budget_wraps_the_screens_lines_where_a_line_can_break() {
         // 234 px is 15 characters at 26 px exactly, which the layout engine
