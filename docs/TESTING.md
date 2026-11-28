@@ -813,18 +813,20 @@ asset changes:
    on, and that the Help modal stays on its page;
 8. maximise the window and restore it;
 9. press F11 on each screen, during a match, with a dialog open, during a
-   binding capture and with the Replay Library's search field taking text,
-   and confirm that it enters fullscreen and that F11 again leaves it, the
-   window back as it was, without the key doing anything else. On a Mac with its
+   binding capture and with the Replay Library's search field taking text, and
+   confirm that it enters fullscreen and that F11 again leaves it, the window
+   back as it was, without the key doing anything else. On a Mac with its
    default settings F11 does not, as a rule, reach the game - alone the key
    turns the volume down, and with fn Show Desktop's shortcut takes it first (on
    2026-11-28 one press made while Show Desktop was showing did reach it) - so
    check F11 there only where that shortcut has been changed, and check
    Control-Command-F instead, the same places but a binding capture, where its
    Control becomes the binding, confirming too that its F moves no player, types
-   nothing and plays no note, even once Control and Command are let go before F;
-   on macOS, enter and leave with the window's green button as well, mixing it
-   with the keys; and
+   nothing and plays no note, even once Control and Command are let go before F,
+   and that pressed again half a second after it switches, the window ends where
+   the game says it is - a second after the switch, or, pressed during macOS's
+   animation, the press may never reach the game; on macOS, enter and leave with
+   the window's green button as well, mixing it with the keys; and
 10. close the window normally.
 
 Since 2026-11-28 the tests check help-page length as well:

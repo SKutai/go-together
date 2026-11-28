@@ -601,11 +601,23 @@ settings keeps the key from the game, though: the key alone sends volume down,
 and with fn it is Show Desktop's shortcut, which takes it first. So on a Mac,
 and only there, Control-Command-F - macOS's own fullscreen shortcut - does what
 F11 does, once a press; the green button works as well, and the game follows it.
-A browser keeps F11, and on a Mac Control-Command-F, for its own fullscreen:
-`web/shell.js` stops either key at the page's window, before winit's handler on
-the canvas, which cancels every key's default action, can cancel it, and the
-game reads nothing of it there. As in the desktop game, the chord's F stays the
-chord's, repeats and release too, until it is let go.
+macOS animates the switch, and a switch asked during the animation is lost:
+winit keeps a request made while one is under way and makes it from
+`windowDidEnterFullScreen:`, recording the new state as it does, and AppKit
+drops it there, so the window stays fullscreen while the game says windowed, and
+every later press does the opposite until the green button brings the two back
+into step (winit's issue <https://github.com/rust-windowing/winit/issues/2520>).
+On 2026-11-28 a second switch 0.51 s after the first was lost, and switches 0.7
+s and 1.1 s apart were not, so on a Mac a press of either key within a second of
+the system's last change, made by a key or by the green button, waits for that
+second to pass and is acted on then (`app::window::FULLSCREEN_HOLD`); presses
+while one waits replace it, and the latest wins. A Mac whose animation runs past
+a second could still lose a switch, and its green button would still bring the
+two back into step. A browser keeps F11, and on a Mac Control-Command-F, for its
+own fullscreen: `web/shell.js` stops either key at the page's window, before
+winit's handler on the canvas, which cancels every key's default action, can
+cancel it, and the game reads nothing of it there. As in the desktop game, the
+chord's F stays the chord's, repeats and release too, until it is let go.
 
 **Below the minimum.** A window can still be smaller than 1040x600 -
 fullscreen on a smaller screen, under a window manager that ignores the

@@ -138,10 +138,11 @@ settings does not: the key alone turns the volume down, and with fn it is Show
 Desktop's shortcut, which takes it first. So on a Mac **Control-Command-F**,
 macOS's own fullscreen shortcut, does the same, and the window's green button
 works too; while a binding is waiting for a key, though, the chord's Control
-would become the binding, so use the green button there. A browser keeps F11,
-and on a Mac the chord, for its own fullscreen. Neither F1 nor F11 can be bound,
-which is what keeps them working during a match, and the chord's F never moves a
-player or types a letter.
+would become the binding, so use the green button there. On a Mac a press within
+a second of the last switch waits until that second is up, while macOS finishes
+animating the switch. A browser keeps F11, and on a Mac the chord, for its own
+fullscreen. Neither F1 nor F11 can be bound, which is what keeps them working
+during a match, and the chord's F never moves a player or types a letter.
 
 ## Build and run locally
 

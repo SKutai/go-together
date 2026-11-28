@@ -1144,11 +1144,16 @@ mod tests {
     #[test]
     fn f11_switches_fullscreen_while_a_field_takes_the_keys_and_types_nothing() {
         use crate::app::window::{GameWindowPlugin, SystemFullscreen};
-        use crate::platform::window_platform_config;
+        use crate::platform::{WindowPlatformConfig, window_platform_config};
         use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
 
         let (mut app, root) = library_app(3);
-        app.add_plugins(GameWindowPlugin::new(&window_platform_config()));
+        // The hold a Mac puts on fullscreen has tests of its own in
+        // `app::window`; off here, the test reads the same on every host.
+        app.add_plugins(GameWindowPlugin::new(&WindowPlatformConfig {
+            fullscreen_animates: false,
+            ..window_platform_config()
+        }));
         app.update();
         let mode = |app: &mut App| {
             let world = app.world_mut();
@@ -1221,6 +1226,7 @@ mod tests {
         let (mut app, root) = library_app(3);
         app.add_plugins(GameWindowPlugin::new(&WindowPlatformConfig {
             fullscreen_chord: true,
+            fullscreen_animates: false,
             ..window_platform_config()
         }));
         app.update();

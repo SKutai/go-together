@@ -101,6 +101,26 @@
 //! for - on macOS F11's fullscreen was reported a frame late, and the button's
 //! way out not until its animation had ended, most of a second - and following
 //! the old state meanwhile would undo what F11 asked for before it took effect.
+//!
+//! On macOS the switch is animated, and a switch asked during the animation is
+//! lost. winit keeps a request made while a switch is under way and makes it
+//! from `windowDidEnterFullScreen:`, recording the new state as it does, and
+//! AppKit drops it there: the window stays fullscreen while winit, and so the
+//! game, says windowed, and every later F11 or chord does the opposite of what
+//! it says until the green button brings the two back into step (winit's issue
+//! <https://github.com/rust-windowing/winit/issues/2520>). On 2026-11-28 a
+//! second switch asked 0.51 s after the first was lost, and switches 0.7 s and
+//! 1.1 s apart were not. So where the system animates the switch, as on a Mac,
+//! a press of F11 or the chord within [`FULLSCREEN_HOLD`], a second, of the
+//! system's last change - made by either key or by the green button - waits for
+//! that second to pass and is acted on then ([`FullscreenHold`], kept where
+//! [`WindowPlatformConfig::fullscreen_animates`] is set). Presses while one
+//! waits replace it, so the latest wins, each asking for the other of what the
+//! system shows at that press. A Mac whose animation runs past a second could
+//! still lose a switch, and there the green button would still bring the two
+//! back into step. A key pressed during the animation may also never reach the
+//! game: on 2026-11-28 a chord pressed 0.5 s after another did not, though its
+//! release did, which leaves the window where it is, in step.
 
 use std::time::Duration;
 
@@ -149,6 +169,12 @@ pub(crate) const OPENING_ALLOWANCE: Vec2 = Vec2::new(0.0, 160.0);
 /// a guess, far longer than any platform takes to answer and short enough
 /// not to be mistaken for a game that failed to start.
 pub(crate) const MAXIMISE_PATIENCE: Duration = Duration::from_millis(500);
+
+/// How long after the system's fullscreen state last changed a press of F11
+/// or the chord waits, where the system animates the switch: a second. On
+/// macOS a switch asked 0.51 s after the last one was lost, and switches
+/// 0.7 s and 1.1 s apart were not (2026-11-28); see the module docs.
+pub(crate) const FULLSCREEN_HOLD: Duration = Duration::from_secs(1);
 
 /// The window the game draws into, as it is created: the host's
 /// differences from `platform`, and the title, resizing and minimum both
@@ -224,6 +250,7 @@ pub(crate) struct GameWindowPlugin {
     placed_on_a_monitor: bool,
     fullscreen_key: bool,
     fullscreen_chord: bool,
+    fullscreen_animates: bool,
 }
 
 impl GameWindowPlugin {
@@ -233,6 +260,7 @@ impl GameWindowPlugin {
             placed_on_a_monitor: platform.placed_on_a_monitor,
             fullscreen_key: platform.fullscreen_key,
             fullscreen_chord: platform.fullscreen_chord,
+            fullscreen_animates: platform.fullscreen_animates,
         }
     }
 }
@@ -263,6 +291,9 @@ impl Plugin for GameWindowPlugin {
                 app.init_resource::<FullscreenChord>()
                     .add_message::<KeyboardInput>()
                     .add_message::<KeyboardFocusLost>();
+            }
+            if self.fullscreen_animates {
+                app.init_resource::<FullscreenHold>();
             }
         }
     }
@@ -451,6 +482,52 @@ impl FullscreenChord {
     }
 }
 
+/// Where the system animates a switch of fullscreen, as macOS does: what
+/// the system last showed and when that last changed, and what a press
+/// since asks for. See the module docs.
+#[derive(Resource, Debug, Default)]
+pub(crate) struct FullscreenHold {
+    /// Whether the system showed the window fullscreen when last read;
+    /// `None` before the first reading, which is no change.
+    shown: Option<bool>,
+    /// When the system's state last changed, in real time.
+    changed_at: Option<Duration>,
+    /// What the latest press waiting asks for, fullscreen or not: the other
+    /// of what the system showed at that press.
+    wanted: Option<bool>,
+}
+
+impl FullscreenHold {
+    /// Reads what the system shows at real time `now` and whether F11 or
+    /// the chord was pressed in this frame, and says whether to ask now for
+    /// the other of what the system shows. A press waits until
+    /// [`FULLSCREEN_HOLD`] has passed since the last change, and presses
+    /// while one waits replace it rather than adding to it, so the latest
+    /// wins: pressed twice while the system shows a window, it is still
+    /// fullscreen that is asked for, once. One the system has meanwhile
+    /// answered by itself, as the green button can, asks for nothing.
+    fn ask_now(&mut self, shown: bool, pressed: bool, now: Duration) -> bool {
+        if self.shown.is_some_and(|before| before != shown) {
+            self.changed_at = Some(now);
+        }
+        self.shown = Some(shown);
+        if pressed {
+            self.wanted = Some(!shown);
+        }
+        let Some(wanted) = self.wanted else {
+            return false;
+        };
+        if self
+            .changed_at
+            .is_some_and(|changed| now < changed + FULLSCREEN_HOLD)
+        {
+            return false;
+        }
+        self.wanted = None;
+        wanted != shown
+    }
+}
+
 /// Reads the chord from this frame's key messages, after Bevy's input systems
 /// have pressed its F: an F pressed - not a repeat - with the chord's modifiers
 /// held asks for the switch, once, and from that press until F is let go
@@ -492,11 +569,14 @@ fn take_the_fullscreen_chord(
 /// the system's state changed waits for the next one: that frame's change
 /// has just been written into `Window::mode`, and asking for the other mode
 /// on top of it would leave the mode Bevy last applied, and so ask for
-/// nothing.
+/// nothing. Where the system animates the switch, a press waits instead
+/// until [`FullscreenHold`] says the animation is over.
 fn switch_fullscreen_on_its_keys(
     keys: Res<ButtonInput<KeyCode>>,
     system: Res<SystemFullscreen>,
     chord: Option<ResMut<FullscreenChord>>,
+    hold: Option<ResMut<FullscreenHold>>,
+    time: Option<Res<Time<Real>>>,
     mut pressed: Local<bool>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
 ) {
@@ -506,6 +586,16 @@ fn switch_fullscreen_on_its_keys(
     {
         chord.asked = false;
         *pressed = true;
+    }
+    if let (Some(mut hold), Some(time)) = (hold, time) {
+        let ask = hold.ask_now(system.0, *pressed, time.elapsed());
+        *pressed = false;
+        if ask {
+            for mut window in &mut windows {
+                window.mode = mode_after_f11(system.0);
+            }
+        }
+        return;
     }
     if !*pressed || system.is_changed() {
         return;
@@ -858,6 +948,37 @@ mod tests {
         keys.release(key);
     }
 
+    /// The desktop's window config with the hold off, as on Windows and
+    /// Linux, so that a test of the keys reads the same on every host; the
+    /// hold, a Mac's, has tests of its own below.
+    fn desktop() -> WindowPlatformConfig {
+        WindowPlatformConfig {
+            fullscreen_animates: false,
+            ..window_platform_config()
+        }
+    }
+
+    /// The desktop's window config with the hold on, as on a Mac.
+    fn with_the_hold() -> WindowPlatformConfig {
+        WindowPlatformConfig {
+            fullscreen_animates: true,
+            ..desktop()
+        }
+    }
+
+    /// Real time moves on by `by`, as it would between frames.
+    fn wait(app: &mut App, by: Duration) {
+        app.world_mut().resource_mut::<Time<Real>>().advance_by(by);
+    }
+
+    /// F11 pressed in one frame and let go in the next.
+    fn tap_f11(app: &mut App) {
+        press(app, KeyCode::F11);
+        app.update();
+        release(app, KeyCode::F11);
+        app.update();
+    }
+
     /// What the system shows, as winit would report it after Bevy applied
     /// the window's mode.
     fn system_shows(app: &mut App, fullscreen: bool) {
@@ -887,7 +1008,7 @@ mod tests {
         use crate::ui::hud::HudState;
 
         let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
-        let mut app = fullscreen_app(&window_platform_config());
+        let mut app = fullscreen_app(&desktop());
         assert_eq!(mode(&mut app), WindowMode::Windowed);
         let mut expected_system = false;
         for screen in AppScreen::ALL {
@@ -943,7 +1064,7 @@ mod tests {
     #[test]
     fn f11_follows_a_fullscreen_the_system_entered_or_left_by_itself() {
         let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
-        let mut app = fullscreen_app(&window_platform_config());
+        let mut app = fullscreen_app(&desktop());
 
         // The green button enters fullscreen.
         system_shows(&mut app, true);
@@ -995,11 +1116,12 @@ mod tests {
         assert!(!app.world().resource::<SystemFullscreen>().0);
     }
 
-    /// The desktop's window config with the chord on, as on a Mac, or off.
+    /// The desktop's window config with the chord on, as on a Mac, or off,
+    /// and the hold off.
     fn with_the_chord(on: bool) -> WindowPlatformConfig {
         WindowPlatformConfig {
             fullscreen_chord: on,
-            ..window_platform_config()
+            ..desktop()
         }
     }
 
@@ -1183,6 +1305,136 @@ mod tests {
             app.update();
             assert_eq!(right(&app), reaches, "with {held:?}, held");
         }
+    }
+
+    /// Where the system animates the switch, as on a Mac, a press of F11
+    /// within a second of the system's last change - here the green
+    /// button's way in - waits for that second to pass, and then asks:
+    /// macOS lost a switch asked during its animation (see the module docs).
+    #[test]
+    fn a_press_within_a_second_of_a_change_waits_for_the_second() {
+        let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+        let mut app = fullscreen_app(&with_the_hold());
+        system_shows(&mut app, true);
+        app.update();
+        assert_eq!(mode(&mut app), fullscreen, "in step with the system");
+
+        wait(&mut app, Duration::from_millis(500));
+        tap_f11(&mut app);
+        assert_eq!(mode(&mut app), fullscreen, "held, at 0.5 s");
+        wait(&mut app, Duration::from_millis(499));
+        app.update();
+        assert_eq!(mode(&mut app), fullscreen, "still held, at 0.999 s");
+        wait(&mut app, Duration::from_millis(1));
+        app.update();
+        assert_eq!(mode(&mut app), WindowMode::Windowed, "asked at 1 s");
+    }
+
+    /// The chord waits as F11 does, after a change F11 itself made: F11
+    /// asks for fullscreen, the system follows, and the chord 0.5 s later
+    /// asks for the window only once the second is up.
+    #[test]
+    fn the_chord_waits_as_f11_does() {
+        use KeyCode::{ControlLeft, SuperLeft};
+
+        let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+        let mut app = fullscreen_app(&WindowPlatformConfig {
+            fullscreen_chord: true,
+            ..with_the_hold()
+        });
+        tap_f11(&mut app);
+        assert_eq!(mode(&mut app), fullscreen, "no change to wait for");
+        system_shows(&mut app, true);
+        app.update();
+
+        wait(&mut app, Duration::from_millis(500));
+        hold(&mut app, &[ControlLeft, SuperLeft]);
+        f_key(&mut app, ButtonState::Pressed, false);
+        app.update();
+        f_key(&mut app, ButtonState::Released, false);
+        app.update();
+        assert_eq!(mode(&mut app), fullscreen, "held");
+        wait(&mut app, Duration::from_millis(500));
+        app.update();
+        assert_eq!(mode(&mut app), WindowMode::Windowed, "asked at 1 s");
+    }
+
+    /// A press more than a second after the system's last change acts in
+    /// its own frame: the hold runs from the change, not from the press.
+    #[test]
+    fn a_press_a_second_after_a_change_acts_at_once() {
+        let mut app = fullscreen_app(&with_the_hold());
+        system_shows(&mut app, true);
+        app.update();
+        wait(&mut app, Duration::from_millis(1100));
+        press(&mut app, KeyCode::F11);
+        app.update();
+        assert_eq!(mode(&mut app), WindowMode::Windowed, "at 1.1 s");
+    }
+
+    /// Presses while one waits replace it rather than add to it, and the
+    /// latest wins: each asks for the other of what the system shows at
+    /// that press. Pressed twice in the hold while the system shows
+    /// fullscreen, the window is asked for once, and nothing after it; and
+    /// a press the system answers by itself before the hold is up, as the
+    /// green button can, asks for nothing.
+    #[test]
+    fn presses_inside_the_hold_ask_once_for_the_latest() {
+        let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+        let mut app = fullscreen_app(&with_the_hold());
+        system_shows(&mut app, true);
+        app.update();
+
+        wait(&mut app, Duration::from_millis(300));
+        tap_f11(&mut app);
+        wait(&mut app, Duration::from_millis(300));
+        tap_f11(&mut app);
+        assert_eq!(mode(&mut app), fullscreen, "both held");
+        wait(&mut app, Duration::from_millis(400));
+        app.update();
+        assert_eq!(mode(&mut app), WindowMode::Windowed, "asked once, at 1 s");
+        system_shows(&mut app, false);
+        app.update();
+        wait(&mut app, Duration::from_secs(2));
+        app.update();
+        assert_eq!(mode(&mut app), WindowMode::Windowed, "and nothing more");
+
+        // The green button takes the window in; F11 asks for the window;
+        // the button takes it out again before the hold is up.
+        system_shows(&mut app, true);
+        app.update();
+        wait(&mut app, Duration::from_millis(200));
+        tap_f11(&mut app);
+        wait(&mut app, Duration::from_millis(200));
+        system_shows(&mut app, false);
+        app.update();
+        wait(&mut app, Duration::from_secs(1));
+        app.update();
+        assert_eq!(
+            mode(&mut app),
+            WindowMode::Windowed,
+            "already answered: nothing asked"
+        );
+    }
+
+    /// The hold is the desktop's on a Mac alone, and a browser has none.
+    /// Without it, as on Windows and Linux, a press 0.5 s after a change
+    /// acts at once.
+    #[test]
+    fn the_hold_is_a_macs_alone() {
+        assert_eq!(
+            window_platform_config().fullscreen_animates,
+            cfg!(target_os = "macos")
+        );
+        assert!(!browser_window_platform_config(None).fullscreen_animates);
+
+        let mut app = fullscreen_app(&desktop());
+        system_shows(&mut app, true);
+        app.update();
+        wait(&mut app, Duration::from_millis(500));
+        press(&mut app, KeyCode::F11);
+        app.update();
+        assert_eq!(mode(&mut app), WindowMode::Windowed, "at once");
     }
 
     /// A browser keeps F11: with the browser's window the plugin reads

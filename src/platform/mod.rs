@@ -102,6 +102,13 @@ pub(crate) struct WindowPlatformConfig {
     /// the chord too, on a Mac: the page passes it to the browser as it passes
     /// F11.
     pub(crate) fullscreen_chord: bool,
+    /// Whether the system animates a switch of fullscreen, so that a switch
+    /// asked during the animation can be lost and a press of F11 or the
+    /// chord within a second of the last change waits for that second to
+    /// pass: on a Mac alone, where winit records a switch that AppKit then
+    /// drops (`crate::app::window` says how this was seen). Elsewhere the
+    /// switch is immediate, and every press acts at once.
+    pub(crate) fullscreen_animates: bool,
 }
 
 /// The browser adapter's window: drawn into the page's `#go-together`
@@ -122,6 +129,7 @@ pub(crate) fn browser_window_platform_config(
         placed_on_a_monitor: false,
         fullscreen_key: false,
         fullscreen_chord: false,
+        fullscreen_animates: false,
     }
 }
 

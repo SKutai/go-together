@@ -737,7 +737,7 @@ mod tests {
     #[test]
     fn f11_switches_fullscreen_during_an_armed_capture_and_binds_nothing() {
         use crate::app::window::{GameWindowPlugin, primary_window};
-        use crate::platform::window_platform_config;
+        use crate::platform::{WindowPlatformConfig, window_platform_config};
         use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
 
         let saved = Arc::new(Mutex::new(None));
@@ -756,7 +756,12 @@ mod tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<crate::diagnostics::Diagnostics>()
             .init_resource::<Time<bevy::time::Real>>()
-            .add_plugins(GameWindowPlugin::new(&window_platform_config()))
+            // The hold a Mac puts on fullscreen has tests of its own in
+            // `app::window`; off here, the test reads the same on every host.
+            .add_plugins(GameWindowPlugin::new(&WindowPlatformConfig {
+                fullscreen_animates: false,
+                ..window_platform_config()
+            }))
             .add_systems(
                 Update,
                 (handle_mapping_buttons, capture_mapping_key).chain(),
