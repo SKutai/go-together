@@ -23,6 +23,25 @@
 //! the end of the frame. That keeps every spawn path identical, which matters
 //! because rows, dialogs and error text share layout helpers.
 //!
+//! # The window's size
+//!
+//! How many cards a page holds, in how many columns, and whether the header
+//! stands on one row or two are [`geometry`]'s, for the window's size and the
+//! notes over the list. A change of the window's size is just another change
+//! that affects what is visible: [`place_library_for_window`], first in the
+//! screen's chain, marks the list dirty when the window's size changes how
+//! the screen is laid out, and it is rebuilt at the end of that frame.
+//!
+//! The list has no fixed pages. `scroll_offset` is the index of the first
+//! card shown, and Up, Down and the wheel each move it one card, or in two
+//! columns one row of two - so a card keeps its column as the list moves
+//! under it, as a grid does when scrolled, rather than every card stepping
+//! one place along. A change of size changes how many cards follow the
+//! first: the first card stays first wherever the list has room after it,
+//! and where a larger page would run past the list's end the first card
+//! moves back, as far as a page needs. That move keeps the ring on the
+//! Replay it was on (see [`ring`]).
+//!
 //! # Keyboard and controller
 //!
 //! Every button here is in the focus ring; [`ring`] says where each sits,
@@ -47,6 +66,7 @@
 //! The search field has no error line, so a keystroke it cannot take is
 //! simply swallowed.
 
+mod geometry;
 mod layout;
 mod ring;
 
@@ -58,7 +78,7 @@ use bevy::ui::InteractionDisabled;
 
 use super::REPLAY_FIELD_SEPARATOR;
 use super::viewer::ReplayViewerState;
-use crate::app::visuals::format_elapsed_time;
+use crate::app::visuals::{WindowSize, format_elapsed_time};
 use crate::app::{AppScreen, despawn_screen_entities_now};
 use crate::audio::{AudioCueQueue, UiAudioSet, UiCue, UiSound};
 use crate::platform::ReplayStorageWarning;
@@ -69,18 +89,27 @@ use crate::replay_library::{
     format_local_timestamp,
 };
 use crate::ui::button::{Activated, PointerHighlight, UiButtonPlugin};
+use crate::ui::focus::UiFocusState;
 use crate::ui::text_input::{
     REJECTED_CHARACTER_MESSAGE, TextEditor, TextInputOutcome, apply_editor_input,
 };
-use layout::spawn_library_contents;
-const ROWS_PER_PAGE: usize = 4;
+use geometry::{LibraryLayout, library_layout};
+use layout::{note_lines, spawn_library_contents};
+
+/// How the Library is laid out for the window's size, with the notes the
+/// library has to show above the list.
+fn page_layout(window: &WindowSize, library: &ReplayLibrary) -> LibraryLayout {
+    library_layout(window.layout(), note_lines(library))
+}
 
 /// Registers the library screen's lifecycle and its ordered update pipeline.
 ///
-/// The pipeline is intent -> state -> style -> respawn -> yield, so a click, a
-/// keystroke and a scroll all settle before the list is rebuilt once at the end
-/// of the frame, and the focus yield is raised last, after the state it reads
-/// has stopped changing.
+/// The pipeline is window -> intent -> state -> style -> respawn -> yield, so
+/// a change of size, a click, a keystroke and a scroll all settle before the
+/// list is rebuilt once at the end of the frame, and the focus yield is
+/// raised last, after the state it reads has stopped changing. The window
+/// comes first so that every handler after it pages by the page the frame
+/// will be rebuilt with.
 pub(super) struct ReplayLibraryPlugin;
 
 impl Plugin for ReplayLibraryPlugin {
@@ -94,6 +123,7 @@ impl Plugin for ReplayLibraryPlugin {
             .add_systems(
                 Update,
                 (
+                    place_library_for_window.run_if(resource_changed::<WindowSize>),
                     handle_library_back,
                     handle_library_buttons,
                     capture_library_text,
@@ -127,6 +157,9 @@ pub(super) struct ReplayLibraryUiState {
     scroll_offset: usize,
     dialog: Option<LibraryDialog>,
     dirty: bool,
+    /// The layout the screen was last built with, so that a frame whose
+    /// window's size changes nothing about it rebuilds nothing.
+    built_with: Option<LibraryLayout>,
     /// Set by [`handle_library_buttons`] whenever it applies a press, and
     /// taken by [`capture_library_text`], whose rising-edge guard must
     /// re-arm on *any* applied action - not only on a change of capture
@@ -251,22 +284,30 @@ pub(super) fn replay_match_id_text(id: &str) -> String {
     format!("Match ID: {id}")
 }
 
-fn prepare_library_screen(mut ui: ResMut<ReplayLibraryUiState>, library: Res<ReplayLibrary>) {
+fn prepare_library_screen(
+    mut ui: ResMut<ReplayLibraryUiState>,
+    library: Res<ReplayLibrary>,
+    window: Res<WindowSize>,
+) {
     ui.search_focused = false;
     ui.dialog = None;
-    clamp_scroll(&mut ui, &library);
+    clamp_scroll(&mut ui, &library, &page_layout(&window, &library));
 }
 
 fn spawn_library_screen(
     mut commands: Commands,
     mut ui: ResMut<ReplayLibraryUiState>,
     library: Res<ReplayLibrary>,
+    window: Res<WindowSize>,
 ) {
-    spawn_library_contents(&mut commands, &ui, &library);
+    let layout = page_layout(&window, &library);
+    spawn_library_contents(&mut commands, &ui, &library, &layout);
+    ui.built_with = Some(layout);
     ui.dirty = false;
 }
 
-/// Rebuilds the card list in place after a search, sort, rename, or delete.
+/// Rebuilds the card list in place after a search, sort, rename, or delete,
+/// or a change of the window's size.
 ///
 /// This does not change `AppScreen`, so the built-in on-exit despawn never
 /// fires for it - [`despawn_screen_entities_now`] is the one place in the
@@ -275,15 +316,48 @@ fn refresh_library_screen(
     mut commands: Commands,
     mut ui: ResMut<ReplayLibraryUiState>,
     library: Res<ReplayLibrary>,
+    window: Res<WindowSize>,
     entities: Query<(Entity, &DespawnOnExit<AppScreen>)>,
 ) {
     if !ui.dirty {
         return;
     }
+    let layout = page_layout(&window, &library);
     despawn_screen_entities_now(&mut commands, &entities, AppScreen::ReplayLibrary);
-    clamp_scroll(&mut ui, &library);
-    spawn_library_contents(&mut commands, &ui, &library);
+    clamp_scroll(&mut ui, &library, &layout);
+    spawn_library_contents(&mut commands, &ui, &library, &layout);
+    ui.built_with = Some(layout);
     ui.dirty = false;
+}
+
+/// Marks the list dirty on a frame the window's size changes how the
+/// screen is laid out - how many cards a page holds, in how many columns,
+/// the header, the padding or the width it is held to - so that it is
+/// rebuilt for the new size at the end of the frame.
+///
+/// Where the new page would run past the list's end, the first card moves
+/// back as far as it needs (`LibraryLayout::first_card`), and every card on
+/// the page moves down by as many places; the ring's remembered place moves
+/// with them, so it stays on the Replay it was on rather than on the place
+/// on the page. A card a smaller page has no room for is no longer shown,
+/// and the ring falls back, as it does from a deleted card, to the last
+/// card that is (see [`ring`]).
+fn place_library_for_window(
+    window: Res<WindowSize>,
+    library: Res<ReplayLibrary>,
+    mut ui: ResMut<ReplayLibraryUiState>,
+    mut focus: ResMut<UiFocusState>,
+) {
+    let layout = page_layout(&window, &library);
+    if ui.built_with == Some(layout) {
+        return;
+    }
+    let first = layout.first_card(ui.scroll_offset, filtered_count(&library, &ui));
+    if first != ui.scroll_offset {
+        ring::follow_cards_down_the_page(&mut focus, ui.scroll_offset - first);
+        ui.scroll_offset = first;
+    }
+    ui.dirty = true;
 }
 
 /// Every button on the screen, with whether it currently carries
@@ -306,10 +380,12 @@ fn update_library_button_styles(
     mut commands: Commands,
     ui: Res<ReplayLibraryUiState>,
     library: Res<ReplayLibrary>,
+    window: Res<WindowSize>,
     mut buttons: LibraryButtons,
 ) {
+    let layout = page_layout(&window, &library);
     for (entity, highlight, action, mut background, mut sound, was_disabled) in &mut buttons {
-        let disabled = library_action_disabled(action, &ui, &library);
+        let disabled = library_action_disabled(action, &ui, &library, &layout);
         // A disabled control is not in the focus ring: the core filters
         // `bevy_ui`'s `InteractionDisabled`, the rule the Replay Viewer's
         // transport and Settings' numeric fields follow. On this screen the
@@ -342,11 +418,13 @@ fn handle_library_buttons(
     mut ui: ResMut<ReplayLibraryUiState>,
     mut viewer: ResMut<ReplayViewerState>,
     mut library: ResMut<ReplayLibrary>,
+    window: Res<WindowSize>,
     mut next_screen: ResMut<NextState<AppScreen>>,
     mut diagnostics: ResMut<crate::diagnostics::Diagnostics>,
 ) {
     for action in activated.read() {
-        if library_action_disabled(action, &ui, &library) {
+        let layout = page_layout(&window, &library);
+        if library_action_disabled(action, &ui, &library, &layout) {
             continue;
         }
         // Any applied press re-arms the text capture's rising-edge guard:
@@ -373,16 +451,10 @@ fn handle_library_buttons(
             LibraryAction::CycleSortOrder => {
                 cycle_sort_order(&mut ui);
             }
-            LibraryAction::ScrollUp => {
-                ui.scroll_offset = ui.scroll_offset.saturating_sub(1);
-                ui.dirty = true;
-            }
+            LibraryAction::ScrollUp => scroll_up(&mut ui, &layout),
             LibraryAction::ScrollDown => {
                 let count = filtered_count(&library, &ui);
-                if ui.scroll_offset + ROWS_PER_PAGE < count {
-                    ui.scroll_offset += 1;
-                    ui.dirty = true;
-                }
+                scroll_down(&mut ui, &layout, count);
             }
 
             LibraryAction::Play(id) => match library.load_full(id) {
@@ -452,13 +524,30 @@ fn library_action_disabled(
     action: &LibraryAction,
     ui: &ReplayLibraryUiState,
     library: &ReplayLibrary,
+    layout: &LibraryLayout,
 ) -> bool {
     match action {
         LibraryAction::ScrollUp => ui.scroll_offset == 0,
         LibraryAction::ScrollDown => {
-            ui.scroll_offset + ROWS_PER_PAGE >= filtered_count(library, ui)
+            ui.scroll_offset + layout.cards_per_page() >= filtered_count(library, ui)
         }
         _ => false,
+    }
+}
+
+/// Moves the list one step towards its start: one card, or in two columns
+/// one row of two.
+fn scroll_up(ui: &mut ReplayLibraryUiState, layout: &LibraryLayout) {
+    ui.scroll_offset = ui.scroll_offset.saturating_sub(layout.columns);
+    ui.dirty = true;
+}
+
+/// Moves the list one step towards its end, while a card is still left
+/// after the page.
+fn scroll_down(ui: &mut ReplayLibraryUiState, layout: &LibraryLayout, count: usize) {
+    if ui.scroll_offset + layout.cards_per_page() < count {
+        ui.scroll_offset += layout.columns;
+        ui.dirty = true;
     }
 }
 
@@ -716,6 +805,7 @@ fn scroll_library(
     mut wheel_events: MessageReader<MouseWheel>,
     mut ui: ResMut<ReplayLibraryUiState>,
     library: Res<ReplayLibrary>,
+    window: Res<WindowSize>,
 ) {
     if ui.dialog.is_some() {
         return;
@@ -724,11 +814,12 @@ fn scroll_library(
     if delta == 0.0 {
         return;
     }
+    let layout = page_layout(&window, &library);
     let count = filtered_count(&library, &ui);
     if delta > 0.0 {
-        ui.scroll_offset = ui.scroll_offset.saturating_sub(1);
-    } else if ui.scroll_offset + ROWS_PER_PAGE < count {
-        ui.scroll_offset += 1;
+        scroll_up(&mut ui, &layout);
+    } else {
+        scroll_down(&mut ui, &layout, count);
     }
     ui.dirty = true;
 }
@@ -743,9 +834,9 @@ fn filtered_count(library: &ReplayLibrary, ui: &ReplayLibraryUiState) -> usize {
     .len()
 }
 
-fn clamp_scroll(ui: &mut ReplayLibraryUiState, library: &ReplayLibrary) {
+fn clamp_scroll(ui: &mut ReplayLibraryUiState, library: &ReplayLibrary, layout: &LibraryLayout) {
     let count = filtered_count(library, ui);
-    ui.scroll_offset = ui.scroll_offset.min(count.saturating_sub(ROWS_PER_PAGE));
+    ui.scroll_offset = layout.first_card(ui.scroll_offset, count);
 }
 
 #[cfg(test)]
@@ -819,6 +910,7 @@ mod tests {
             .push(ReplayCatalogEntry::from_replay(&fixed_metadata_replay()));
 
         let mut app = App::new();
+        app.init_resource::<crate::app::visuals::WindowSize>();
         app.add_plugins(UiButtonPlugin);
         app.insert_resource(library)
             .init_resource::<ReplayLibraryUiState>()
@@ -866,6 +958,7 @@ mod tests {
         let id = library.entries[0].id.clone();
 
         let mut app = App::new();
+        app.init_resource::<crate::app::visuals::WindowSize>();
         app.add_plugins(UiButtonPlugin);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .init_state::<AppScreen>()
@@ -942,6 +1035,7 @@ mod tests {
         let id = library.entries[0].id.clone();
 
         let mut app = App::new();
+        app.init_resource::<crate::app::visuals::WindowSize>();
         app.add_plugins(bevy::state::app::StatesPlugin)
             .init_state::<AppScreen>()
             .insert_resource(library)
@@ -1062,6 +1156,7 @@ mod tests {
         let id = library.entries[0].id.clone();
 
         let mut app = App::new();
+        app.init_resource::<crate::app::visuals::WindowSize>();
         app.add_plugins(UiButtonPlugin);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .init_state::<AppScreen>()
@@ -1128,6 +1223,7 @@ mod tests {
         let id = library.entries[0].id.clone();
 
         let mut app = App::new();
+        app.init_resource::<crate::app::visuals::WindowSize>();
         app.add_plugins(UiButtonPlugin);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .init_state::<AppScreen>()
@@ -1211,6 +1307,7 @@ mod tests {
         std::fs::remove_file(root.join(format!("{}.json", replay.id))).unwrap();
 
         let mut app = App::new();
+        app.init_resource::<crate::app::visuals::WindowSize>();
         app.add_plugins(UiButtonPlugin);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .init_state::<AppScreen>()
@@ -1261,6 +1358,7 @@ mod tests {
 
         // Open, through the real button-handling system.
         let mut app = App::new();
+        app.init_resource::<crate::app::visuals::WindowSize>();
         app.add_plugins(UiButtonPlugin);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .init_state::<AppScreen>()
@@ -1531,6 +1629,7 @@ mod tests {
         let replay_id = library.entries[0].id.clone();
 
         let mut app = App::new();
+        app.init_resource::<crate::app::visuals::WindowSize>();
         app.insert_resource(library)
             .init_resource::<ReplayLibraryUiState>()
             .init_resource::<ButtonInput<KeyCode>>()
@@ -1728,7 +1827,7 @@ mod tests {
             ..default()
         };
 
-        clamp_scroll(&mut ui, &library);
+        clamp_scroll(&mut ui, &library, &library_layout(WindowSize::OPENING.0, 0));
 
         assert_eq!(filtered_count(&library, &ui), 1);
         assert_eq!(ui.scroll_offset, 0);

@@ -117,6 +117,22 @@
 //! that would be a frame in which a dead paging button was in the ring with
 //! its order recorded.
 //!
+//! # A change of the window's size
+//!
+//! A card's buttons are keyed by its place on the page, which is what keeps
+//! the ring on the same place of the screen as the list scrolls under it.
+//! A change of size changes how many cards a page holds, not which card is
+//! first, so for every card still shown its place, and the ring's, stays the
+//! same - with one exception. Where a larger page would run past the end of
+//! the list, the first card moves back and every card on the page moves
+//! down by as many places; there the screen moves the ring's remembered
+//! place down with them ([`follow_cards_down_the_page`]), so the ring stays
+//! on the Replay it was on rather than on the place it had. The focus core
+//! offers that move for this screen alone; see its module docs. A card that
+//! a smaller page has no room for leaves the ring with it, and the ring
+//! falls to the last card still shown - its Delete, the nearest lower order,
+//! as after a confirmed delete below.
+//!
 //! # Two residuals, accepted
 //!
 //! Delete is the last button in its row, and rows must walk in draw order,
@@ -143,7 +159,7 @@
 use bevy::prelude::*;
 
 use super::ReplayLibraryUiState;
-use crate::ui::focus::{FocusGroup, FocusYield, Focusable};
+use crate::ui::focus::{FocusGroup, FocusYield, Focusable, UiFocusState};
 
 /// The Home button's ring position, and the screen's first control: a
 /// player whose memory holds nothing seeds here, one Enter from leaving.
@@ -165,10 +181,27 @@ pub(super) const CARDS_FOCUS_ORDER: u32 = 300;
 pub(super) const CARD_FOCUS_STRIDE: u32 = 10;
 
 /// A card's first ring position: View Replay, then Change Label, then
-/// Delete. `row` is the card's position on the page on show, not in the
-/// whole list, so paging keeps the ring on the same row of the screen.
-pub(super) const fn card_focus_order(row: usize) -> u32 {
-    CARDS_FOCUS_ORDER + CARD_FOCUS_STRIDE * row as u32
+/// Delete. `place` is the card's place on the page on show - in two
+/// columns, counted along each row of two in turn - not in the whole list,
+/// so paging keeps the ring on the same place of the screen.
+pub(super) const fn card_focus_order(place: usize) -> u32 {
+    CARDS_FOCUS_ORDER + CARD_FOCUS_STRIDE * place as u32
+}
+
+/// Moves the ring's remembered place on this screen `places` cards further
+/// down the page, when it is on a card: what the screen does when a change
+/// of the window's size moves every card on the page down by as many
+/// places, so that the ring stays on the Replay it was on. See the module
+/// docs.
+pub(super) fn follow_cards_down_the_page(focus: &mut UiFocusState, places: usize) {
+    let screen = crate::app::AppScreen::ReplayLibrary;
+    let Some(order) = focus.remembered(screen, FocusGroup::Screen) else {
+        return;
+    };
+    if order >= CARDS_FOCUS_ORDER {
+        let moved = order + CARD_FOCUS_STRIDE * places as u32;
+        focus.move_remembered(screen, FocusGroup::Screen, moved);
+    }
 }
 
 /// Hands out consecutive positions within one band, in the order the
@@ -647,6 +680,7 @@ mod tests {
     fn library_controls_are_focusable_in_drawn_order_and_the_overlay_root_is_not() {
         let (library, root) = saved_library(5);
         let mut app = App::new();
+        app.init_resource::<crate::app::visuals::WindowSize>();
         app.insert_resource(library)
             .init_resource::<ReplayLibraryUiState>()
             .add_systems(Startup, spawn_library_screen)
@@ -1337,6 +1371,61 @@ mod tests {
             walk_ring(&mut app)
                 .iter()
                 .all(|order| !(PAGINATION_FOCUS_ORDER..CARDS_FOCUS_ORDER).contains(order))
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// When a taller window holds more cards than the rest of the list from
+    /// the first card shown, the first card moves back and every card on
+    /// the page moves down as many places, and the ring moves with them: it
+    /// stays drawn on the same button of the same Replay, not on the same
+    /// place on the page. Through the screen's own plugin and the focus
+    /// core, with the window's size written as the game's tracker writes
+    /// it; a pass that left the ring's memory where it was would draw it on
+    /// another Replay's card.
+    #[test]
+    fn the_ring_stays_on_its_replay_when_a_taller_window_moves_the_page_back() {
+        use super::super::geometry::library_layout;
+        use crate::app::visuals::WindowSize;
+
+        let (mut app, root) = library_app(10);
+        let taller = Vec2::new(1040.0, 1080.0);
+        let before = library_layout(WindowSize::OPENING.0, 0).cards_per_page();
+        let after = library_layout(taller, 0).cards_per_page();
+        assert!(after > before, "the taller window holds more cards");
+        // Down to the last page: the list's last cards.
+        for _ in 0..10 - before {
+            app.world_mut().write_message(MouseWheel {
+                unit: bevy::input::mouse::MouseScrollUnit::Line,
+                x: 0.0,
+                y: -1.0,
+                window: Entity::PLACEHOLDER,
+                phase: bevy::input::touch::TouchPhase::Moved,
+            });
+            app.update();
+        }
+        app.update();
+        assert_eq!(ui(&app).scroll_offset, 10 - before);
+        // The ring on the second card's Change Label.
+        let target = control_at(&mut app, (FocusGroup::Screen, card_focus_order(1) + 1));
+        let replay = card_id(&app, target);
+        tab_to(&mut app, target);
+        assert_eq!(focused(&app), Some(target));
+
+        app.world_mut().insert_resource(WindowSize(taller));
+        app.update();
+        app.update();
+        assert_eq!(ui(&app).scroll_offset, 10 - after);
+        let now = focused(&app).expect("the ring is drawn");
+        assert_ne!(now, target, "the page was rebuilt");
+        assert_eq!(card_id(&app, now), replay);
+        assert!(matches!(
+            app.world().get::<LibraryAction>(now),
+            Some(LibraryAction::OpenRename(_))
+        ));
+        assert_eq!(
+            key_of(&app, now),
+            (FocusGroup::Screen, card_focus_order(1 + after - before) + 1)
         );
         std::fs::remove_dir_all(root).unwrap();
     }

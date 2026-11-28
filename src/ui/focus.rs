@@ -69,6 +69,12 @@
 //! outlives a screen transition on purpose - it is what puts Home's ring
 //! back where it was after a Match or a visit to Settings - and a second
 //! screen with a ring must neither inherit that position nor overwrite it.
+//! One screen moves its own memory: the Replay Library, whose cards are
+//! keyed by their place on the page, moves the remembered place with them
+//! when a change of the window's size moves every card down the page, so
+//! that the ring stays on the Replay it was on (`ui::replay::library::ring`
+//! says when). [`UiFocusState::remembered`] and
+//! [`UiFocusState::move_remembered`] are how.
 //! [`refresh_focus_candidates`] re-reads the marked buttons
 //! after [`UiSystems::Layout`] each frame (so it sees the layout the player
 //! sees), drops anything whose [`ComputedNode`] size is zero - a
@@ -300,8 +306,8 @@ pub(crate) struct Focusable {
 
 /// The focus ring, invisible until [`update_focus_indicator`] colours it.
 ///
-/// `Outline` draws outside the node and takes no part in layout, so nothing
-/// reflows at the fixed window size. Keeping the component in place and
+/// `Outline` draws outside the node and takes no part in layout, so
+/// drawing the ring moves nothing. Keeping the component in place and
 /// writing only its `color` avoids the archetype moves that repeated
 /// insertion and removal would cause - `Outline`'s own docs recommend
 /// exactly this.
@@ -346,6 +352,20 @@ impl UiFocusState {
 
     fn memory(&self, screen: AppScreen) -> FocusMemory {
         self.memory.get(&screen).copied().unwrap_or_default()
+    }
+
+    /// Where the ring is remembered within `group` on `screen`, if it has
+    /// been anywhere there.
+    pub(crate) fn remembered(&self, screen: AppScreen, group: FocusGroup) -> Option<u32> {
+        self.memory(screen).get(group)
+    }
+
+    /// Remembers `order` as the ring's place within `group` on `screen`, as
+    /// though the ring had moved there: for a screen that moves its own
+    /// controls under the ring and means the ring to move with them. The
+    /// next collection resolves it as it resolves any remembered place.
+    pub(crate) fn move_remembered(&mut self, screen: AppScreen, group: FocusGroup, order: u32) {
+        self.remember(screen, group, order);
     }
 
     fn remember(&mut self, screen: AppScreen, group: FocusGroup, order: u32) {
