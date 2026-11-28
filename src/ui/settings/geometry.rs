@@ -346,12 +346,17 @@ impl SettingsLayout {
         )
     }
 
+    /// The width the two binding columns take together, with the gap
+    /// between them: what the shared group under them takes in the sidebar.
+    pub(super) fn players_width(&self) -> f32 {
+        2.0 * self.player_column_width + self.player_column_gap
+    }
+
     /// The two binding columns, side by side and centred together in the
     /// tab's contents: White's, then Black's.
     #[cfg(test)]
     pub(super) fn player_column_spans(&self, contents: Rect) -> [(f32, f32); 2] {
-        let both = 2.0 * self.player_column_width + self.player_column_gap;
-        let left = contents.center().x - both / 2.0;
+        let left = contents.center().x - self.players_width() / 2.0;
         let right = left + self.player_column_width + self.player_column_gap;
         [
             (left, left + self.player_column_width),
@@ -428,9 +433,10 @@ mod tests {
     /// sidebar with its margins; and in the sidebar the title, the room for
     /// the instruction and the two buttons share the top row without
     /// meeting, the tabs stand in their column under it and clear of the
-    /// tab's contents, the binding columns fit the contents side by side
-    /// and centred, and the longest default row keeps at least 12 px
-    /// between its halves. Both arrangements occur.
+    /// tab's contents, the binding columns fit the contents side by side,
+    /// and the longest default row keeps at least 12 px between its halves.
+    /// Both arrangements occur. The panel and the columns are centred by
+    /// construction, so that is left to the real-layout tests.
     #[test]
     fn every_window_keeps_the_panel_inside_and_its_parts_apart() {
         let mut arrangements = [false, false];
@@ -442,15 +448,8 @@ mod tests {
                 window.contains(panel.min) && window.contains(panel.max),
                 "{size}: the panel {panel:?}"
             );
-            // Centred: the same room either side, and above and below.
-            assert!(
-                (panel.min.x - (size.x - panel.max.x)).abs() < 1e-3,
-                "{size}"
-            );
-            assert!(
-                (panel.min.y - (size.y - panel.max.y)).abs() < 1e-3,
-                "{size}"
-            );
+            // Centred by construction (`panel_rect`), so not checked here;
+            // the real-layout tests check where `bevy_ui` puts it.
             match layout.arrangement {
                 SettingsArrangement::TabsOnTop => {
                     arrangements[0] = true;
@@ -514,10 +513,6 @@ mod tests {
                     let spans = layout.player_column_spans(contents);
                     assert!(spans[0].0 >= contents.min.x - 1e-3, "{size}: {spans:?}");
                     assert!(spans[1].1 <= contents.max.x + 1e-3, "{size}: {spans:?}");
-                    assert!(
-                        (spans[0].0 - contents.min.x - (contents.max.x - spans[1].1)).abs() < 1e-3,
-                        "{size}: the columns are centred together"
-                    );
                     let gap = layout.longest_row_gap();
                     assert!(gap >= ROW_HALVES_GAP - 1e-3, "{size}: {gap}");
                 }

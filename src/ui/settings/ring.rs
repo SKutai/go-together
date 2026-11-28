@@ -14,7 +14,7 @@
 //! tab bar. The hidden panels drop out on their own instead: they are
 //! `Display::None`, which zeroes every node beneath them, and the candidate
 //! collector discards zero-size nodes. `hidden_panels_leave_the_ring_and_the_shown_one_joins_it_under_real_layout`
-//! pins that against real `bevy_ui` layout on this screen's own tree, three
+//! pins that against real `bevy_ui` layout on this screen's own tree, four
 //! levels of nesting included.
 //!
 //! # Bands
@@ -25,7 +25,9 @@
 //! own [`panel_focus_order`], the footer from [`FOOTER_FOCUS_ORDER`]. Within
 //! a band a [`RingOrder`] hands out consecutive positions in the order the
 //! spawner draws its controls, so the ring walks the screen the way the eye
-//! reads it. The Keyboard and Controller tabs are read column by column -
+//! reads it - except the sidebar's top row, whose Reset Controls and Back
+//! keep the footer's band and come last, as they do on top, although they
+//! stand first. The Keyboard and Controller tabs are read column by column -
 //! all of White/Player 2, then all of Black/Player 1, then on the Keyboard
 //! tab the shared row - because a binding column is one list a player works
 //! down.

@@ -44,10 +44,12 @@
 //! it was.
 //!
 //! Neither pass needs the other first. [`place_settings_furniture`] writes
-//! none of the nodes [`super::display`] writes - that pass shows and hides
-//! the panels, the instruction, the error lines and the reset dialog, and
-//! none of them carries a placement - so the two stages are left unordered,
-//! as `AppSystems` leaves every pair with nothing between them. The
+//! the placed nodes' `Node` and the error line's justification;
+//! [`super::display`] writes the text and visibility of the panels, the
+//! instruction, the error lines and the reset dialog, none of which carries
+//! a placement. Where both touch one node, the error line, they write
+//! different components, so the two stages are left unordered, as
+//! `AppSystems` leaves every pair with nothing between them. The
 //! display pass decides from the window's size itself whether the sidebar
 //! is showing, which is the one thing it has to know about the
 //! arrangement: there the top row has room for the instruction or the
@@ -242,7 +244,10 @@ pub(super) fn place(layout: &SettingsLayout, placement: SettingsPlacement, node:
         P::PlayerColumns => node.column_gap = px(layout.player_column_gap),
         P::PlayerColumn => node.width = px(layout.player_column_width),
         P::SharedGroup => {
-            node.width = px(layout.player_column_width);
+            // In the sidebar its one row stands beside its heading, so it
+            // takes both columns' width, which leaves the row's halves room
+            // apart while it captures a key.
+            node.width = either(px(layout.player_column_width), px(layout.players_width()));
             node.flex_direction = if sidebar {
                 FlexDirection::Row
             } else {
@@ -966,7 +971,9 @@ pub(super) mod tests {
     /// The Settings screen as spawned in a window of `window` logical
     /// pixels, under real layout, in `mapping`'s state and with
     /// `match_settings`, with its placement pass and its whole display
-    /// chain, in the order the game runs them, run for two frames.
+    /// chain, run for two frames. The pass runs before the chain here; the
+    /// game leaves the two unordered, which it can because they write
+    /// different components (see `place_settings_furniture`).
     pub(in crate::ui::settings) fn laid_out_settings(
         window: Vec2,
         mapping: ControlMappingState,
@@ -1094,6 +1101,12 @@ pub(super) mod tests {
             tabs.sort_by_key(|(tab, _)| SETTINGS_TAB_ORDER.iter().position(|t| t == tab));
             match layout.arrangement {
                 SettingsArrangement::Sidebar => {
+                    let title = crate::ui::focus::laid_out_texts(&mut app)
+                        .into_iter()
+                        .find(|(text, _)| text == super::super::SETTINGS_TITLE)
+                        .map(|(_, rect)| rect)
+                        .expect("the title is shown");
+                    assert_near(title, layout.sidebar_title_rect(), "the title");
                     assert_near(contents, layout.sidebar_contents_rect(), "the contents");
                     assert_near(footer, layout.sidebar_footer_rect(), "the two buttons");
                     for ((tab, rect), expected) in tabs.iter().zip(layout.sidebar_tab_rects()) {
@@ -1165,13 +1178,33 @@ pub(super) mod tests {
     /// The Keyboard tab's shared Restart Match binding stands under its
     /// heading on top, as it always has, and in the sidebar beside it, on
     /// one line: the heading's line and the row's share a middle, the
-    /// heading clear of the row to its left.
+    /// heading clear of the row to its left, the group as wide as the two
+    /// players' columns over it. While the row captures a key, its halves -
+    /// `Restart Match` and `Press a key...` - keep at least 12 px apart by
+    /// their glyphs in both arrangements.
     #[test]
     fn the_shared_binding_stands_beside_its_heading_in_the_sidebar() {
+        use crate::input::GameAction;
+
         for window in real_layout_sizes() {
             let mut mapping = ControlMappingState::new(None);
             mapping.tab = MappingTab::Keyboard;
+            mapping.capturing = Some(GameAction::RestartMatch);
             let mut app = laid_out_settings(window, mapping, MatchSettings::default());
+            let rows = row_halves_drawn(&mut app, "Restart Match");
+            assert_eq!(rows.len(), 1, "{window}: one shared row");
+            let (label, binding) = rows[0];
+            assert!(
+                (label.center().y - binding.center().y).abs() < 2.0,
+                "{window}: one line each"
+            );
+            let gap = binding.min.x - label.max.x;
+            assert!(gap >= 12.0, "{window}: {gap} px between the halves");
+            let drawn = crate::ui::focus::drawn_texts(&mut app);
+            assert!(
+                drawn.iter().any(|(_, text, _)| text == "Press a key..."),
+                "{window}: the row is capturing"
+            );
             let heading = placed_entity(&mut app, SettingsPlacement::SharedHeading);
             let group = placed_entity(&mut app, SettingsPlacement::SharedGroup);
             let children: Vec<Entity> =
@@ -1180,7 +1213,15 @@ pub(super) mod tests {
             assert_eq!(children[0], heading, "{window}");
             let heading = node_rect(&app, heading);
             let row = node_rect(&app, children[1]);
-            if settings_layout(window).sidebar() {
+            let layout = settings_layout(window);
+            if layout.sidebar() {
+                let group = node_rect(&app, group);
+                assert!(
+                    (group.width() - layout.players_width()).abs() <= 1.0,
+                    "{window}: the group is {} wide of {}",
+                    group.width(),
+                    layout.players_width()
+                );
                 assert!(heading.max.x <= row.min.x, "{window}: {heading:?} {row:?}");
                 assert!(
                     (heading.center().y - row.center().y).abs() <= 1.0,
@@ -1373,12 +1414,19 @@ pub(super) mod tests {
     /// Revise Selection` beside `South Button`, keeps its halves' glyphs
     /// at least 12 px apart at every real-layout size: 14.6 on top, as they
     /// always were, and 12.6 at the smallest width, where the margins have
-    /// narrowed for it. The layout reckons the gap from the font's advance,
-    /// 12.8 there; `bevy_ui` lays each text box out up to a pixel wider than
-    /// that, and the glyphs stand inside their boxes.
+    /// narrowed for it - and 12.6 at 1043, 1059 and 1084 px wide too, where
+    /// the contents' width is odd and a column's half pixel is rounded away.
+    /// The layout reckons the gap from the font's advance, 12.8 there;
+    /// `bevy_ui` lays each text box out up to a pixel wider than that, and
+    /// the glyphs stand inside their boxes.
     #[test]
     fn the_longest_default_row_keeps_its_halves_apart_at_every_size() {
-        for window in real_layout_sizes() {
+        let odd = [
+            Vec2::new(1043.0, 600.0),
+            Vec2::new(1059.0, 600.0),
+            Vec2::new(1084.0, 600.0),
+        ];
+        for window in real_layout_sizes().into_iter().chain(odd) {
             let mut mapping = ControlMappingState::new(None);
             mapping.tab = MappingTab::Controller;
             let mut app = laid_out_settings(window, mapping, MatchSettings::default());
@@ -1570,6 +1618,19 @@ pub(super) mod tests {
         let mut out = Vec::new();
         walk(app.world(), root, 0, &mut out);
         out
+    }
+
+    /// A window smaller than the minimum - a browser's page can be - gets
+    /// the frame the minimum gets: at 800x400 the screen's own readings of
+    /// the window raise it to 1040x600, so every node of the frame, its text
+    /// and its place are what they are at 1040x600. Entered as the game
+    /// enters it, where the placement pass runs only on a change of size, so
+    /// the frame is the spawner's own.
+    #[test]
+    fn a_window_below_the_minimum_gets_the_minimums_frame() {
+        let mut below = entered_settings(Vec2::new(800.0, 400.0));
+        let mut minimum = entered_settings(WindowSize::MINIMUM.0);
+        assert_eq!(frame_tree(&mut below), frame_tree(&mut minimum));
     }
 
     /// When the window's size changes while Settings is shown, the frame
