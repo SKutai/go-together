@@ -29,8 +29,10 @@
 //! stands on one row or two are [`geometry`]'s, for the window's size and the
 //! notes over the list. A change of the window's size is just another change
 //! that affects what is visible: [`place_library_for_window`], first in the
-//! screen's chain, marks the list dirty when the window's size changes how
-//! the screen is laid out, and it is rebuilt at the end of that frame.
+//! screen's chain, marks the list dirty when the window's size changes what
+//! the screen is built from ([`geometry::LibraryBuild`]), and it is rebuilt
+//! at the end of that frame. The screen takes its width from the window by
+//! flex, so a change of width alone rebuilds nothing.
 //!
 //! The list has no fixed pages. `scroll_offset` is the index of the first
 //! card shown, and Up, Down and the wheel each move it one card, or in two
@@ -38,9 +40,12 @@
 //! under it, as a grid does when scrolled, rather than every card stepping
 //! one place along. A change of size changes how many cards follow the
 //! first: the first card stays first wherever the list has room after it,
-//! and where a larger page would run past the list's end the first card
-//! moves back, as far as a page needs. That move keeps the ring on the
-//! Replay it was on (see [`ring`]).
+//! except in two cases. Where a larger page would run past the list's end,
+//! the first card moves back as far as a page needs; and in two columns a
+//! page starts at a row's first card, so where one column at an odd place
+//! becomes two it moves back one. Either move keeps the ring on the Replay
+//! it was on (see [`ring`]), and entering the screen makes the same moves
+//! for a window resized while another screen was shown.
 //!
 //! # Keyboard and controller
 //!
@@ -93,7 +98,7 @@ use crate::ui::focus::UiFocusState;
 use crate::ui::text_input::{
     REJECTED_CHARACTER_MESSAGE, TextEditor, TextInputOutcome, apply_editor_input,
 };
-use geometry::{LibraryLayout, library_layout};
+use geometry::{LibraryBuild, LibraryLayout, library_layout};
 use layout::{note_lines, spawn_library_contents};
 
 /// How the Library is laid out for the window's size, with the notes the
@@ -157,9 +162,9 @@ pub(super) struct ReplayLibraryUiState {
     scroll_offset: usize,
     dialog: Option<LibraryDialog>,
     dirty: bool,
-    /// The layout the screen was last built with, so that a frame whose
-    /// window's size changes nothing about it rebuilds nothing.
-    built_with: Option<LibraryLayout>,
+    /// What the screen was last built from, so that a frame whose window's
+    /// size changes nothing about it rebuilds nothing.
+    built_with: Option<LibraryBuild>,
     /// Set by [`handle_library_buttons`] whenever it applies a press, and
     /// taken by [`capture_library_text`], whose rising-edge guard must
     /// re-arm on *any* applied action - not only on a change of capture
@@ -284,14 +289,24 @@ pub(super) fn replay_match_id_text(id: &str) -> String {
     format!("Match ID: {id}")
 }
 
+/// Readies the screen on entry: the search field unfocused, no dialog, and
+/// the page's first card where the layout lets it start, the ring's
+/// remembered place moved with the cards ([`clamp_and_follow`]) - since the
+/// window may have changed size while another screen was shown.
 fn prepare_library_screen(
     mut ui: ResMut<ReplayLibraryUiState>,
+    mut focus: ResMut<UiFocusState>,
     library: Res<ReplayLibrary>,
     window: Res<WindowSize>,
 ) {
     ui.search_focused = false;
     ui.dialog = None;
-    clamp_scroll(&mut ui, &library, &page_layout(&window, &library));
+    clamp_and_follow(
+        &mut ui,
+        &mut focus,
+        &library,
+        &page_layout(&window, &library),
+    );
 }
 
 fn spawn_library_screen(
@@ -302,7 +317,7 @@ fn spawn_library_screen(
 ) {
     let layout = page_layout(&window, &library);
     spawn_library_contents(&mut commands, &ui, &library, &layout);
-    ui.built_with = Some(layout);
+    ui.built_with = Some(layout.build());
     ui.dirty = false;
 }
 
@@ -326,22 +341,22 @@ fn refresh_library_screen(
     despawn_screen_entities_now(&mut commands, &entities, AppScreen::ReplayLibrary);
     clamp_scroll(&mut ui, &library, &layout);
     spawn_library_contents(&mut commands, &ui, &library, &layout);
-    ui.built_with = Some(layout);
+    ui.built_with = Some(layout.build());
     ui.dirty = false;
 }
 
-/// Marks the list dirty on a frame the window's size changes how the
-/// screen is laid out - how many cards a page holds, in how many columns,
-/// the header, the padding or the width it is held to - so that it is
-/// rebuilt for the new size at the end of the frame.
+/// Marks the list dirty on a frame the window's size changes what the
+/// screen is built from - how many cards a page holds, in how many columns,
+/// the header or the padding ([`LibraryBuild`]) - so that it is rebuilt for
+/// the new size at the end of the frame. A change of width alone rebuilds
+/// nothing: the screen takes its width from the window by flex.
 ///
-/// Where the new page would run past the list's end, the first card moves
-/// back as far as it needs (`LibraryLayout::first_card`), and every card on
-/// the page moves down by as many places; the ring's remembered place moves
-/// with them, so it stays on the Replay it was on rather than on the place
-/// on the page. A card a smaller page has no room for is no longer shown,
-/// and the ring falls back, as it does from a deleted card, to the last
-/// card that is (see [`ring`]).
+/// The page's first card moves to where the new layout lets it start, and
+/// the ring's remembered place with the cards ([`clamp_and_follow`]), so the
+/// ring stays on the Replay it was on rather than on the place on the page.
+/// A card a smaller page has no room for is no longer shown, and the ring
+/// falls back, as it does from a deleted card, to the last card that is
+/// (see [`ring`]).
 fn place_library_for_window(
     window: Res<WindowSize>,
     library: Res<ReplayLibrary>,
@@ -349,15 +364,31 @@ fn place_library_for_window(
     mut focus: ResMut<UiFocusState>,
 ) {
     let layout = page_layout(&window, &library);
-    if ui.built_with == Some(layout) {
+    if ui.built_with == Some(layout.build()) {
         return;
     }
-    let first = layout.first_card(ui.scroll_offset, filtered_count(&library, &ui));
+    clamp_and_follow(&mut ui, &mut focus, &library, &layout);
+    ui.dirty = true;
+}
+
+/// Moves the page's first card to where `layout` lets a page start
+/// ([`LibraryLayout::first_card`]), and the ring's remembered place on this
+/// screen down the page with the cards, so that the ring stays on the
+/// Replay it was on. The first card moves back in two cases: where a page
+/// from it would run past the list's end, and in two columns to the first
+/// card of its row, as when one column at an odd place becomes two. Either
+/// way every card on the page moves down by as many places.
+fn clamp_and_follow(
+    ui: &mut ReplayLibraryUiState,
+    focus: &mut UiFocusState,
+    library: &ReplayLibrary,
+    layout: &LibraryLayout,
+) {
+    let first = layout.first_card(ui.scroll_offset, filtered_count(library, ui));
     if first != ui.scroll_offset {
-        ring::follow_cards_down_the_page(&mut focus, ui.scroll_offset - first);
+        ring::follow_cards_down_the_page(focus, ui.scroll_offset - first);
         ui.scroll_offset = first;
     }
-    ui.dirty = true;
 }
 
 /// Every button on the screen, with whether it currently carries

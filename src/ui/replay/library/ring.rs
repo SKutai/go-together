@@ -36,7 +36,7 @@
 //! the sort field, the sort order - from [`TOOLBAR_FOCUS_ORDER`]; the two
 //! paging buttons from [`PAGINATION_FOCUS_ORDER`]; and each card's three
 //! buttons from [`card_focus_order`], a stride of [`CARD_FOCUS_STRIDE`] per
-//! row of the page on show.
+//! card's place on the page on show.
 //!
 //! **Pagination is numbered before the cards although it is drawn after
 //! them, and that is deliberate.** The core clamps downward only: when a
@@ -123,15 +123,19 @@
 //! the ring on the same place of the screen as the list scrolls under it.
 //! A change of size changes how many cards a page holds, not which card is
 //! first, so for every card still shown its place, and the ring's, stays the
-//! same - with one exception. Where a larger page would run past the end of
-//! the list, the first card moves back and every card on the page moves
-//! down by as many places; there the screen moves the ring's remembered
-//! place down with them ([`follow_cards_down_the_page`]), so the ring stays
-//! on the Replay it was on rather than on the place it had. The focus core
-//! offers that move for this screen alone; see its module docs. A card that
-//! a smaller page has no room for leaves the ring with it, and the ring
-//! falls to the last card still shown - its Delete, the nearest lower order,
-//! as after a confirmed delete below.
+//! same - with two exceptions. Where a larger page would run past the end of
+//! the list, the first card moves back; and in two columns a page starts at
+//! a row's first card, so where one column at an odd place becomes two, the
+//! first card moves back one place although the list has room after it.
+//! Either way every card on the page moves down by as many places, and the
+//! screen moves the ring's remembered place down with them
+//! ([`follow_cards_down_the_page`]), so the ring stays on the Replay it was
+//! on rather than on the place it had - on a change of size, and on entry
+//! for a size changed while another screen was shown. The focus core offers
+//! that move for this screen alone; see its module docs. A card that a
+//! smaller page has no room for leaves the ring with it, and the ring falls
+//! to the last card still shown - its Delete, the nearest lower order, as
+//! after a confirmed delete below.
 //!
 //! # Two residuals, accepted
 //!
@@ -189,10 +193,10 @@ pub(super) const fn card_focus_order(place: usize) -> u32 {
 }
 
 /// Moves the ring's remembered place on this screen `places` cards further
-/// down the page, when it is on a card: what the screen does when a change
-/// of the window's size moves every card on the page down by as many
-/// places, so that the ring stays on the Replay it was on. See the module
-/// docs.
+/// down the page, when it is on a card: what the screen does when the
+/// window's size moves every card on the page down by as many places, on a
+/// change of size or on entry, so that the ring stays on the Replay it was
+/// on. See the module docs.
 pub(super) fn follow_cards_down_the_page(focus: &mut UiFocusState, places: usize) {
     let screen = crate::app::AppScreen::ReplayLibrary;
     let Some(order) = focus.remembered(screen, FocusGroup::Screen) else {
@@ -1436,6 +1440,123 @@ mod tests {
         assert_eq!(
             key_of(&app, now),
             (FocusGroup::Screen, card_focus_order(1 + after - before) + 1)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Resizes the primary window to `size` and runs the frame the game's
+    /// window tracking carries it to `WindowSize` in.
+    fn resize(app: &mut App, size: Vec2) {
+        {
+            let world = app.world_mut();
+            let mut windows =
+                world.query_filtered::<&mut Window, With<bevy::window::PrimaryWindow>>();
+            let mut window = windows.single_mut(world).unwrap();
+            window.resolution.set(size.x, size.y);
+        }
+        app.update();
+        assert_eq!(
+            app.world().resource::<crate::app::visuals::WindowSize>().0,
+            size
+        );
+    }
+
+    /// Scrolls the list one step down with the wheel, as a player does.
+    fn wheel_down(app: &mut App) {
+        app.world_mut().write_message(MouseWheel {
+            unit: bevy::input::mouse::MouseScrollUnit::Line,
+            x: 0.0,
+            y: -1.0,
+            window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
+        });
+        app.update();
+    }
+
+    /// The window may change size while another screen is shown, and entering
+    /// the Library clamps the page for the new size as a resize on it does,
+    /// moving the ring with the cards. At 1040x900, scrolled to the end, the
+    /// player opens the last card's Replay from its View Replay; the window
+    /// becomes 1920x1080 while the Viewer is shown, where a page holds all
+    /// ten Replays from the first; and back in the Library the ring is on the
+    /// same Replay's View Replay, ten places down the page, not on the
+    /// fourth card's. Through the screen's own plugin, the focus core and
+    /// the game's own window tracking, the window itself resized.
+    #[test]
+    fn the_ring_stays_on_its_replay_when_the_window_grows_on_another_screen() {
+        use super::super::geometry::library_layout;
+        use crate::app::visuals::WindowSize;
+
+        let (mut app, root) = library_app(10);
+        let larger = Vec2::new(1920.0, 1080.0);
+        let before = library_layout(WindowSize::OPENING.0, 0).cards_per_page();
+        assert!(library_layout(larger, 0).cards_per_page() >= 10);
+        for _ in 0..10 - before {
+            wheel_down(&mut app);
+        }
+        app.update();
+        assert_eq!(ui(&app).scroll_offset, 10 - before);
+        let target = control_at(&mut app, (FocusGroup::Screen, card_focus_order(before - 1)));
+        let replay = card_id(&app, target);
+        tab_to(&mut app, target);
+        enter(&mut app);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<State<AppScreen>>().get(),
+            AppScreen::ReplayViewer
+        );
+
+        resize(&mut app, larger);
+        app.world_mut()
+            .resource_mut::<NextState<AppScreen>>()
+            .set(AppScreen::ReplayLibrary);
+        app.update();
+        app.update();
+        assert_eq!(ui(&app).scroll_offset, 0);
+        let now = focused(&app).expect("the ring is drawn");
+        assert_eq!(card_id(&app, now), replay);
+        assert!(matches!(
+            app.world().get::<LibraryAction>(now),
+            Some(LibraryAction::Play(_))
+        ));
+        assert_eq!(key_of(&app, now), (FocusGroup::Screen, card_focus_order(9)));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// In two columns a page starts at a row's first card, so where one
+    /// column at an odd place becomes two the first card moves back one
+    /// place although the list has room after it - and the ring moves with
+    /// the cards. At 1040x900 with thirty Replays, the list three cards down
+    /// and the ring on the second card's Change Label, the window becomes
+    /// 1920x1080: the page starts at the third card, two columns of six, and
+    /// the ring is on the same Replay's Change Label, now the third place.
+    #[test]
+    fn the_ring_stays_on_its_replay_when_one_column_at_an_odd_place_becomes_two() {
+        use super::super::geometry::library_layout;
+
+        let (mut app, root) = library_app(30);
+        let larger = Vec2::new(1920.0, 1080.0);
+        assert_eq!(library_layout(larger, 0).columns, 2);
+        for _ in 0..3 {
+            wheel_down(&mut app);
+        }
+        app.update();
+        assert_eq!(ui(&app).scroll_offset, 3);
+        let target = control_at(&mut app, (FocusGroup::Screen, card_focus_order(1) + 1));
+        let replay = card_id(&app, target);
+        tab_to(&mut app, target);
+
+        resize(&mut app, larger);
+        assert_eq!(ui(&app).scroll_offset, 2);
+        let now = focused(&app).expect("the ring is drawn");
+        assert_eq!(card_id(&app, now), replay);
+        assert!(matches!(
+            app.world().get::<LibraryAction>(now),
+            Some(LibraryAction::OpenRename(_))
+        ));
+        assert_eq!(
+            key_of(&app, now),
+            (FocusGroup::Screen, card_focus_order(2) + 1)
         );
         std::fs::remove_dir_all(root).unwrap();
     }

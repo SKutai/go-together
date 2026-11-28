@@ -4,8 +4,9 @@
 //! Nothing here touches the ECS: [`library_layout`] is a pure function of
 //! the window's size and of how many lines of notes stand above the list,
 //! which is what lets the tests run it at every size the layouts are checked
-//! at. [`super::layout`] builds the screen from it, and [`super`] pages and
-//! scrolls by it.
+//! at. [`super::layout`] builds the screen from it - from what
+//! [`LibraryBuild`] keeps of it, taking the window's width by flex - and
+//! [`super`] pages and scrolls by it.
 //!
 //! # As many cards as fit
 //!
@@ -20,12 +21,12 @@
 //! window of the same size does, notes and all.
 //!
 //! * **Padding.** The screen keeps [`TALL_PADDING`] round its contents, as
-//!   it always has, in every window at least [`SHORT_BELOW`] px tall, and
-//!   [`SHORT_PADDING`] in a shorter one. The height between where a fifth
-//!   card fits and where a third would no longer does - 804 to 929 px -
-//!   would show the same number of cards with either, so the point it
-//!   changes at is chosen to keep today's margins within 40 px of today's
-//!   window.
+//!   it did before it was laid out for any size, in every window at least
+//!   [`SHORT_BELOW`] px tall, and [`SHORT_PADDING`] in a shorter one. Where
+//!   the change falls hardly matters to the count: anywhere from 804 to
+//!   929 px tall, a window shows the same number of cards with either
+//!   padding. So it falls at 860 px, 40 px below the opening window, which
+//!   keeps the margins it always had.
 //! * **One header row.** The title stands on a row of its own, centred
 //!   over the toolbar, with Home at its left. In a window at least
 //!   [`ONE_ROW_HEADER_FROM`] px wide, Home, the title and the toolbar share
@@ -38,7 +39,9 @@
 //!   paging row held to the same width over and under it. That width is
 //!   the one header row's, 1126 px, rather than a rounder 1100, because the
 //!   row needs 1120.4 and the list stands as wide as the header over it in
-//!   either arrangement - so the list keeps its width when the header moves
+//!   either arrangement - so where the list is held to it, from 1174 px
+//!   wide or in a window shorter than [`SHORT_BELOW`] with its short
+//!   padding either way, the list keeps its width when the header moves
 //!   between one row and two. A window at least [`TWO_COLUMNS_FROM`] px
 //!   wide shows two columns side by side, held to
 //!   [`TWO_COLUMN_MAX_WIDTH`], each card half the list less half the gap
@@ -133,6 +136,7 @@ fn laid_out_line(font_px: f32) -> f32 {
 }
 
 /// How the Library stands in one window; every length in logical pixels.
+/// The screen is built from its [`LibraryLayout::build`] alone.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct LibraryLayout {
     /// The size laid out for: the window's, raised to the minimum.
@@ -182,12 +186,8 @@ pub(super) fn library_layout(window: Vec2, notes: usize) -> LibraryLayout {
     } else {
         padding
     };
-    let (columns, max_width) = if window.x >= TWO_COLUMNS_FROM {
-        (2, TWO_COLUMN_MAX_WIDTH)
-    } else {
-        (1, ONE_COLUMN_MAX_WIDTH)
-    };
-    let side = ((window.x - max_width) / 2.0).max(padding);
+    let columns = if window.x >= TWO_COLUMNS_FROM { 2 } else { 1 };
+    let side = ((window.x - max_width(columns)) / 2.0).max(padding);
     LibraryLayout {
         window,
         padding: Vec2::new(side, padding),
@@ -202,20 +202,65 @@ pub(super) fn library_layout(window: Vec2, notes: usize) -> LibraryLayout {
     }
 }
 
+/// The widest the list stands in `columns` columns, and the header and
+/// the paging row with it.
+fn max_width(columns: usize) -> f32 {
+    if columns > 1 {
+        TWO_COLUMN_MAX_WIDTH
+    } else {
+        ONE_COLUMN_MAX_WIDTH
+    }
+}
+
+/// What the screen is built from: everything in a [`LibraryLayout`] but the
+/// window's size and the side padding that follows from it. The screen
+/// takes those from the window by flex, its contents held to the list's
+/// widest and centred and two columns of cards a grid of two equal tracks,
+/// so two layouts that build alike lay out alike, and a change of size
+/// between them rebuilds nothing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct LibraryBuild {
+    padding: f32,
+    one_row_header: bool,
+    columns: usize,
+    rows: usize,
+    search_width: f32,
+}
+
 impl LibraryLayout {
+    /// What the screen is built from; see [`LibraryBuild`].
+    pub(super) fn build(&self) -> LibraryBuild {
+        LibraryBuild {
+            padding: self.padding.y,
+            one_row_header: self.one_row_header,
+            columns: self.columns,
+            rows: self.rows,
+            search_width: self.search_width,
+        }
+    }
+
     /// How many cards a page holds.
     pub(super) fn cards_per_page(&self) -> usize {
         self.rows * self.columns
     }
 
+    /// The widest the screen's contents stand: the list's widest, in one
+    /// column or two. In a narrower window they take the window less the
+    /// padding, which is never less than `padding.y` at the sides.
+    pub(super) fn max_width(&self) -> f32 {
+        max_width(self.columns)
+    }
+
     /// The width the header, the toolbar, the list and the paging row are
     /// held to, centred in the window.
+    #[cfg(test)]
     pub(super) fn content_width(&self) -> f32 {
         self.window.x - 2.0 * self.padding.x
     }
 
     /// One card's width: the list's, or in two columns half of it less half
     /// the gap between them.
+    #[cfg(test)]
     pub(super) fn card_width(&self) -> f32 {
         if self.columns == 1 {
             self.content_width()
@@ -443,6 +488,21 @@ mod tests {
         assert!(!library_layout(Vec2::new(1149.0, 768.0), 0).one_row_header);
         assert_eq!(library_layout(Vec2::new(1700.0, 900.0), 0).columns, 2);
         assert_eq!(library_layout(Vec2::new(1699.0, 900.0), 0).columns, 1);
+    }
+
+    /// The padding changes at 860 px tall, to the pixel: 12 px round the
+    /// contents at 1040x859, 24 at 1040x860, as at 1040x900.
+    #[test]
+    fn the_padding_changes_at_860_px_tall() {
+        assert_eq!(
+            library_layout(Vec2::new(1040.0, 859.0), 0).padding,
+            Vec2::splat(SHORT_PADDING)
+        );
+        assert_eq!(
+            library_layout(Vec2::new(1040.0, 860.0), 0).padding,
+            Vec2::splat(TALL_PADDING)
+        );
+        assert_eq!((SHORT_PADDING, TALL_PADDING), (12.0, 24.0));
     }
 
     /// The first card a page starts at: the card asked for, unless that

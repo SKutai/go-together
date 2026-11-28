@@ -629,10 +629,16 @@ Home, the title and the toolbar share one header row, the search field
 narrowed from 500 px to 250, wherever that makes room for one more card.
 The paging buttons and the wheel move the list a card at a time, or in two
 columns a row of two, so that every card keeps its column. A change of size
-that changes the layout rebuilds the page, from `place_library_for_window`
-first in the screen's own chain; where the larger page would run past the
-list's end the first card moves back, and the focus ring moves with the
-cards, so it stays on the Replay it was on.
+rebuilds the page only where it changes what the page is built from - how
+many cards a page holds, in how many columns, the header or the padding -
+from `place_library_for_window` first in the screen's own chain. The
+screen takes its width from the window by flex, its contents held to the
+list's widest and centred and two columns a grid of two equal tracks, so
+a change of width alone rebuilds nothing. The first card moves back where
+the larger page would run past the list's end, and in two columns to its
+row's first card, and the focus ring moves with the cards, so it stays on
+the Replay it was on; entering the screen does the same, for a window
+resized while another screen was shown.
 
 **The Help modal** (`ui::help::geometry`) keeps its 820x760 and its one
 column in every window at least 844x784. A smaller window gets two
@@ -747,8 +753,8 @@ instead of frame count:
   which its spawners have already placed, and for the Help modal a frame
   the screen under it changed - and then only the nodes that moved,
   compared as above. The Replay Library rebuilds its page on such a frame
-  instead, and only when the new size lays it out differently, as it does
-  for every other change it shows. The Match's camera framing
+  instead, and only when the new size changes what the page is built from,
+  as it does for every other change it shows. The Match's camera framing
   is the one placement compared every frame, because a change of screen
   resets it and the screen's first frame has to take it back. See
   [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it).

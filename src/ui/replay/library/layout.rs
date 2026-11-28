@@ -44,6 +44,7 @@ use crate::replay::REPLAY_LABEL_RULE;
 use crate::replay_library::{ReplayCatalogEntry, ReplayLibrary, filter_and_sort_replays};
 use crate::rules::{BOARD_SIZE, Cell, Point};
 use crate::ui::focus::Focusable;
+use crate::ui::text_metrics::line_width;
 /// What the list says when the Library holds no Replays at all.
 const NO_REPLAYS_MESSAGE: &str =
     "No completed match replays yet.\nFinish and score a match to save it automatically.";
@@ -109,176 +110,197 @@ pub(super) fn spawn_library_contents(
             Node {
                 width: percent(100),
                 height: percent(100),
-                padding: UiRect::axes(px(layout.padding.x), px(layout.padding.y)),
+                padding: UiRect::all(px(layout.padding.y)),
                 flex_direction: FlexDirection::Column,
-                row_gap: px(ROW_GAP),
+                align_items: AlignItems::Center,
                 ..default()
             },
             BackgroundColor(APP_BACKGROUND),
             DespawnOnExit(AppScreen::ReplayLibrary),
         ))
-        .with_children(|root| {
-            if layout.one_row_header {
-                // Home, the title and the toolbar on one row.
-                root.spawn(Node {
+        .with_children(|screen| {
+            // Everything but a dialog, held to the list's widest and
+            // centred: the window's width reaches it by flex, so a change of
+            // width alone rebuilds nothing (see `LibraryBuild`).
+            screen
+                .spawn(Node {
                     width: percent(100),
-                    height: px(TOOLBAR_HEIGHT),
-                    align_items: AlignItems::Center,
+                    max_width: px(layout.max_width()),
+                    flex_grow: 1.0,
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(ROW_GAP),
                     ..default()
                 })
-                .with_children(|header| {
-                    spawn_home_button(header, view);
-                    header.spawn((
-                        library_title(),
-                        Node {
-                            margin: UiRect::new(
-                                px(HOME_TITLE_GAP),
-                                px(TITLE_TOOLBAR_GAP),
-                                px(0),
-                                px(0),
-                            ),
-                            ..default()
-                        },
-                    ));
-                    // The rest of the row, at least as wide as its controls:
-                    // the one header row is used only where they fit.
-                    header
-                        .spawn(Node {
-                            width: Val::Auto,
-                            flex_grow: 1.0,
-                            flex_basis: px(0),
-                            ..library_toolbar_node()
-                        })
-                        .with_children(|controls| spawn_toolbar_sections(controls, view));
-                });
-            } else {
-                root.spawn(Node {
-                    width: percent(100),
-                    justify_content: JustifyContent::SpaceBetween,
-                    align_items: AlignItems::Center,
-                    ..default()
-                })
-                .with_children(|header| {
-                    spawn_home_button(header, view);
-                    header.spawn(library_title());
-                    header.spawn(Node {
-                        width: px(HOME_BUTTON_WIDTH),
-                        ..default()
-                    });
-                });
-
-                root.spawn(library_toolbar_node())
-                    .with_children(|controls| spawn_toolbar_sections(controls, view));
-            }
-
-            if let Some(note) = replay_retention_text(library) {
-                root.spawn((
-                    Text::new(note),
-                    TextFont {
-                        font_size: FontSize::Px(NOTE_SIZE),
-                        ..default()
-                    },
-                    TextColor(TEXT_MUTED),
-                    Node {
-                        width: percent(100),
-                        ..default()
-                    },
-                ));
-            }
-
-            if let Some(warning) = replay_library_warning_text(library) {
-                root.spawn((
-                    Text::new(warning),
-                    TextFont {
-                        font_size: FontSize::Px(NOTE_SIZE),
-                        ..default()
-                    },
-                    TextColor(DANGER),
-                    Node {
-                        width: percent(100),
-                        ..default()
-                    },
-                ));
-            }
-
-            root.spawn((list_node(layout), BackgroundColor(DEEP_SURFACE_BACKGROUND)))
-                .with_children(|list| {
-                    if filtered.is_empty() {
-                        spawn_empty_list_message(
-                            list,
-                            if library.entries.is_empty() {
-                                NO_REPLAYS_MESSAGE
-                            } else {
-                                NO_SEARCH_MATCH_MESSAGE
-                            },
-                        );
-                    } else {
-                        for (place, replay) in filtered
-                            .iter()
-                            .skip(ui.scroll_offset)
-                            .take(layout.cards_per_page())
-                            .enumerate()
-                        {
-                            spawn_replay_row(list, view, replay, place);
-                        }
-                    }
-                });
-
-            root.spawn(Node {
-                width: percent(100),
-                height: px(PAGINATION_ROW_HEIGHT),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                column_gap: px(12),
-                ..default()
-            })
-            .with_children(|scroll| {
-                let mut ring = RingOrder::starting_at(PAGINATION_FOCUS_ORDER);
-                scroll
-                    .spawn(pagination_side_node(JustifyContent::FlexEnd))
-                    .with_children(|left| {
-                        spawn_library_button(
-                            left,
-                            view,
-                            LibraryAction::ScrollUp,
-                            "Up",
-                            70.0,
-                            PAGINATION_BUTTON_HEIGHT,
-                            ring.next(),
-                        );
-                    });
-                scroll.spawn(pagination_indicator_node()).with_child((
-                    Text::new(page_indicator_text(
-                        ui.scroll_offset,
-                        filtered.len(),
-                        layout.cards_per_page(),
-                    )),
-                    TextFont {
-                        font_size: FontSize::Px(15.0),
-                        ..default()
-                    },
-                    TextColor(TEXT_MUTED),
-                    TextLayout::justify(Justify::Center),
-                ));
-                scroll
-                    .spawn(pagination_side_node(JustifyContent::FlexStart))
-                    .with_children(|right| {
-                        spawn_library_button(
-                            right,
-                            view,
-                            LibraryAction::ScrollDown,
-                            "Down",
-                            70.0,
-                            PAGINATION_BUTTON_HEIGHT,
-                            ring.next(),
-                        );
-                    });
-            });
-
+                .with_children(|root| spawn_page(root, view, &filtered));
             if let Some(dialog) = &ui.dialog {
-                spawn_library_dialog(root, view, dialog);
+                spawn_library_dialog(screen, view, dialog);
             }
         });
+}
+
+/// The page under the screen's padding: the header, the toolbar, the notes,
+/// the list and the paging row.
+fn spawn_page(
+    root: &mut ChildSpawnerCommands,
+    view: LibraryView,
+    filtered: &[&ReplayCatalogEntry],
+) {
+    let LibraryView {
+        ui,
+        library,
+        layout,
+    } = view;
+    if layout.one_row_header {
+        // Home, the title and the toolbar on one row.
+        root.spawn(Node {
+            width: percent(100),
+            height: px(TOOLBAR_HEIGHT),
+            align_items: AlignItems::Center,
+            ..default()
+        })
+        .with_children(|header| {
+            spawn_home_button(header, view);
+            header.spawn((
+                library_title(),
+                Node {
+                    margin: UiRect::new(px(HOME_TITLE_GAP), px(TITLE_TOOLBAR_GAP), px(0), px(0)),
+                    ..default()
+                },
+            ));
+            // The rest of the row, at least as wide as its controls:
+            // the one header row is used only where they fit.
+            header
+                .spawn(Node {
+                    width: Val::Auto,
+                    flex_grow: 1.0,
+                    flex_basis: px(0),
+                    ..library_toolbar_node()
+                })
+                .with_children(|controls| spawn_toolbar_sections(controls, view));
+        });
+    } else {
+        root.spawn(Node {
+            width: percent(100),
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::Center,
+            ..default()
+        })
+        .with_children(|header| {
+            spawn_home_button(header, view);
+            header.spawn(library_title());
+            header.spawn(Node {
+                width: px(HOME_BUTTON_WIDTH),
+                ..default()
+            });
+        });
+
+        root.spawn(library_toolbar_node())
+            .with_children(|controls| spawn_toolbar_sections(controls, view));
+    }
+
+    if let Some(note) = replay_retention_text(library) {
+        root.spawn((
+            Text::new(note),
+            TextFont {
+                font_size: FontSize::Px(NOTE_SIZE),
+                ..default()
+            },
+            TextColor(TEXT_MUTED),
+            Node {
+                width: percent(100),
+                ..default()
+            },
+        ));
+    }
+
+    if let Some(warning) = replay_library_warning_text(library) {
+        root.spawn((
+            Text::new(warning),
+            TextFont {
+                font_size: FontSize::Px(NOTE_SIZE),
+                ..default()
+            },
+            TextColor(DANGER),
+            Node {
+                width: percent(100),
+                ..default()
+            },
+        ));
+    }
+
+    root.spawn((list_node(layout), BackgroundColor(DEEP_SURFACE_BACKGROUND)))
+        .with_children(|list| {
+            if filtered.is_empty() {
+                spawn_empty_list_message(
+                    list,
+                    if library.entries.is_empty() {
+                        NO_REPLAYS_MESSAGE
+                    } else {
+                        NO_SEARCH_MATCH_MESSAGE
+                    },
+                );
+            } else {
+                for (place, replay) in filtered
+                    .iter()
+                    .skip(ui.scroll_offset)
+                    .take(layout.cards_per_page())
+                    .enumerate()
+                {
+                    spawn_replay_row(list, view, replay, place);
+                }
+            }
+        });
+
+    root.spawn(Node {
+        width: percent(100),
+        height: px(PAGINATION_ROW_HEIGHT),
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        column_gap: px(12),
+        ..default()
+    })
+    .with_children(|scroll| {
+        let mut ring = RingOrder::starting_at(PAGINATION_FOCUS_ORDER);
+        scroll
+            .spawn(pagination_side_node(JustifyContent::FlexEnd))
+            .with_children(|left| {
+                spawn_library_button(
+                    left,
+                    view,
+                    LibraryAction::ScrollUp,
+                    "Up",
+                    70.0,
+                    PAGINATION_BUTTON_HEIGHT,
+                    ring.next(),
+                );
+            });
+        scroll.spawn(pagination_indicator_node()).with_child((
+            Text::new(page_indicator_text(
+                ui.scroll_offset,
+                filtered.len(),
+                layout.cards_per_page(),
+            )),
+            TextFont {
+                font_size: FontSize::Px(15.0),
+                ..default()
+            },
+            TextColor(TEXT_MUTED),
+            TextLayout::justify(Justify::Center),
+        ));
+        scroll
+            .spawn(pagination_side_node(JustifyContent::FlexStart))
+            .with_children(|right| {
+                spawn_library_button(
+                    right,
+                    view,
+                    LibraryAction::ScrollDown,
+                    "Down",
+                    70.0,
+                    PAGINATION_BUTTON_HEIGHT,
+                    ring.next(),
+                );
+            });
+    });
 }
 
 /// The Home button, the screen's first control.
@@ -317,14 +339,21 @@ fn spawn_toolbar_sections(controls: &mut ChildSpawnerCommands, view: LibraryView
             "Search replay labels...".into()
         }
     } else {
-        format!(
-            "Search: {}",
+        const PREFIX: &str = "Search: ";
+        let label = format!(
+            "{PREFIX}{}",
             if ui.search_focused {
                 ui.search.display_text()
             } else {
                 ui.search.text.clone()
             }
-        )
+        );
+        let caret = if ui.search_focused {
+            PREFIX.len() + ui.search.caret
+        } else {
+            label.chars().count()
+        };
+        shown_search_label(&label, caret, search_field_chars(view.layout.search_width))
     };
     let mut ring = RingOrder::starting_at(TOOLBAR_FOCUS_ORDER);
     for section in LIBRARY_TOOLBAR_ORDER {
@@ -333,13 +362,18 @@ fn spawn_toolbar_sections(controls: &mut ChildSpawnerCommands, view: LibraryView
                 controls
                     .spawn(library_toolbar_group_node())
                     .with_children(|search| {
-                        spawn_library_button(
+                        // One line, never wrapped: the text is cut to fit
+                        // it, and the field clips it besides.
+                        spawn_library_button_with_layout(
                             search,
                             view,
                             LibraryAction::FocusSearch,
                             &search_label,
-                            view.layout.search_width,
-                            40.0,
+                            Node {
+                                overflow: Overflow::clip(),
+                                ..library_button_node(view.layout.search_width, 40.0)
+                            },
+                            TextLayout::new(Justify::Center, LineBreak::NoWrap),
                             ring.next(),
                         );
                         spawn_library_button(
@@ -381,21 +415,25 @@ fn spawn_toolbar_sections(controls: &mut ChildSpawnerCommands, view: LibraryView
 }
 
 /// The list the cards stand in: one column of cards the list's width, or
-/// rows of two cards side by side.
+/// rows of two side by side, a grid of two equal tracks whose width the
+/// list takes from the window by flex - so a card's width is never an exact
+/// number the page would have to be rebuilt for, and two cards and the gap
+/// between them can never come out wider than the list and wrap.
 fn list_node(layout: &LibraryLayout) -> Node {
     let two_columns = layout.columns > 1;
     Node {
         width: percent(100),
         flex_grow: 1.0,
-        flex_direction: if two_columns {
-            FlexDirection::Row
+        display: if two_columns {
+            Display::Grid
         } else {
-            FlexDirection::Column
+            Display::Flex
         },
-        flex_wrap: if two_columns {
-            FlexWrap::Wrap
+        flex_direction: FlexDirection::Column,
+        grid_template_columns: if two_columns {
+            RepeatedGridTrack::flex(2, 1.0)
         } else {
-            FlexWrap::NoWrap
+            Vec::new()
         },
         align_content: AlignContent::FlexStart,
         row_gap: px(CARD_GAP),
@@ -430,6 +468,8 @@ fn spawn_empty_list_message(list: &mut ChildSpawnerCommands, message: &str) {
     list.spawn(Node {
         width: percent(100),
         height: px(CARD_HEIGHT),
+        // Across every column, where the list is a grid of two.
+        grid_column: GridPlacement::start_end(1, -1),
         flex_shrink: 0.0,
         justify_content: JustifyContent::Center,
         align_items: AlignItems::Center,
@@ -488,7 +528,9 @@ fn pagination_indicator_node() -> Node {
 /// The thumbnail and the buttons keep their widths and the card's words
 /// give way, wrapping, when the card is narrow - as it is in two columns,
 /// where a summary takes two lines. A thumbnail that gave way would wrap
-/// its own cells and draw a cropped board.
+/// its own cells and draw a cropped board. The label wraps between words,
+/// and within a word too long for its line, so a label of one long word
+/// gives way as well rather than pushing the buttons out of the card.
 fn spawn_replay_row(
     parent: &mut ChildSpawnerCommands,
     view: LibraryView,
@@ -498,11 +540,7 @@ fn spawn_replay_row(
     parent
         .spawn((
             Node {
-                width: if view.layout.columns > 1 {
-                    px(view.layout.card_width())
-                } else {
-                    percent(100)
-                },
+                width: percent(100),
                 height: px(CARD_HEIGHT),
                 padding: UiRect::all(px(12)),
                 border: UiRect::all(px(1)),
@@ -530,6 +568,7 @@ fn spawn_replay_row(
                         ..default()
                     },
                     TextColor(TEXT_PRIMARY),
+                    TextLayout::new(Justify::Left, LineBreak::WordOrCharacter),
                 ));
                 details.spawn((
                     Text::new(replay_summary_text(replay)),
@@ -899,6 +938,42 @@ fn delete_confirmation_question(label: &str) -> String {
     format!("Permanently delete \"{label}\"?")
 }
 
+/// How many characters of a button's text the search field's one line
+/// holds when the field is `width` px wide. The font is monospaced, so this
+/// is known before layout (`ui::text_metrics`).
+fn search_field_chars(width: f32) -> usize {
+    let inside = width - 2.0 * (BUTTON_PADDING + BUTTON_BORDER);
+    (inside / line_width(1, BUTTON_TEXT_SIZE)).floor() as usize
+}
+
+/// What marks an end of the search field's text cut away to fit.
+const CUT_MARK: &str = "...";
+
+/// The search field's `label` as it is shown on its one line of `chars`
+/// characters: whole where it fits, and otherwise as a field scrolls its
+/// text, with [`CUT_MARK`] at each end cut away. `caret` is the index, in
+/// characters, of the caret's mark in the label - or the label's length,
+/// with the field unfocused - and the caret is always shown: with the end of
+/// the label where the caret is among its last characters, as it is while
+/// a query is typed; otherwise with the start, where the caret is among the
+/// first; and otherwise with the run of the label that ends at the caret.
+fn shown_search_label(label: &str, caret: usize, chars: usize) -> String {
+    let all: Vec<char> = label.chars().collect();
+    if all.len() <= chars {
+        return label.to_owned();
+    }
+    let run = |from: usize, to: usize| all[from..to].iter().collect::<String>();
+    let room = chars - CUT_MARK.len();
+    if caret >= all.len() - room {
+        format!("{CUT_MARK}{}", run(all.len() - room, all.len()))
+    } else if caret < room {
+        format!("{}{CUT_MARK}", run(0, room))
+    } else {
+        let room = room - CUT_MARK.len();
+        format!("{CUT_MARK}{}{CUT_MARK}", run(caret + 1 - room, caret + 1))
+    }
+}
+
 fn spawn_library_button(
     parent: &mut ChildSpawnerCommands,
     view: LibraryView,
@@ -982,12 +1057,18 @@ fn spawn_sort_order_button(
     );
 }
 
+/// A button's text size, and the padding and border between its text and
+/// its edges.
+const BUTTON_TEXT_SIZE: f32 = 15.0;
+const BUTTON_PADDING: f32 = 8.0;
+const BUTTON_BORDER: f32 = 1.0;
+
 fn library_button_node(width: f32, height: f32) -> Node {
     Node {
         width: px(width),
         height: px(height),
-        padding: UiRect::horizontal(px(8)),
-        border: UiRect::all(px(1)),
+        padding: UiRect::horizontal(px(BUTTON_PADDING)),
+        border: UiRect::all(px(BUTTON_BORDER)),
         justify_content: JustifyContent::Center,
         align_items: AlignItems::Center,
         ..default()
@@ -1054,7 +1135,7 @@ fn spawn_library_button_with_layout(
     button.with_child((
         Text::new(label.to_string()),
         TextFont {
-            font_size: FontSize::Px(15.0),
+            font_size: FontSize::Px(BUTTON_TEXT_SIZE),
             ..default()
         },
         TextColor(TEXT_PRIMARY),
@@ -1216,6 +1297,110 @@ mod tests {
 
     /// The indicator counts by the page as it is: which cards are shown,
     /// however many a page holds, and the last page full.
+    /// The search field's text cut to its one line, on texts whose cuts are
+    /// worked out by hand: whole where it fits; with its end, where the
+    /// caret is among its last characters or the field is unfocused; with
+    /// its start, where the caret is among its first; and otherwise with the
+    /// run that ends at the caret. A cut text is exactly a line long, and
+    /// always shows the caret.
+    #[test]
+    fn the_search_fields_text_is_cut_to_its_line_around_the_caret() {
+        assert_eq!(search_field_chars(250.0), 25);
+        assert_eq!(search_field_chars(500.0), 53);
+        assert_eq!(shown_search_label("Search: abc|", 11, 12), "Search: abc|");
+        let typed = "Search: abcdefghijklmnopqrstuvwxyz|";
+        let caret = typed.len() - 1;
+        assert_eq!(shown_search_label(typed, caret, 12), "...stuvwxyz|");
+        let unfocused = "Search: abcdefghijklmnopqrstuvwxyz";
+        assert_eq!(
+            shown_search_label(unfocused, unfocused.len(), 12),
+            "...rstuvwxyz"
+        );
+        let at_start = "Search: |abcdefghijklmnopqrstuvwxyz";
+        assert_eq!(shown_search_label(at_start, 8, 12), "Search: |...");
+        let inside = "Search: abcdefghijk|lmnopqrstuvwxyz";
+        assert_eq!(shown_search_label(inside, 19, 12), "...ghijk|...");
+        for (label, caret) in [(typed, caret), (at_start, 8), (inside, 19)] {
+            let shown = shown_search_label(label, caret, 12);
+            assert_eq!(shown.len(), 12, "{shown:?}");
+            assert!(shown.contains('|'), "{shown:?}");
+        }
+    }
+
+    /// A query of the 60 characters a label can have - in words, and as one
+    /// word - stays on the search field's one line, inside it, whether the
+    /// field is being typed in or not, with the header on one row at
+    /// 1150x768, where the field is 250 px, and on two at 1040x900, where it
+    /// is 500: nothing runs under Clear or over the title, and no two texts
+    /// meet. Under real layout.
+    #[test]
+    fn a_long_query_stays_on_the_search_fields_line() {
+        use super::super::LibraryAction;
+        use super::super::geometry::library_layout;
+        use crate::app::visuals::WindowSize;
+        use crate::ui::focus::drawn_texts;
+        use bevy::text::TextLayoutInfo;
+
+        const WORDS: &str = "Club night game with an early capture and a long ending race";
+        const ONE_WORD: &str = "Clubnightgamewithanearlycaptureandalongendingracetothefinish";
+        let one_row = Vec2::new(1150.0, 768.0);
+        assert!(library_layout(one_row, 0).one_row_header);
+        assert!(!library_layout(WindowSize::OPENING.0, 0).one_row_header);
+        for window in [one_row, WindowSize::OPENING.0] {
+            for query in [WORDS, ONE_WORD] {
+                for focused in [true, false] {
+                    let context = format!("{window}, {query:?}, focused {focused}");
+                    let mut app = library_entered_at(window, 4, None, false);
+                    {
+                        let mut ui = app.world_mut().resource_mut::<ReplayLibraryUiState>();
+                        ui.search = crate::ui::text_input::TextEditor::new(query.into());
+                        ui.search_focused = focused;
+                        ui.dirty = true;
+                    }
+                    app.update();
+                    app.update();
+                    let world = app.world_mut();
+                    let field = world
+                        .query::<(Entity, &LibraryAction)>()
+                        .iter(world)
+                        .find(|(_, action)| matches!(action, LibraryAction::FocusSearch))
+                        .map(|(entity, _)| entity)
+                        .unwrap();
+                    let text = app.world().get::<Children>(field).unwrap()[0];
+                    let lines = app
+                        .world()
+                        .get::<TextLayoutInfo>(text)
+                        .unwrap()
+                        .glyphs
+                        .iter()
+                        .map(|glyph| glyph.line_index)
+                        .max()
+                        .unwrap()
+                        + 1;
+                    assert_eq!(lines, 1, "{context}");
+                    let field = node_rect(&app, field);
+                    let drawn = drawn_texts(&mut app);
+                    let (_, shown, ink) = drawn
+                        .iter()
+                        .find(|(entity, _, _)| *entity == text)
+                        .expect("the field's text is drawn");
+                    assert!(
+                        field.contains(ink.min) && field.contains(ink.max),
+                        "{context}: {shown:?} inked {ink:?} leaves the field {field:?}"
+                    );
+                    for (index, (_, a_text, a)) in drawn.iter().enumerate() {
+                        for (_, b_text, b) in &drawn[index + 1..] {
+                            assert!(
+                                a.intersect(*b).is_empty(),
+                                "{context}: {a_text:?} meets {b_text:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn page_indicator_reports_visible_replay_range() {
         assert_eq!(page_indicator_text(0, 0, 4), "0 of 0");
@@ -1499,6 +1684,7 @@ mod tests {
         let mut app = real_layout_app(window);
         app.add_plugins(bevy::state::app::StatesPlugin)
             .insert_state(AppScreen::Home)
+            .add_plugins(crate::app::visuals::WindowLayoutPlugin)
             .add_plugins(UiFocusPlugin)
             .add_plugins(ReplayLibraryPlugin)
             .insert_resource(library)
@@ -1527,9 +1713,9 @@ mod tests {
         Rect::from_center_size(transform.translation * scale, node.size * scale)
     }
 
-    /// Every card on show, first to last: its box, its thumbnail's and the
-    /// list's.
-    fn cards(app: &mut App) -> Vec<(Rect, Rect, Rect)> {
+    /// Every card on show, first to last: its box, its thumbnail's, its
+    /// button column's and the list's.
+    fn cards(app: &mut App) -> Vec<(Rect, Rect, Rect, Rect)> {
         let world = app.world_mut();
         let mut plays: Vec<(Entity, u32)> = world
             .query::<(Entity, &LibraryAction, &Focusable)>()
@@ -1548,6 +1734,7 @@ mod tests {
                 (
                     node_rect(app, card),
                     node_rect(app, thumbnail),
+                    node_rect(app, actions),
                     node_rect(app, list),
                 )
             })
@@ -1557,17 +1744,18 @@ mod tests {
     /// At every named size, and in three windows where a line of notes
     /// costs a card, under real layout and real picking, the Library in
     /// every state a page can be in - no Replays, one, a full page, more
-    /// than a page, a full page of the longest labels a Replay can have, a
-    /// browser's store with its retention note, a Replay that could not be
-    /// read - and with each dialog open over a full page:
-    /// every text stands inside the window and, with no dialog open, no two
-    /// meet; the page shows as many cards as the layout says, each inside
-    /// the list, none meeting another, each its thumbnail whole at 108 px
-    /// and as wide as the layout makes it, and the ring reaching them in
-    /// the order they are drawn, row by row; the list stands as wide as the
-    /// layout holds it, centred; the pointer reaches every control shown;
-    /// and a dialog's overlay covers the window, its buttons reached and
-    /// everything beneath covered.
+    /// than a page, a full page of the longest labels a Replay can have, in
+    /// words and as one word of 60 characters, each with a summary as long
+    /// as a long Match makes it, a browser's store with its retention note,
+    /// a Replay that could not be read - and with each dialog open over a
+    /// full page: every text stands inside the window and, with no dialog
+    /// open, no two meet; the page shows as many cards as the layout says,
+    /// each inside the list, none meeting another, each its thumbnail whole
+    /// at 108 px, its buttons inside it and as wide as the layout makes it,
+    /// and the ring reaching them in the order they are drawn, row by row;
+    /// the list stands as wide as the layout holds it, centred; the pointer
+    /// reaches every control shown; and a dialog's overlay covers the
+    /// window, its buttons reached and everything beneath covered.
     #[test]
     fn every_page_state_fits_at_every_size() {
         use super::super::geometry::library_layout;
@@ -1576,9 +1764,12 @@ mod tests {
         use crate::ui::focus::{drawn_texts, laid_out_texts};
 
         // A label of the 60 characters a label can have, in words that wrap
-        // onto two lines in the narrowest card.
+        // onto two lines in the narrowest card, and as one word, which can
+        // break only between characters.
         const LONGEST_LABEL: &str = "Club night game with an early capture and a long ending race";
+        const ONE_WORD_LABEL: &str = "Clubnightgamewithanearlycaptureandalongendingracetothefinish";
         assert_eq!(LONGEST_LABEL.len(), 60);
+        assert_eq!(ONE_WORD_LABEL.len(), 60);
         let notes_cost_a_card = [
             Vec2::new(1040.0, 640.0),
             Vec2::new(1280.0, 740.0),
@@ -1594,20 +1785,30 @@ mod tests {
         for window in NAMED_WINDOW_SIZES.into_iter().chain(notes_cost_a_card) {
             let page = library_layout(window, 0).cards_per_page();
             let states = [
-                ("no Replays", 0, None, false, false),
-                ("one", 1, None, false, false),
-                ("a full page", page, None, false, false),
-                ("more than a page", page + 3, None, false, false),
-                ("the longest labels", page, None, false, true),
-                ("a browser's store", 3, Some(3), false, false),
-                ("a Replay not read", page + 3, None, true, false),
+                ("no Replays", 0, None, false, None),
+                ("one", 1, None, false, None),
+                ("a full page", page, None, false, None),
+                ("more than a page", page + 3, None, false, None),
+                ("the longest labels", page, None, false, Some(LONGEST_LABEL)),
+                ("one-word labels", page, None, false, Some(ONE_WORD_LABEL)),
+                ("a browser's store", 3, Some(3), false, None),
+                ("a Replay not read", page + 3, None, true, None),
             ];
-            for (state, replays, retention, warning, longest) in states {
+            for (state, replays, retention, warning, label) in states {
                 let context = format!("{window}, {state}");
                 let mut app = library_entered_at(window, replays, retention, warning);
-                if longest {
+                if let Some(label) = label {
+                    // And the longest summary a Match plausibly makes: a
+                    // close score, hours of play and over a hundred rounds.
                     for entry in &mut app.world_mut().resource_mut::<ReplayLibrary>().entries {
-                        entry.label = LONGEST_LABEL.into();
+                        entry.label = label.into();
+                        entry.score = crate::rules::Score {
+                            black: 41,
+                            white: 40,
+                        };
+                        entry.duration_seconds = 3.0 * 3600.0 + 59.0 * 60.0 + 59.0;
+                        entry.round_count = 120;
+                        entry.opening_completed = true;
                     }
                     app.world_mut().resource_mut::<ReplayLibraryUiState>().dirty = true;
                     app.update();
@@ -1616,7 +1817,7 @@ mod tests {
                     let shown = world
                         .query::<&Text>()
                         .iter(world)
-                        .filter(|text| text.0 == LONGEST_LABEL)
+                        .filter(|text| text.0 == label)
                         .count();
                     assert_eq!(shown, replays, "{context}: the labels are drawn");
                 }
@@ -1644,7 +1845,7 @@ mod tests {
                     replays.min(layout.cards_per_page()),
                     "{context}"
                 );
-                for (index, (card, thumbnail, list)) in shown.iter().enumerate() {
+                for (index, (card, thumbnail, actions, list)) in shown.iter().enumerate() {
                     assert!(
                         list.contains(card.min) && list.contains(card.max),
                         "{context}: card {index} {card:?} leaves the list {list:?}"
@@ -1653,6 +1854,10 @@ mod tests {
                         thumbnail.size(),
                         Vec2::splat(108.0),
                         "{context}: card {index}"
+                    );
+                    assert!(
+                        card.contains(actions.min) && card.contains(actions.max),
+                        "{context}: card {index}'s buttons {actions:?} leave it {card:?}"
                     );
                     assert!(
                         (card.width() - layout.card_width()).abs() <= 1.0,
@@ -1665,7 +1870,7 @@ mod tests {
                             && (list.center().x - window.x / 2.0).abs() <= 1.0,
                         "{context}: the list {list:?}"
                     );
-                    for (other, _, _) in &shown[index + 1..] {
+                    for (other, _, _, _) in &shown[index + 1..] {
                         assert!(card.intersect(*other).is_empty(), "{context}");
                     }
                 }
@@ -1768,6 +1973,86 @@ mod tests {
                         "{context}: {text:?} at {rect:?}"
                     );
                 }
+            }
+        }
+    }
+
+    /// A window smaller than the minimum - a browser's page can be - is
+    /// built as the minimum is: at 800x400 the screen's own reading of the
+    /// window raises it to 1040x600, so the page is built from the
+    /// minimum's layout, with the minimum's two cards, under real layout.
+    /// Laid out for its own size, that window would hold one; at 800x480 it
+    /// would hold the same two, which is why the test is not run there.
+    #[test]
+    fn a_window_below_the_minimum_is_built_as_the_minimum() {
+        use super::super::geometry::library_layout;
+        use crate::app::visuals::WindowSize;
+
+        let below = Vec2::new(800.0, 400.0);
+        let minimum = library_layout(WindowSize::MINIMUM.0, 0);
+        assert_ne!(library_layout(below, 0).build(), minimum.build());
+        let mut app = library_entered_at(below, 20, None, false);
+        let ui = app.world().resource::<ReplayLibraryUiState>();
+        assert_eq!(ui.built_with, Some(minimum.build()));
+        assert_eq!(cards(&mut app).len(), minimum.cards_per_page());
+    }
+
+    /// A change of the window's width that changes nothing the screen is
+    /// built from rebuilds nothing - every card is the entity it was - and
+    /// the page follows the window all the same, by flex: in one column from
+    /// 1040x900 to 1100x900, and in two from 1800x1080 to 2000x1080, the list
+    /// and every card stand as wide as the layout makes them at the new
+    /// width, the list centred. The window itself resized, through the
+    /// screen's own plugin and the game's window tracking.
+    #[test]
+    fn a_change_of_width_alone_rebuilds_nothing_and_the_page_follows_it() {
+        use super::super::geometry::library_layout;
+
+        for (from, to) in [
+            (Vec2::new(1040.0, 900.0), Vec2::new(1100.0, 900.0)),
+            (Vec2::new(1800.0, 1080.0), Vec2::new(2000.0, 1080.0)),
+        ] {
+            let context = format!("{from} to {to}");
+            let (before, after) = (library_layout(from, 0), library_layout(to, 0));
+            assert_eq!(before.build(), after.build(), "{context}");
+            assert_ne!(before.card_width(), after.card_width(), "{context}");
+            let mut app = library_entered_at(from, 20, None, false);
+            let plays = |app: &mut App| {
+                let world = app.world_mut();
+                let mut plays: Vec<(u32, Entity)> = world
+                    .query::<(Entity, &LibraryAction, &Focusable)>()
+                    .iter(world)
+                    .filter(|(_, action, _)| matches!(action, LibraryAction::Play(_)))
+                    .map(|(entity, _, focus)| (focus.order, entity))
+                    .collect();
+                plays.sort();
+                plays
+            };
+            let built = plays(&mut app);
+            {
+                let world = app.world_mut();
+                let mut windows =
+                    world.query_filtered::<&mut Window, With<bevy::window::PrimaryWindow>>();
+                let mut window = windows.single_mut(world).unwrap();
+                window.resolution.set(to.x, to.y);
+            }
+            app.update();
+            app.update();
+            assert_eq!(plays(&mut app), built, "{context}: the page was rebuilt");
+            let shown = cards(&mut app);
+            assert_eq!(shown.len(), after.cards_per_page(), "{context}");
+            for (index, (card, _, _, list)) in shown.iter().enumerate() {
+                assert!(
+                    (card.width() - after.card_width()).abs() <= 1.0,
+                    "{context}: card {index} is {} wide of {}",
+                    card.width(),
+                    after.card_width()
+                );
+                assert!(
+                    (list.width() - after.content_width()).abs() <= 1.0
+                        && (list.center().x - to.x / 2.0).abs() <= 1.0,
+                    "{context}: the list {list:?}"
+                );
             }
         }
     }
