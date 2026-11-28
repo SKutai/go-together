@@ -402,8 +402,9 @@ pub(super) fn shown_error(error: &str, layout: &SettingsLayout) -> String {
     let chars = ((width - 1.0) / line_width(1, ERROR_SIZE)).floor() as usize;
     // Enough of the message for a line more than there is room for: each
     // line takes at most a line's characters and the space after them, so
-    // the rest cannot change the lines kept, and a message as long as a
-    // settings file is never wrapped whole on every frame.
+    // where the message has no run of spaces the rest cannot change the
+    // lines kept, and where it has one the cut comes sooner. And a message
+    // as long as a settings file is never wrapped whole on every frame.
     let enough: String = error.chars().take((room + 1) * (chars + 1)).collect();
     let whole = enough.len() == error.len();
     let fits = whole

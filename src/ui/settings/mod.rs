@@ -53,7 +53,7 @@
 //! two; [`handle_mapping_escape`] names the same-frame pairs whose outcome
 //! that ordering decides.
 //!
-//! # Why this screen has six submodules
+//! # Why this screen has seven submodules
 //!
 //! Most screens divide into a `mod.rs` and a `layout.rs`; this one introduced
 //! the `display.rs` third. Four tabs later that was no longer enough, and the
@@ -65,9 +65,11 @@
 //! * [`bindings`] - the Keyboard and Controller tabs. A binding row means "I
 //!   am the row now being captured", and the capture systems are the only
 //!   readers of that meaning, so the rows and the capture live together.
-//! * [`layout`] - the frame those panels hang in, the reset-confirmation
-//!   modal, and the Preferences panel, whose toggles have no state to own;
-//!   and the pass that keeps the frame where [`geometry`] puts it.
+//! * [`preferences`] - the Preferences tab's panel. Its toggles and volume
+//!   stops have no state to own, so it is a module for its size rather than
+//!   its kind.
+//! * [`layout`] - the frame those panels hang in and the reset-confirmation
+//!   modal, and the pass that keeps the frame where [`geometry`] puts it.
 //! * [`geometry`] - where the frame stands for the window's size, as a pure
 //!   function of it, which the spawners and that pass both read and the
 //!   tests run at every size the layouts are checked at.
@@ -75,7 +77,7 @@
 //!   together, because it runs as one pass in
 //!   [`AppSystems::SettingsDisplay`].
 //! * [`ring`] - the screen's place in the focus ring: the order bands the
-//!   three spawning modules draw from, the yield, and the tests that hold
+//!   four spawning modules draw from, the yield, and the tests that hold
 //!   the reset confirmation's trap. It cuts across the tabs the way
 //!   [`display`] does, and for the same reason: one ring, one pass.
 //!
@@ -89,6 +91,7 @@ mod display;
 mod game;
 mod geometry;
 mod layout;
+mod preferences;
 mod ring;
 
 use bevy::ecs::system::SystemParam;

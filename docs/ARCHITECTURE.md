@@ -3269,6 +3269,8 @@ documentation, and tidies the guard away.
    fail - and `settings/bindings.rs` owns the Keyboard and Controller tabs -
    their rows and the live capture that fills them. Each keeps its spawning
    next to the input rules that give the spawned widgets meaning.
+   `settings/preferences.rs` holds the Preferences tab, whose switches have
+   no state to own, for its size: a quarter of the frame's module.
    `settings/layout.rs` is then the frame those panels hang in, and
    `settings/display.rs` stays whole because one frame's refresh runs as a
    single chained pass over every tab.
@@ -3388,7 +3390,7 @@ A local preference (display, audio or motion) touches `GamePreferences` in
 `settings::config`, a `load_preference_field` call in `settings::compat`
 gated on the settings schema version that introduced it, the
 `PreferenceToggle` variant, `toggle_preference` and `preference_enabled` in
-`ui::settings`, `spawn_preferences_panel` in `ui::settings::layout`, and
+`ui::settings`, `spawn_preferences_panel` in `ui::settings::preferences`, and
 the tests in `ui::settings::ring` that list every control in the focus
 ring and count the Preferences tab's. The refresh pass in
 `ui::settings::display` needs nothing: it reads `preference_enabled`. The
