@@ -1,33 +1,133 @@
-//! Where everything sits in the viewer's fixed window.
-//!
-//! The viewer keeps its own, tighter grid constants rather than reusing the
-//! live board's, because it must also fit a header, transport controls and the
-//! key and Match Settings modals in the same fixed window. Those measurements
-//! live here, rather than beside the code that spawns the furniture, because
-//! spawning is not their only reader: [`super::layout`] places entities with
-//! them once and [`super::display`] moves the same entities with them whenever
-//! playback crosses a recorded event boundary.
+//! Where everything in the Replay Viewer stands, for a window of any size,
+//! and where everything stands on its board.
 //!
 //! Nothing here touches the ECS. Every item is a constant or a pure
-//! calculation over a [`Point`], a player or a recorded frame, which is what
-//! lets the tests assert that the whole vertical layout balances and fits
-//! inside the window, and that the board's marks fit their cell and one
-//! another, without building an app.
+//! calculation over the window's size, the room a Replay's label needs, a
+//! [`Point`], a player or a recorded frame. That is what lets the tests
+//! run [`viewer_layout`] at every size from the minimum to 2560x1440 in
+//! steps of 20 px, at the named sizes and at a few larger windows, and
+//! check that nothing overlaps and nothing leaves the window, and check
+//! that the board's marks fit their cell and one another, without building
+//! an app. [`super::layout`] spawns the furniture where this says and moves
+//! it whenever the window's size changes, and [`super::display`] puts the
+//! marks on the board where this says whenever playback crosses a recorded
+//! event boundary, the window's size changes or the board is spawned.
 //!
-//! Two rules here are more than arithmetic. [`score_badge_position`]: badges
-//! follow each cursor, clamp to the viewport and separate when the cursors
-//! overlap, so both stay legible - Player One's always on the left, since
-//! that order is what tells the two apart there, and the Key says so. And
-//! [`viewer_selection_position`]: two hidden selections of one point are
-//! drawn side by side, not one over the other. [`viewer_marker_layout`]
-//! says what decided the sizes of the two Replay-only marks.
+//! The viewer keeps its own, tighter grid constants rather than reusing the
+//! live board's, because its window also holds a header, transport controls
+//! and the Key and Match Settings modals.
+//!
+//! # Two arrangements
+//!
+//! Text never changes size. The board is the one thing that grows and
+//! shrinks, with every mark on it, from 0.79 of its own size at the
+//! smallest window up to twice it, and the camera does that
+//! ([`ViewerLayout::framing`]), so the board's own geometry - the grid,
+//! [`viewer_board_position`] and the sizes of the marks - is the same at
+//! every size. The interface finds its room by moving:
+//!
+//! * **Tall** is the 1040x900 layout: Back, the Replay's label and Match
+//!   Settings across the top, the timer, the round and the result line
+//!   under them, the board, and the transport row under the board. Laid
+//!   out in that window it is exactly the screen as it has always been,
+//!   but for a label that takes three lines there (below).
+//! * **Wide** lets the board fill the height above the transport row. Back
+//!   and Match Settings stay in the top corners, the label, the timer, the
+//!   round and the result line stand in a column under Back, and the
+//!   transport row stays under the board.
+//!
+//! Both centre the board across the window, which is where the Round 0
+//! countdown card is centred ([`crate::ui::countdown_card`]). In a window
+//! with more room than the board takes - one taller than tall needs, a wide
+//! one whose width limits the board, or one past the size where the board
+//! reaches twice its own - the whole of it, board and interface together,
+//! stands centred down the window as one piece.
+//!
+//! Which of the two a window gets is the rule the Match screen chooses by
+//! too ([`crate::ui::arrangement`]): wide only where it would draw the board
+//! more than 4% larger than tall would, and past the cap by the window's
+//! shape alone. With this screen's margins ([`viewer_arrangements`]), for a
+//! label that takes two lines in tall's header, every window narrower than
+//! about 1.20 times its height is tall, and a wider one is tall until wide
+//! gains that much. So the opening shape, 1040x900, is tall at every size,
+//! and a window 1040 px wide is wide up to 778 px tall and tall from 779.
+//! Past the cap a window is wide when it is more than about 1.20 times as
+//! wide as it is tall: 2560x1600, 3840x2160 and 5120x2880 are wide, as
+//! 2560x1440 is, and a portrait window is tall. A label that takes a third
+//! line in the window's header moves those figures, as the next section
+//! says.
+//!
+//! # Making room
+//!
+//! A window shorter than the opening one has less room around the board
+//! than it seems, because nothing but the board may shrink. What each place
+//! holds is sized for the longest text the screen writes there, with
+//! [`crate::ui::text_metrics`]:
+//!
+//! * **Wide's column** holds any label - up to 60 characters, set at 26 px
+//!   and wrapped at a word, or within a word too long for a line - over the
+//!   longest timer, round and result lines, and stands clear of the
+//!   transport row under it at every size. The column is narrowest in the
+//!   smallest wide windows, where most labels wrap: a recorded Replay's
+//!   default label, about 31 characters, takes three lines at 1040x600. In
+//!   a large window it holds such a label on one.
+//! * **Tall's header** gives the label the middle half of its row, as it
+//!   always has, and sets it in as many whole characters as fit there with
+//!   half a character to spare: 31 in the narrowest window, where every
+//!   label the game writes by itself, and most a player writes, takes two
+//!   lines at most. One that takes a third in the window's header
+//!   ([`TallLabelRoom`]) is given room for it, a line more above the board.
+//!   Where the height limits the board, as at 1040x900, that draws the
+//!   board a line smaller, its bottom and the transport row where they
+//!   were; where the window has height to spare, the header row rises half
+//!   a line and the board and the transport row drop half a line. It is
+//!   decided for each window, since a wider header can wrap a label onto
+//!   more lines as well as fewer. For a label that takes three lines in the
+//!   1040 px window's header, 1040 px wide windows are wide up to 809 px
+//!   tall; and past the cap the choice turns at about 1.17 times as wide as
+//!   tall, for a label that takes three in the window's own header. Until
+//!   this was made room for, such a label's last line ran over the timer.
+//! * **The score badges** are text drawn on the board, so the camera's zoom
+//!   would scale them too, and the floor on text size reads the sizes text
+//!   is set at, not the camera. Each is drawn at its own size whatever the
+//!   board does, and placed in window pixels: see [`score_badge_position`].
+//!
+//! Three of the column's texts have no longest once a limit is switched
+//! off, so their places are sized for assumptions, as the Match screen's
+//! are: a round under 10,000, a Replay under 1,000 minutes and scores under
+//! 1,000. Past them a line only grows, wrapping in the column, into room
+//! the column keeps under it; a test in `super` lays out a Replay a digit
+//! past all three and finds it clear.
+//!
+//! # The Key
+//!
+//! The Key ([`KeyColumns`]) is the one panel too tall for a short window: in
+//! one column, its ten rows stand under its title and introduction, with
+//! Close below them. In a window too short to hold that, it is as wide as
+//! the smallest window allows and sets its rows in two columns of five,
+//! the cursors, the score badges and the Teleport Markers on the left and
+//! the hidden choices and the stones on the right, with the title and the
+//! introduction across the top and Close under both.
+//!
+//! # Two rules that are more than arithmetic
+//!
+//! [`score_badge_position`]: badges follow each cursor, clamp to the window
+//! and separate when the cursors overlap, so both stay legible - Player
+//! One's always on the left, since that order is what tells the two apart
+//! there, and the Key says so. And [`viewer_selection_position`]: two hidden
+//! selections of one point are drawn side by side, not one over the other.
+//! [`viewer_marker_layout`] says what decided the sizes of the two
+//! Replay-only marks.
 
 use bevy::prelude::*;
 
 use super::player_index;
-use crate::app::visuals::{WINDOW_HEIGHT, WINDOW_WIDTH, cursor_visual_style};
+use super::wrap::{chars_per_line, wrapped_lines};
+use crate::app::visuals::{MIN_WINDOW_WIDTH, WorldFraming, cursor_visual_style};
 use crate::replay::ReplayFrame;
 use crate::rules::{BOARD_SIZE, Player, Point};
+use crate::ui::arrangement::{Arrangement, Arrangements, MAX_ZOOM, Margins};
+use crate::ui::text_metrics::{line_width, text_height};
 
 /// Side of the square each player's Teleport Marker is drawn on before it
 /// is turned on its point, Player One's first; see [`viewer_marker_layout`].
@@ -59,25 +159,128 @@ const VIEWER_SHARED_SELECTION_OFFSET: f32 = 15.0;
 /// star point included - and 16 across in the smaller one.
 pub(super) const VIEWER_SELECTION_STROKES: [f32; 3] = [2.0, 2.0, 2.0];
 pub(super) const SCORE_BADGE_SIZE: Vec2 = Vec2::new(42.0, 28.0);
+/// How far a score badge keeps from the window's edges.
 const SCORE_BADGE_EDGE_INSET: f32 = 4.0;
+/// How far a score badge stands off its cursor's corner, as both are
+/// drawn.
+const SCORE_BADGE_CURSOR_GAP: f32 = 4.0;
+/// The gap between two badges side by side on a shared point.
 const SCORE_BADGE_OVERLAP_GAP: f32 = 5.0;
 pub(super) const VIEWER_GRID_SPACING: f32 = 67.0;
 pub(super) const VIEWER_GRID_EXTENT: f32 = VIEWER_GRID_SPACING * (BOARD_SIZE as f32 - 1.0);
 pub(super) const VIEWER_BOARD_OUTER_SIZE: f32 = VIEWER_GRID_EXTENT + 78.0;
 pub(super) const VIEWER_BOARD_CENTER_Y: f32 = -45.0;
+/// The board's centre in world units, which the camera's framing draws at
+/// the centre of [`ViewerLayout::board`].
+const VIEWER_BOARD_WORLD_CENTER: Vec2 = Vec2::new(0.0, VIEWER_BOARD_CENTER_Y);
+
+/// The sizes the header's four texts are set at: the label, the timer, the
+/// round and the result line.
+pub(super) const VIEWER_LABEL_SIZE: f32 = 26.0;
+pub(super) const VIEWER_TIMER_SIZE: f32 = 18.0;
+pub(super) const VIEWER_ROUND_SIZE: f32 = 16.0;
+pub(super) const VIEWER_RESULT_SIZE: f32 = 14.0;
+/// The row of Back, tall's label and Match Settings: its top, from the top
+/// of its piece, and how far in from each side of the window it runs.
 pub(super) const VIEWER_HEADER_TOP: f32 = 12.0;
-pub(super) const VIEWER_TIMER_TOP: f32 = 80.0;
-pub(super) const VIEWER_ROUND_TOP: f32 = 104.0;
-pub(super) const VIEWER_RESULT_TOP: f32 = 128.0;
+pub(super) const VIEWER_HEADER_INSET: f32 = 22.0;
+/// The widths of the two buttons in that row.
+pub(super) const VIEWER_BACK_WIDTH: f32 = 86.0;
+pub(super) const VIEWER_MATCH_SETTINGS_WIDTH: f32 = 145.0;
+/// The result line's least height.
 pub(super) const VIEWER_RESULT_HEIGHT: f32 = 17.0;
+/// How far the transport row stands above the bottom of its piece, and the
+/// height of every button on the screen.
 pub(super) const VIEWER_CONTROL_BOTTOM: f32 = 22.0;
 pub(super) const VIEWER_CONTROL_HEIGHT: f32 = 38.0;
 pub(super) const VIEWER_MATCH_SETTINGS_MODAL_WIDTH: f32 = 620.0;
-pub(super) const VIEWER_MATCH_SETTINGS_MODAL_MAX_HEIGHT: f32 = 760.0;
-pub(super) const VIEWER_HEADER_BADGE_MIN_GAP: f32 = 16.0;
-pub(super) const VIEWER_HEADER_BOARD_MAX_GAP: f32 = 48.0;
-pub(super) const VIEWER_BOARD_CONTROL_MIN_GAP: f32 = 32.0;
-pub(super) const VIEWER_VERTICAL_BALANCE_TOLERANCE: f32 = 8.0;
+
+/// The room tall keeps around the board, which is the 1040x900 layout's.
+/// Above it, the row of Back, the label and Match Settings, the three lines
+/// under that row, and the room the top row's score badges rise into under
+/// them; below it, a gap, the transport row and its margin; and at each
+/// side, what is left of 1040 px. Tall keeps exactly this room around a
+/// board of any size, and a line more above it for a label that needs one
+/// ([`TallLabelRoom`]).
+const TALL_TOP: f32 = 188.0;
+const TALL_BOTTOM: f32 = 98.0;
+const TALL_SIDE: f32 = 213.0;
+/// The tops of tall's three lines under the label - the timer, the round
+/// and the result line - from the top of its piece.
+const TALL_LINE_TOPS: [f32; 3] = [80.0, 104.0, 128.0];
+
+/// The room wide keeps above the board, for the top row's score badges: a
+/// badge there stands 32 px less 5 px a zoom above the board's edge (see
+/// [`score_badge_position`]), so this keeps it 8 px or more inside the
+/// window.
+const WIDE_TOP: f32 = 40.0;
+/// The gap wide keeps between the board and the transport row.
+const WIDE_CONTROL_GAP: f32 = 16.0;
+/// The room wide keeps under the board: that gap, the transport row and its
+/// margin.
+const WIDE_BOTTOM: f32 = WIDE_CONTROL_GAP + VIEWER_CONTROL_HEIGHT + VIEWER_CONTROL_BOTTOM;
+/// The least room wide keeps at each side of the board. On the left it
+/// holds the column under Back. On the right, Match Settings stands in the
+/// top corner, beside the room above the board that the top row's score
+/// badges rise into, and a pair of badges on the board's top right point
+/// reaches 93 px less 5 px a zoom past the board's edge: this keeps that
+/// pair 8 px clear of the button in the narrowest wide window.
+const WIDE_SIDE: f32 = 264.0;
+/// Where wide's column under Back starts, down from the top of its piece,
+/// and how far it keeps from the window's side and from the board.
+const WIDE_COLUMN_TOP: f32 = 64.0;
+const WIDE_COLUMN_INSET: f32 = 22.0;
+/// The gaps between the texts in wide's column: under the label, under the
+/// timer and under the round.
+pub(super) const WIDE_COLUMN_GAPS: [f32; 3] = [34.0, 4.0, 6.0];
+
+/// The least gap the Key keeps from the window's edges.
+const KEY_EDGE: f32 = 12.0;
+/// The Key's panel, as wide as it has always been, in one column.
+pub(super) const KEY_ONE_COLUMN_WIDTH: f32 = 720.0;
+/// The Key's panel in two columns: the smallest window's width, less the
+/// Key's edge either side.
+pub(super) const KEY_TWO_COLUMN_WIDTH: f32 = MIN_WINDOW_WIDTH as f32 - 2.0 * KEY_EDGE;
+/// The gap between the Key's two columns.
+pub(super) const KEY_COLUMN_GAP: f32 = 24.0;
+/// The Key's panel's border and padding across: 2 px of border and 24 px
+/// of padding either side, which its rows stand inside.
+pub(super) const KEY_PANEL_FRAME: f32 = 2.0 * (2.0 + 24.0);
+/// The height of the Key's panel in one column, as `bevy_ui` lays it out
+/// at a scale factor of 1: 698 px, measured on 2026-11-28 with
+/// `the_key_stands_inside_the_window_in_either_form` in `super`, which
+/// holds it there. It is what the layout chooses the Key's form by. At a
+/// scale factor of 2 it measured 695 px, on that day's captures: text is
+/// rounded up to whole physical pixels, which a finer scale makes smaller.
+/// A scale factor below 1, as a zoomed-out browser has, was not measured,
+/// and could round it up further.
+pub(super) const KEY_ONE_COLUMN_HEIGHT: f32 = 698.0;
+/// The height of the Key's panel in two columns, measured the same way
+/// and held by the same test: 494 px, which leaves the smallest window 53
+/// px above and below it. Nothing chooses by it; the test holds the panel
+/// inside the window.
+#[cfg(test)]
+pub(super) const KEY_TWO_COLUMN_HEIGHT: f32 = 494.0;
+
+/// The most characters a Replay's label holds: the label rule that
+/// `crate::replay::validate_label` holds every Replay to.
+#[cfg(test)]
+const LABEL_MAX_CHARS: usize = 60;
+/// The longest timer, round and result lines that wide's column makes room
+/// for, as the display pass writes them: a Replay under 1,000 minutes, a
+/// round under 10,000 with Round Time on, and scores under 1,000 with a
+/// winner and a four-digit year. `super::display`'s tests build each with
+/// the screen's own functions and hold it to these, character for
+/// character but for which digit stands where - a line breaks alike
+/// whichever digits a number has - and `super`'s hold the screen to them
+/// as it draws them.
+#[cfg(test)]
+pub(super) const LONGEST_TIMER: &str = "999:59 / 999:59";
+#[cfg(test)]
+pub(super) const LONGEST_ROUND: &str = "Round 9999 - 60:00 remaining";
+#[cfg(test)]
+pub(super) const LONGEST_RESULT: &str =
+    "Black | Black 999 - White 998 | completed 2026-11-27 23:59";
 
 pub(super) fn viewer_cursor_position(frame: &ReplayFrame, player: Player) -> Vec2 {
     viewer_board_position(frame.cursors[player_index(player)])
@@ -202,54 +405,292 @@ pub(super) fn viewer_selection_position(point: Point, player: Player, shared: bo
     position + Vec2::new(offset, 0.0)
 }
 
-pub(super) fn viewer_header_board_gap() -> f32 {
-    viewer_board_top_from_window() - viewer_result_bottom()
-}
-
-pub(super) fn viewer_header_badge_gap() -> f32 {
-    let top_row_cursor = viewer_board_position(Point::new(0, BOARD_SIZE - 1));
-    let top_badge = score_badge_position(top_row_cursor, Player::Two, true);
-    let badge_top_from_window =
-        WINDOW_HEIGHT as f32 * 0.5 - (top_badge.y + SCORE_BADGE_SIZE.y * 0.5);
-    badge_top_from_window - viewer_result_bottom()
-}
-
-pub(super) fn viewer_board_controls_gap() -> f32 {
-    viewer_controls_top_from_window() - viewer_board_bottom_from_window()
-}
-
-const fn viewer_result_bottom() -> f32 {
-    VIEWER_RESULT_TOP + VIEWER_RESULT_HEIGHT
-}
-
-/// How far down the window the board's centre is drawn, in logical pixels:
-/// what the Round 0 countdown card is placed over.
-pub(super) const fn viewer_board_center_from_window() -> f32 {
-    WINDOW_HEIGHT as f32 * 0.5 - VIEWER_BOARD_CENTER_Y
-}
-
-const fn viewer_board_top_from_window() -> f32 {
-    WINDOW_HEIGHT as f32 * 0.5 - (VIEWER_BOARD_CENTER_Y + VIEWER_BOARD_OUTER_SIZE * 0.5)
-}
-
-const fn viewer_board_bottom_from_window() -> f32 {
-    WINDOW_HEIGHT as f32 * 0.5 - (VIEWER_BOARD_CENTER_Y - VIEWER_BOARD_OUTER_SIZE * 0.5)
-}
-
-const fn viewer_controls_top_from_window() -> f32 {
-    WINDOW_HEIGHT as f32 - VIEWER_CONTROL_BOTTOM - VIEWER_CONTROL_HEIGHT
-}
-
-/// Where `player`'s score badge sits: up and to the right of their cursor,
-/// inside the window.
+/// How tall sets the Replay's label, and how much room it gives it. The
+/// label has the middle half of the row between Back and Match Settings -
+/// half the window's width less the row's insets, 498 px in the narrowest
+/// window - and is set there in a node as wide as the whole characters that
+/// fit with half a character to spare, and half a character more
+/// ([`tall_label_chars`], [`ViewerLayout::tall_label_width`]): 31 characters
+/// at 26 px, in 491.4 px, in the narrowest window. `bevy_ui` rounds a node's
+/// edges to the display's pixels, so a label set across the whole middle
+/// could hold a character more or fewer than the layout counted: in a
+/// 1043 px window the middle is laid out 499.5 px wide, which holds 32, and
+/// `bevy_ui` draws it 499 px wide at a scale factor of 1, which holds 31;
+/// at another scale factor the rounding falls elsewhere. With half a
+/// character to spare either side, the count the layout makes is the count
+/// `bevy_ui` draws, at any scale factor.
 ///
-/// When both cursors share a point the two badges sit side by side, and
-/// they are identical but for a frame in each player's accent - 1.54:1
-/// apart, one colour to a player who cannot see hue. Their order is then
-/// the channel that says whose is whose, so it never changes: Player One's
-/// is the left one, the order the Viewer's result line names the players
-/// in (`Black 3 - White 5`), at the edge of the window as anywhere else.
-/// That was the owner's choice on 2026-10-03; `src/contrast.rs` cites it.
+/// Every label the game writes by itself takes two lines there at most, as
+/// do most a player writes, and two lines are what the row has always had
+/// room for. A label that takes three gets a line's more room above the
+/// board. Where the window's height limits the board, as at 1040x900, the
+/// board is drawn that much smaller - 0.949 of its size there - with the
+/// header row, the board's bottom and the transport row where they were,
+/// and the lines under the label a line lower; where the window has height
+/// to spare, the header row rises half a line and everything under the
+/// label drops half a line; and in between, a little of each.
+///
+/// It is decided for each window, by the characters that window's header
+/// holds: a wider header can wrap a label onto more lines as well as fewer.
+/// A space that does not fit on a line hangs past its end and the next line
+/// starts after it, but a space that fits is followed by the line-breaking
+/// rules, and no line starts with `!`: "Saturday night with my brothers !
+/// He won the final again" takes two lines at 31 characters, three at 32 -
+/// which the header holds in windows from 1059 to 1089 px wide - and two
+/// again from 33. So a resize across such a width moves the board by a
+/// line, for such a label.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TallLabelRoom {
+    TwoLines,
+    ThreeLines,
+}
+
+impl TallLabelRoom {
+    /// The room `label` needs in tall in a window `window_width` pixels
+    /// wide: the lines `bevy_ui` sets it on in that window's header, as
+    /// [`super::wrap`] works them out.
+    pub(super) fn for_label(label: &str, window_width: f32) -> Self {
+        if wrapped_lines(label, tall_label_chars(window_width), true) <= 2 {
+            Self::TwoLines
+        } else {
+            Self::ThreeLines
+        }
+    }
+
+    /// How much lower than the opening window's places tall stands what is
+    /// under the label.
+    const fn extra(self) -> f32 {
+        match self {
+            Self::TwoLines => 0.0,
+            Self::ThreeLines => text_height(1, VIEWER_LABEL_SIZE),
+        }
+    }
+}
+
+/// How many characters a line of tall's label holds in a window
+/// `window_width` pixels wide: as many as fit in the middle half of the
+/// header row with half a character to spare.
+pub(super) fn tall_label_chars(window_width: f32) -> usize {
+    let middle = (window_width - 2.0 * VIEWER_HEADER_INSET) / 2.0;
+    chars_per_line(
+        middle - line_width(1, VIEWER_LABEL_SIZE) / 2.0,
+        VIEWER_LABEL_SIZE,
+    )
+}
+
+/// The most lines any label takes `chars` characters wide. Each line but
+/// the last ends where what follows would not fit on it, so a line and the
+/// one after it hold more than `chars` characters between them, counting
+/// what the break between them takes; a label of up to
+/// [`LABEL_MAX_CHARS`] therefore takes at most twice that over `chars`,
+/// rounded down, and one line more.
+#[cfg(test)]
+fn longest_label_lines(chars: usize) -> usize {
+    (2 * (LABEL_MAX_CHARS / chars) + 1).min(LABEL_MAX_CHARS)
+}
+
+/// The two arrangements' margins and the board's cap, for a Replay whose
+/// label needs `label` in tall.
+pub(super) const fn viewer_arrangements(label: TallLabelRoom) -> Arrangements {
+    Arrangements {
+        tall: Margins {
+            top: TALL_TOP + label.extra(),
+            bottom: TALL_BOTTOM,
+            side: TALL_SIDE,
+        },
+        wide: Margins {
+            top: WIDE_TOP,
+            bottom: WIDE_BOTTOM,
+            side: WIDE_SIDE,
+        },
+        cap: VIEWER_BOARD_OUTER_SIZE * MAX_ZOOM,
+    }
+}
+
+/// How the Key sets its ten rows: in one column, as it always has, or in
+/// two side by side, in a window too short for one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum KeyColumns {
+    One,
+    Two,
+}
+
+/// How the Key is set in a window of `window`: in one column wherever the
+/// window holds that panel with the Key's edge above and below it.
+fn key_columns(window: Vec2) -> KeyColumns {
+    if window.y >= KEY_ONE_COLUMN_HEIGHT + 2.0 * KEY_EDGE {
+        KeyColumns::One
+    } else {
+        KeyColumns::Two
+    }
+}
+
+/// One of tall's three lines under the label.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum HeaderLine {
+    Timer,
+    Round,
+    Result,
+}
+
+/// Where everything in the Viewer stands in one window. Every length is in
+/// logical pixels from the window's top-left; the module docs give the
+/// rules.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ViewerLayout {
+    /// The size laid out for: the window's, raised to the minimum.
+    pub(super) window: Vec2,
+    pub(super) arrangement: Arrangement,
+    /// The board's wood, edge to edge, where it is drawn.
+    pub(super) board: Rect,
+    /// How far down the window the piece - board and interface together -
+    /// stands: half the height the window has beyond what the piece needs,
+    /// and zero wherever the board fills the height.
+    drop: f32,
+    /// How much lower than the opening window's places tall stands what is
+    /// under the label: a line, for a label that needs a third.
+    label_extra: f32,
+    pub(super) key: KeyColumns,
+}
+
+/// Lays the Viewer out for a window of `window` logical pixels, which the
+/// caller has already raised to the minimum with `WindowSize::layout`, for
+/// a Replay whose label needs `label` in tall: in the arrangement
+/// [`viewer_arrangements`] chooses, with the room it leaves the board,
+/// capped at twice the board's size.
+pub(super) fn viewer_layout(window: Vec2, label: TallLabelRoom) -> ViewerLayout {
+    let arrangements = viewer_arrangements(label);
+    let arrangement = arrangements.choose(window);
+    let size = arrangements.board(window, arrangement);
+    let margins = arrangements.margins(arrangement);
+    let drop = (window.y - (margins.top + size + margins.bottom)) / 2.0;
+    let left = (window.x - size) / 2.0;
+    let top = drop + margins.top;
+    ViewerLayout {
+        window,
+        arrangement,
+        board: Rect::new(left, top, left + size, top + size),
+        drop,
+        label_extra: match arrangement {
+            Arrangement::Tall => label.extra(),
+            Arrangement::Wide => 0.0,
+        },
+        key: key_columns(window),
+    }
+}
+
+impl ViewerLayout {
+    /// How large the board is drawn against its own size.
+    pub(super) fn zoom(&self) -> f32 {
+        self.board.width() / VIEWER_BOARD_OUTER_SIZE
+    }
+
+    /// The main camera's framing that draws the board where this layout
+    /// puts it: the board's centre at the centre of [`Self::board`], at
+    /// [`Self::zoom`].
+    pub(super) fn framing(&self) -> WorldFraming {
+        WorldFraming::placing(
+            VIEWER_BOARD_WORLD_CENTER,
+            self.board.center(),
+            self.window,
+            self.zoom(),
+        )
+    }
+
+    /// Where the world point `world` on the board is drawn, in logical
+    /// pixels from the window's top-left. World coordinates run up and
+    /// window coordinates down.
+    pub(super) fn window_point(&self, world: Vec2) -> Vec2 {
+        let from_center = (world - VIEWER_BOARD_WORLD_CENTER) * self.zoom();
+        let center = self.board.center();
+        Vec2::new(center.x + from_center.x, center.y - from_center.y)
+    }
+
+    /// The world point drawn at `window_point`: the inverse of
+    /// [`Self::window_point`].
+    fn world_point(&self, window_point: Vec2) -> Vec2 {
+        let from_center = (window_point - self.board.center()) / self.zoom();
+        VIEWER_BOARD_WORLD_CENTER + Vec2::new(from_center.x, -from_center.y)
+    }
+
+    /// Whether the label, the timer, the round and the result line stand in
+    /// the column under Back, as they do in wide, rather than across the
+    /// top.
+    pub(super) fn has_column(&self) -> bool {
+        self.arrangement == Arrangement::Wide
+    }
+
+    /// The top of the row of Back, tall's label and Match Settings.
+    pub(super) fn header_top(&self) -> f32 {
+        self.drop + VIEWER_HEADER_TOP
+    }
+
+    /// The top of one of tall's three lines under the label.
+    pub(super) fn tall_line_top(&self, line: HeaderLine) -> f32 {
+        let opening = match line {
+            HeaderLine::Timer => TALL_LINE_TOPS[0],
+            HeaderLine::Round => TALL_LINE_TOPS[1],
+            HeaderLine::Result => TALL_LINE_TOPS[2],
+        };
+        self.drop + self.label_extra + opening
+    }
+
+    /// The width of tall's label: the characters a line of it holds in this
+    /// window ([`tall_label_chars`]), and half a character more.
+    pub(super) fn tall_label_width(&self) -> f32 {
+        line_width(tall_label_chars(self.window.x), VIEWER_LABEL_SIZE)
+            + line_width(1, VIEWER_LABEL_SIZE) / 2.0
+    }
+
+    /// The left, top and width of wide's column under Back: from the
+    /// column's inset off the window's side to its inset off the board.
+    pub(super) fn column(&self) -> (f32, f32, f32) {
+        (
+            WIDE_COLUMN_INSET,
+            self.drop + WIDE_COLUMN_TOP,
+            self.board.min.x - 2.0 * WIDE_COLUMN_INSET,
+        )
+    }
+
+    /// How far the transport row's bottom stands above the window's.
+    pub(super) fn controls_bottom(&self) -> f32 {
+        self.drop + VIEWER_CONTROL_BOTTOM
+    }
+
+    /// The width of the Key's panel.
+    pub(super) fn key_width(&self) -> f32 {
+        match self.key {
+            KeyColumns::One => KEY_ONE_COLUMN_WIDTH,
+            KeyColumns::Two => KEY_TWO_COLUMN_WIDTH,
+        }
+    }
+}
+
+/// How large a score badge is drawn against how the board around it is: the
+/// inverse of the board's zoom, so that a badge, and the 15 px score in it,
+/// are drawn at their own size in logical pixels whatever the board does.
+/// Only across the screen; depth is left alone.
+pub(super) fn score_badge_scale(layout: &ViewerLayout) -> Vec3 {
+    let scale = 1.0 / layout.zoom();
+    Vec3::new(scale, scale, 1.0)
+}
+
+/// Where `player`'s score badge sits, as a world point on the board: up and
+/// to the right of their cursor, inside the window. Every length here is in
+/// the window's logical pixels, as the badge is drawn
+/// ([`score_badge_scale`]): it stands [`SCORE_BADGE_CURSOR_GAP`] off its
+/// cursor's corner, its cursor being drawn at the board's zoom, and stays
+/// [`SCORE_BADGE_EDGE_INSET`] inside the window, which is the part of the
+/// world the camera shows.
+///
+/// When both cursors share a point the two badges sit side by side,
+/// [`SCORE_BADGE_OVERLAP_GAP`] apart, and they are identical but for a
+/// frame in each player's accent - 1.54:1 apart, one colour to a player who
+/// cannot see hue. Their order is then the channel that says whose is whose,
+/// so it never changes: Player One's is the left one, the order the
+/// Viewer's result line names the players in (`Black 3 - White 5`), at the
+/// edge of the window as anywhere else. That was the owner's choice on
+/// 2026-10-03; `src/contrast.rs` cites it.
 ///
 /// It is not the order the game places players in - the Match screen puts
 /// Black / Player 1 on the right - and it was weighed against that on
@@ -257,28 +698,35 @@ const fn viewer_controls_top_from_window() -> f32 {
 /// readout in the game that puts two numbers in a row names Black first:
 /// the result line, the Replay Library's summary and a recorded Replay's
 /// default name. (The Match screen's end scores are not a row: each stands
-/// beside its own player's name, in that player's corner.) Read left to right, the pair agrees with the line
-/// above the board that gives the same two numbers. What the order lacked
-/// was being said, and the Key now says it, in a sentence and a swatch that
+/// beside its own player's name, in that player's corner.) Read left to
+/// right, the pair agrees with the result line, which gives the same two
+/// numbers. What the order lacked was being said, and the Key now says it,
+/// in a sentence and a swatch that
 /// `the_keys_badge_row_names_the_order_the_board_draws` in
 /// [`super::modals`] holds to this function, so the two cannot drift.
-pub(super) fn score_badge_position(cursor: Vec2, player: Player, cursors_overlap: bool) -> Vec2 {
-    let half_viewport = Vec2::new(WINDOW_WIDTH as f32, WINDOW_HEIGHT as f32) * 0.5;
+pub(super) fn score_badge_position(
+    cursor: Vec2,
+    player: Player,
+    cursors_overlap: bool,
+    layout: &ViewerLayout,
+) -> Vec2 {
+    let zoom = layout.zoom();
+    let cursor = layout.window_point(cursor);
     let half_badge = SCORE_BADGE_SIZE * 0.5;
-    let minimum = -half_viewport + half_badge + Vec2::splat(SCORE_BADGE_EDGE_INSET);
-    let maximum = half_viewport - half_badge - Vec2::splat(SCORE_BADGE_EDGE_INSET);
+    let inset = SCORE_BADGE_EDGE_INSET;
+    let minimum = half_badge + Vec2::splat(inset);
+    let maximum = layout.window - half_badge - Vec2::splat(inset);
+    let half_cursor = |player: Player| cursor_visual_style(player).size * zoom * 0.5;
     let position = if cursors_overlap {
-        let cursor_size = cursor_visual_style(Player::One)
-            .size
-            .max(cursor_visual_style(Player::Two).size);
-        let first_x = cursor.x + cursor_size * 0.5 + half_badge.x + 4.0;
+        let half_cursor = half_cursor(Player::One).max(half_cursor(Player::Two));
+        let first_x = cursor.x + half_cursor + half_badge.x + SCORE_BADGE_CURSOR_GAP;
         let second_x = first_x + SCORE_BADGE_SIZE.x + SCORE_BADGE_OVERLAP_GAP;
         let pair_left = first_x - half_badge.x;
         let pair_right = second_x + half_badge.x;
-        let horizontal_shift = if pair_right > half_viewport.x - SCORE_BADGE_EDGE_INSET {
-            half_viewport.x - SCORE_BADGE_EDGE_INSET - pair_right
-        } else if pair_left < -half_viewport.x + SCORE_BADGE_EDGE_INSET {
-            -half_viewport.x + SCORE_BADGE_EDGE_INSET - pair_left
+        let horizontal_shift = if pair_right > layout.window.x - inset {
+            layout.window.x - inset - pair_right
+        } else if pair_left < inset {
+            inset - pair_left
         } else {
             0.0
         };
@@ -287,26 +735,30 @@ pub(super) fn score_badge_position(cursor: Vec2, player: Player, cursors_overlap
                 Player::One => first_x,
                 Player::Two => second_x,
             } + horizontal_shift,
-            cursor.y + cursor_size * 0.5 + half_badge.y + 4.0,
+            cursor.y - (half_cursor + half_badge.y + SCORE_BADGE_CURSOR_GAP),
         )
     } else {
-        let cursor_size = cursor_visual_style(player).size;
+        let half_cursor = half_cursor(player);
         cursor
             + Vec2::new(
-                cursor_size * 0.5 + half_badge.x + 4.0,
-                cursor_size * 0.5 + half_badge.y + 4.0,
+                half_cursor + half_badge.x + SCORE_BADGE_CURSOR_GAP,
+                -(half_cursor + half_badge.y + SCORE_BADGE_CURSOR_GAP),
             )
     };
-    position.clamp(minimum, maximum)
+    layout.world_point(position.clamp(minimum, maximum))
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::wrap::for_each_line;
     use super::*;
     use crate::app::visuals::{
-        CursorVisualStyle, OUTLINE_ARM, STAR_POINT_RADIUS, STONE_RADIUS, stone_geometry,
+        CursorVisualStyle, NAMED_WINDOW_SIZES, OUTLINE_ARM, STAR_POINT_RADIUS, STONE_RADIUS,
+        WindowSize, layout_sweep, stone_geometry,
     };
     use crate::rules::Cell;
+    use crate::ui::arrangement::WIDE_GAIN;
+    use crate::ui::text_metrics::half_leading;
 
     /// Pins the decorative star-point table: exactly the five traditional
     /// 9x9 hoshi, in bounds, and symmetric as a *set* - mirroring every
@@ -610,89 +1062,988 @@ mod tests {
         );
     }
 
-    #[test]
-    fn replay_score_badges_follow_cursors_above_their_top_right_corner() {
-        let mut frame = ReplayFrame {
-            cursors: [Point::new(4, 4), Point::new(1, 1)],
-            ..default()
-        };
-        let cursor = viewer_cursor_position(&frame, Player::One);
-        let badge = score_badge_position(cursor, Player::One, false);
-        let cursor_style = cursor_visual_style(Player::One);
-
-        assert!(badge.x - SCORE_BADGE_SIZE.x * 0.5 > cursor.x + cursor_style.size * 0.5);
-        assert!(badge.y - SCORE_BADGE_SIZE.y * 0.5 > cursor.y + cursor_style.size * 0.5);
-
-        frame.cursors[0] = Point::new(5, 4);
-        let moved_cursor = viewer_cursor_position(&frame, Player::One);
-        let moved_badge = score_badge_position(moved_cursor, Player::One, false);
-        assert_eq!(moved_badge - badge, moved_cursor - cursor);
-        assert_eq!(moved_cursor.x - cursor.x, VIEWER_GRID_SPACING);
+    fn opening() -> ViewerLayout {
+        viewer_layout(WindowSize::OPENING.0, TallLabelRoom::TwoLines)
     }
 
-    /// Side by side, Player One's badge is the left one wherever the shared
-    /// point is - the order is what tells the two badges apart, so the
-    /// clamp at the window's edge shifts the pair without swapping it.
+    const LABEL_ROOMS: [TallLabelRoom; 2] = [TallLabelRoom::TwoLines, TallLabelRoom::ThreeLines];
+    const LINES: [HeaderLine; 3] = [HeaderLine::Timer, HeaderLine::Round, HeaderLine::Result];
+
+    /// In the opening window the layout is the one the screen has always
+    /// had, number for number: the board where it was, drawn at its own
+    /// size by a camera at a scale of 1 over the origin, and every piece of
+    /// interface where it was spawned before the layout adapted. The
+    /// numbers are written out, not this module's constants.
     #[test]
-    fn replay_score_badges_clamp_to_viewport_and_separate_overlap() {
-        let viewport_max = Vec2::new(WINDOW_WIDTH as f32, WINDOW_HEIGHT as f32) * 0.5
-            - SCORE_BADGE_SIZE * 0.5
-            - Vec2::splat(SCORE_BADGE_EDGE_INSET);
-        let clamped = score_badge_position(Vec2::new(10_000.0, 10_000.0), Player::One, false);
-        assert_eq!(clamped, viewport_max);
-
-        let cursor = Vec2::ZERO;
-        let black = score_badge_position(cursor, Player::One, true);
-        let white = score_badge_position(cursor, Player::Two, true);
-        assert!(
-            white.x - SCORE_BADGE_SIZE.x * 0.5
-                >= black.x + SCORE_BADGE_SIZE.x * 0.5 + SCORE_BADGE_OVERLAP_GAP
+    fn the_opening_window_is_laid_out_exactly_as_it_always_was() {
+        let opening = opening();
+        assert_eq!(opening.arrangement, Arrangement::Tall);
+        assert_eq!(opening.board, Rect::new(213.0, 188.0, 827.0, 802.0));
+        assert_eq!(opening.zoom(), 1.0);
+        assert_eq!(opening.framing(), WorldFraming::IDENTITY);
+        assert_eq!(
+            opening.window_point(Vec2::new(0.0, VIEWER_BOARD_CENTER_Y)),
+            Vec2::new(520.0, 495.0),
+            "the board's centre, 495 px down the window"
         );
-        assert_eq!(black.y, white.y);
-        let cursor_top = cursor_visual_style(Player::One)
-            .size
-            .max(cursor_visual_style(Player::Two).size)
-            * 0.5;
-        assert!(black.y - SCORE_BADGE_SIZE.y * 0.5 > cursor_top);
-
-        let edge_black = score_badge_position(Vec2::new(10_000.0, 0.0), Player::One, true);
-        let edge_white = score_badge_position(Vec2::new(10_000.0, 0.0), Player::Two, true);
-        assert_eq!(edge_white.x, viewport_max.x);
-        assert!(
-            edge_white.x - SCORE_BADGE_SIZE.x * 0.5
-                >= edge_black.x + SCORE_BADGE_SIZE.x * 0.5 + SCORE_BADGE_OVERLAP_GAP
+        assert_eq!(opening.header_top(), 12.0);
+        assert_eq!(
+            LINES.map(|line| opening.tall_line_top(line)),
+            [80.0, 104.0, 128.0]
         );
+        assert_eq!(opening.controls_bottom(), 22.0);
+        assert!(!opening.has_column());
+        assert_eq!(opening.key, KeyColumns::One);
+        assert_eq!(opening.key_width(), 720.0);
+        assert_eq!(score_badge_scale(&opening), Vec3::ONE);
+    }
 
-        // And on every point both cursors can really share.
-        for x in 0..BOARD_SIZE {
-            for y in 0..BOARD_SIZE {
-                let cursor = viewer_board_position(Point::new(x, y));
-                let black = score_badge_position(cursor, Player::One, true);
-                let white = score_badge_position(cursor, Player::Two, true);
+    /// The score badges in the opening window are where they always were,
+    /// number for number: up and to the right of a cursor by its half size
+    /// and the badge's, 4 px off its corner; a pair on a shared point side
+    /// by side 5 px apart; and a badge kept 4 px inside the window.
+    #[test]
+    fn the_opening_window_places_the_badges_where_it_always_did() {
+        let opening = opening();
+        let centre = Vec2::new(0.0, VIEWER_BOARD_CENTER_Y);
+        let place =
+            |cursor, player, overlap| score_badge_position(cursor, player, overlap, &opening);
+        assert_eq!(place(centre, Player::One, false), Vec2::new(59.0, 7.0));
+        assert_eq!(place(centre, Player::Two, false), Vec2::new(51.0, -1.0));
+        assert_eq!(place(centre, Player::One, true), Vec2::new(59.0, 7.0));
+        assert_eq!(place(centre, Player::Two, true), Vec2::new(106.0, 7.0));
+        let top_right = Vec2::new(268.0, 223.0);
+        assert_eq!(place(top_right, Player::One, true), Vec2::new(327.0, 275.0));
+        assert_eq!(place(top_right, Player::Two, true), Vec2::new(374.0, 275.0));
+        let far = Vec2::new(10_000.0, 10_000.0);
+        assert_eq!(place(far, Player::One, false), Vec2::new(495.0, 432.0));
+        assert_eq!(place(far, Player::Two, true), Vec2::new(495.0, 432.0));
+        assert_eq!(place(far, Player::One, true), Vec2::new(448.0, 432.0));
+    }
+
+    /// The two rooms a window of `size` leaves the board, tall's and
+    /// wide's, before the cap, worked out here from the margins written
+    /// out as numbers rather than by the functions under test: tall keeps
+    /// 188 px above the board, or a line of 26 px text more for a label
+    /// that needs it, 98 below and 213 a side; wide 40 above, 76 below and
+    /// 264 a side.
+    fn rooms(size: Vec2, label: TallLabelRoom) -> (f32, f32) {
+        let above = match label {
+            TallLabelRoom::TwoLines => 188.0,
+            TallLabelRoom::ThreeLines => 188.0 + 31.2,
+        };
+        (
+            (size.x - 426.0).min(size.y - above - 98.0),
+            (size.x - 528.0).min(size.y - 116.0),
+        )
+    }
+
+    /// The board's cap: twice its own 614 px.
+    const CAP: f32 = 1228.0;
+
+    /// Whether `size` should be wide, decided here as the arrangement
+    /// module says: by the two rooms below the cap; past it, by the rooms
+    /// of the same shape scaled down until the larger is at the cap, which
+    /// this finds by halving rather than by the closed form the rule uses.
+    fn expected_wide(size: Vec2, label: TallLabelRoom) -> bool {
+        let larger = |size: Vec2| {
+            let (tall, wide) = rooms(size, label);
+            tall.max(wide)
+        };
+        let mut at = size;
+        if larger(size) > CAP {
+            let (mut low, mut high) = (0.0_f32, 1.0_f32);
+            for _ in 0..48 {
+                let middle = (low + high) / 2.0;
+                if larger(size * middle) < CAP {
+                    low = middle;
+                } else {
+                    high = middle;
+                }
+            }
+            at = size * high;
+        }
+        let (tall, wide) = rooms(at, label);
+        wide > tall * WIDE_GAIN
+    }
+
+    /// Every window gets a board between the smallest window's and twice
+    /// its own size: inside the window, centred across it, square, and
+    /// within its arrangement's margins. The arrangement is the one the
+    /// shared rule gives these margins, worked out here for itself, and the
+    /// board is its room, capped, so a larger window never gets a board
+    /// smaller by more than the rule's 4%. Every window narrower than 1.19
+    /// times its height is tall, or 1.16 for a label that needs a third
+    /// line, as the module docs say. All of it for either room the label
+    /// can need.
+    #[test]
+    fn the_board_grows_with_the_window_from_the_smallest_up_to_twice_its_size() {
+        let smallest = viewer_layout(WindowSize::MINIMUM.0, TallLabelRoom::TwoLines).zoom();
+        assert!(
+            (0.785..0.795).contains(&smallest),
+            "the smallest window's board is 0.79 of its own size: {smallest}"
+        );
+        for label in LABEL_ROOMS {
+            let mut both = [false, false];
+            for size in layout_sweep() {
+                let layout = viewer_layout(size, label);
+                let (board, zoom) = (layout.board, layout.zoom());
+                let context = format!("{size} {label:?}");
                 assert!(
-                    white.x - SCORE_BADGE_SIZE.x * 0.5
-                        >= black.x + SCORE_BADGE_SIZE.x * 0.5 + SCORE_BADGE_OVERLAP_GAP,
-                    "at ({x}, {y}) Player One's badge is not the left one"
+                    zoom >= smallest - 1e-5 && zoom <= 2.0 + 1e-5,
+                    "{context}: {zoom}"
                 );
-                assert_eq!(black.y, white.y, "at ({x}, {y})");
+                assert!((board.width() - board.height()).abs() < 1e-3, "{context}");
+                assert!((board.center().x - size.x / 2.0).abs() < 1e-3, "{context}");
+                let wide = expected_wide(size, label);
+                assert_eq!(layout.arrangement == Arrangement::Wide, wide, "{context}");
+                let (tall_room, wide_room) = rooms(size, label);
+                let room = if wide { wide_room } else { tall_room };
+                assert!(
+                    (board.width() - room.min(CAP)).abs() < 1e-3,
+                    "{context}: {board:?} for a room of {room}"
+                );
+                let margins = viewer_arrangements(label).margins(layout.arrangement);
+                assert!(
+                    board.min.y >= margins.top - 1e-3
+                        && board.max.y <= size.y - margins.bottom + 1e-3
+                        && board.min.x >= margins.side - 1e-3,
+                    "{context}: {board:?}"
+                );
+                let narrow = match label {
+                    TallLabelRoom::TwoLines => 1.19,
+                    TallLabelRoom::ThreeLines => 1.16,
+                };
+                if size.x / size.y < narrow {
+                    assert_eq!(layout.arrangement, Arrangement::Tall, "{context}");
+                }
+                both[usize::from(wide)] = true;
+                for larger in [size + Vec2::new(20.0, 0.0), size + Vec2::new(0.0, 20.0)] {
+                    assert!(
+                        viewer_layout(larger, label).zoom() * WIDE_GAIN >= zoom - 1e-5,
+                        "{context} -> {larger}"
+                    );
+                }
+            }
+            assert_eq!(both, [true, true], "{label:?}: the sweep reaches both");
+        }
+    }
+
+    /// The figures this layout gives the named windows: its arrangement and
+    /// the board's zoom, which the layout holds to within 0.01 - tall at its
+    /// own size in the opening window, and wide everywhere else, from 0.79
+    /// at the minimum to twice its size at 2560x1440.
+    #[test]
+    fn each_named_window_gets_its_arrangement_and_zoom() {
+        let expected = [
+            (Arrangement::Tall, 1.00),
+            (Arrangement::Wide, 0.79),
+            (Arrangement::Wide, 0.86),
+            (Arrangement::Wide, 0.98),
+            (Arrangement::Wide, 0.93),
+            (Arrangement::Wide, 1.06),
+            (Arrangement::Wide, 1.19),
+            (Arrangement::Wide, 1.57),
+            (Arrangement::Wide, 2.00),
+        ];
+        for (size, (arrangement, zoom)) in NAMED_WINDOW_SIZES.into_iter().zip(expected) {
+            let layout = viewer_layout(size, TallLabelRoom::TwoLines);
+            assert_eq!(layout.arrangement, arrangement, "{size}");
+            assert!(
+                (layout.zoom() - zoom).abs() <= 0.01,
+                "{size}: {} against {zoom}",
+                layout.zoom()
+            );
+        }
+    }
+
+    /// Where the arrangement turns, pinned on both sides: a window 1040 px
+    /// wide is wide up to 778 px tall and tall from 779, or for a label
+    /// that takes a third line in that window's header, wide up to 809 and
+    /// tall from 810. The opening shape is tall at every size. Past the cap
+    /// the shape alone decides for a given room, at about 1.197 times as
+    /// wide as tall, or 1.172 for a label that takes a third line in the
+    /// window's own header: 0.002 narrower is tall and 0.002 wider wide,
+    /// however large the window; and shape by shape past the cap, the
+    /// choice is the one [`expected_wide`] works out for itself.
+    #[test]
+    fn the_arrangement_turns_where_the_module_docs_say() {
+        for (label, last_wide, first_tall, boundary) in [
+            (TallLabelRoom::TwoLines, 778.0, 779.0, 1.197),
+            (TallLabelRoom::ThreeLines, 809.0, 810.0, 1.172),
+        ] {
+            let at = |width: f32, height: f32| {
+                viewer_layout(Vec2::new(width, height), label).arrangement
+            };
+            assert_eq!(at(1040.0, last_wide), Arrangement::Wide, "{label:?}");
+            assert_eq!(at(1040.0, first_tall), Arrangement::Tall, "{label:?}");
+            for scale in [1.0, 1.5, 2.0, 3.0, 5.0] {
+                let size = WindowSize::OPENING.0 * scale;
+                assert_eq!(at(size.x, size.y), Arrangement::Tall, "{label:?} {size}");
+            }
+            for height in [2_000.0, 3_000.0, 5_000.0, 10_000.0] {
+                let (tall, wide) = rooms(Vec2::new(height * boundary, height), label);
+                assert!(tall.max(wide) > CAP, "{height} is past the cap");
+                assert_eq!(at(height * (boundary - 0.002), height), Arrangement::Tall);
+                assert_eq!(at(height * (boundary + 0.002), height), Arrangement::Wide);
+            }
+            let mut both = [false, false];
+            for step in 0..=2_400 {
+                let aspect = 0.8 + step as f32 * 0.0005;
+                for height in [2_000.0, 6_000.0] {
+                    let size = Vec2::new(height * aspect, height);
+                    let wide = expected_wide(size, label);
+                    let expected = if wide {
+                        Arrangement::Wide
+                    } else {
+                        Arrangement::Tall
+                    };
+                    assert_eq!(at(size.x, size.y), expected, "{label:?} {size}");
+                    both[usize::from(wide)] = true;
+                }
+            }
+            assert_eq!(both, [true, true], "{label:?}: the shapes reach both");
+        }
+        for (size, arrangement) in [
+            (Vec2::new(2560.0, 1440.0), Arrangement::Wide),
+            (Vec2::new(2560.0, 1600.0), Arrangement::Wide),
+            (Vec2::new(3840.0, 2160.0), Arrangement::Wide),
+            (Vec2::new(5120.0, 2880.0), Arrangement::Wide),
+            (Vec2::new(1440.0, 2560.0), Arrangement::Tall),
+            (Vec2::new(2160.0, 3840.0), Arrangement::Tall),
+        ] {
+            let layout = viewer_layout(size, TallLabelRoom::TwoLines);
+            assert_eq!(layout.arrangement, arrangement, "{size}");
+        }
+    }
+
+    /// A window smaller than the minimum in either direction is laid out as
+    /// the minimum would be in that direction.
+    #[test]
+    fn a_window_below_the_minimum_is_laid_out_at_the_minimum() {
+        let layout = |width, height| {
+            viewer_layout(
+                WindowSize(Vec2::new(width, height)).layout(),
+                TallLabelRoom::TwoLines,
+            )
+        };
+        assert_eq!(layout(800.0, 500.0), layout(1040.0, 600.0));
+        assert_eq!(layout(1600.0, 400.0), layout(1600.0, 600.0));
+        assert_eq!(layout(900.0, 900.0), layout(1040.0, 900.0));
+    }
+
+    /// The tops of the four things a moved piece carries: the header row,
+    /// tall's lines, wide's column and the board, and the transport row's
+    /// bottom.
+    fn tops(layout: &ViewerLayout) -> Vec<f32> {
+        let mut tops = vec![layout.header_top(), layout.column().1, layout.board.min.y];
+        tops.extend(LINES.map(|line| layout.tall_line_top(line)));
+        tops.push(-layout.controls_bottom());
+        tops
+    }
+
+    /// A window with more room than the piece needs keeps the piece whole
+    /// and centres it, in either arrangement: the header, the board and the
+    /// transport row move down together, by half the height added. In
+    /// tall, a window taller than the opening one; in wide, one past the
+    /// size where the board reaches its cap, and one whose width limits the
+    /// board, where the piece stands centred from the first.
+    #[test]
+    fn a_window_with_room_to_spare_centres_the_piece_in_either_arrangement() {
+        let moved_down = |from: Vec2, to: Vec2, by: f32| {
+            let (from, to) = (
+                viewer_layout(from, TallLabelRoom::TwoLines),
+                viewer_layout(to, TallLabelRoom::TwoLines),
+            );
+            assert_eq!(from.arrangement, to.arrangement);
+            assert_eq!(from.board.size(), to.board.size());
+            let moves: Vec<f32> = tops(&to)
+                .iter()
+                .zip(tops(&from))
+                .map(|(to, from)| to - from)
+                .collect();
+            let mut expected = vec![by; moves.len()];
+            *expected.last_mut().unwrap() = -by;
+            assert!(
+                moves
+                    .iter()
+                    .zip(&expected)
+                    .all(|(moved, by)| (moved - by).abs() < 1e-3),
+                "{} -> {}: {moves:?}",
+                from.window,
+                to.window
+            );
+        };
+        moved_down(Vec2::new(1040.0, 900.0), Vec2::new(1040.0, 1100.0), 100.0);
+        // 2560x1344 is the window whose height the capped board and its
+        // margins fill exactly.
+        let filled = viewer_layout(Vec2::new(2560.0, 1344.0), TallLabelRoom::TwoLines);
+        assert_eq!(filled.arrangement, Arrangement::Wide);
+        assert!((filled.board.min.y - 40.0).abs() < 1e-3);
+        moved_down(Vec2::new(2560.0, 1344.0), Vec2::new(2560.0, 1544.0), 100.0);
+        // At 1040x700 the width limits a wide board to 512 px, which leaves
+        // 36 px above the piece and below it.
+        let narrow = viewer_layout(Vec2::new(1040.0, 700.0), TallLabelRoom::TwoLines);
+        assert_eq!(narrow.arrangement, Arrangement::Wide);
+        assert_eq!(narrow.board.width(), 512.0);
+        assert!((narrow.header_top() - 12.0 - 36.0).abs() < 1e-3);
+        assert!((narrow.controls_bottom() - 22.0 - 36.0).abs() < 1e-3);
+    }
+
+    /// A label that takes a third line in tall gets a line's more room, a
+    /// 26 px line of 31.2 px, between the header row and the board, the
+    /// lines under the label keeping their place above the board. Where the
+    /// window has height to spare - 1040x1100 and 1300x1300 here - the board
+    /// keeps its size and the piece is centred anew: the header row rises
+    /// half a line, and the board, the lines over it and the transport row
+    /// drop half a line. In the opening window, whose height limits the
+    /// board, the board is drawn a line smaller, its top a line lower and its
+    /// bottom where it was, with the header row and the transport row where
+    /// they were. In wide nothing moves.
+    #[test]
+    fn a_label_that_takes_a_third_line_gets_a_lines_more_room_in_tall() {
+        let line = 31.2;
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-3;
+        for size in [Vec2::new(1040.0, 1100.0), Vec2::new(1300.0, 1300.0)] {
+            let two = viewer_layout(size, TallLabelRoom::TwoLines);
+            let three = viewer_layout(size, TallLabelRoom::ThreeLines);
+            assert_eq!(two.arrangement, Arrangement::Tall, "{size}");
+            assert_eq!(three.arrangement, Arrangement::Tall, "{size}");
+            assert!(
+                close(two.board.width(), three.board.width()),
+                "{size}: the board keeps its size"
+            );
+            assert!(
+                close(three.header_top(), two.header_top() - line / 2.0),
+                "{size}: the header row rises half a line"
+            );
+            assert!(
+                close(three.board.min.y, two.board.min.y + line / 2.0),
+                "{size}: the board drops half a line"
+            );
+            assert!(
+                close(three.controls_bottom(), two.controls_bottom() - line / 2.0),
+                "{size}: the transport row drops half a line"
+            );
+            for line_name in LINES {
+                assert!(
+                    close(
+                        three.board.min.y - three.tall_line_top(line_name),
+                        two.board.min.y - two.tall_line_top(line_name)
+                    ),
+                    "{size}: {line_name:?} keeps its place above the board"
+                );
+            }
+        }
+        let wide = Vec2::new(1280.0, 641.0);
+        assert_eq!(
+            viewer_layout(wide, TallLabelRoom::ThreeLines),
+            viewer_layout(wide, TallLabelRoom::TwoLines)
+        );
+        let (two, three) = (
+            opening(),
+            viewer_layout(WindowSize::OPENING.0, TallLabelRoom::ThreeLines),
+        );
+        let expected = Rect::new(228.6, 219.2, 811.4, 802.0);
+        assert!(
+            (three.board.min - expected.min).abs().max_element() < 1e-3
+                && (three.board.max - expected.max).abs().max_element() < 1e-3,
+            "the opening window's board, a line smaller, its bottom where it was: {:?}",
+            three.board
+        );
+        assert!(close(three.zoom(), 582.8 / 614.0), "{}", three.zoom());
+        assert_eq!(three.header_top(), two.header_top());
+        assert_eq!(three.controls_bottom(), two.controls_bottom());
+        assert!(close(
+            three.tall_line_top(HeaderLine::Timer),
+            two.tall_line_top(HeaderLine::Timer) + line
+        ));
+    }
+
+    /// A box from its left, top, width and height.
+    fn rect(left: f32, top: f32, width: f32, height: f32) -> Rect {
+        Rect::new(left, top, left + width, top + height)
+    }
+
+    /// The box of `chars` characters at `font_px`, on `lines` lines, centred
+    /// across a window `width` wide with its top at `top`: the em box of
+    /// its lines, which is its line box less the leading.
+    fn centred_text(width: f32, top: f32, chars: usize, lines: usize, font_px: f32) -> Rect {
+        let leading = half_leading(font_px);
+        let line = line_width(chars, font_px);
+        Rect::new(
+            (width - line) / 2.0,
+            top + leading,
+            (width + line) / 2.0,
+            top + text_height(lines, font_px) - leading,
+        )
+    }
+
+    /// The lines `text` takes in wide's column, `chars` characters to a
+    /// line, as the column's timer, round and result line are set: never
+    /// broken inside a word. Every line's characters, but for the spaces
+    /// that hang past its end, fit it, so that none runs past the column.
+    fn column_lines(text: &str, chars: usize) -> usize {
+        let mut starts = Vec::new();
+        for_each_line(text.as_bytes(), chars, false, |start| starts.push(start));
+        let lines = starts.len();
+        starts.push(text.len());
+        for line in starts.windows(2) {
+            let shown = text[line[0]..line[1]].trim_end_matches(' ');
+            assert!(
+                shown.len() <= chars,
+                "{text:?} runs past a line of {chars}: {shown:?}"
+            );
+        }
+        lines
+    }
+
+    /// The tallest wide's column grows: the longest label it can hold, the
+    /// longest timer, round and result lines, and the gaps between them, at
+    /// the column's width, with a pixel for each text that `bevy_ui` rounds
+    /// up to whole pixels. `bevy_ui` also rounds the column's edges to the
+    /// display's pixels, so its texts may be set a pixel narrower or wider
+    /// than the layout's width, and a line hold a character fewer or more:
+    /// each text is counted at the most lines it takes at either.
+    fn column_height(width: f32) -> f32 {
+        let lines = |text: &str, font_px: f32| {
+            [width - 1.0, width + 1.0]
+                .map(|width| column_lines(text, chars_per_line(width, font_px)))
+                .into_iter()
+                .max()
+                .unwrap()
+        };
+        let label = longest_label_lines(chars_per_line(width - 1.0, VIEWER_LABEL_SIZE));
+        text_height(label, VIEWER_LABEL_SIZE)
+            + text_height(lines(LONGEST_TIMER, VIEWER_TIMER_SIZE), VIEWER_TIMER_SIZE)
+            + text_height(lines(LONGEST_ROUND, VIEWER_ROUND_SIZE), VIEWER_ROUND_SIZE)
+            + text_height(
+                lines(LONGEST_RESULT, VIEWER_RESULT_SIZE),
+                VIEWER_RESULT_SIZE,
+            )
+            .max(VIEWER_RESULT_HEIGHT)
+            + WIDE_COLUMN_GAPS.iter().sum::<f32>()
+            + 4.0
+    }
+
+    /// Every box `layout` makes room for, at its largest, labelled: the row
+    /// of Back, Match Settings and, in tall, the label at as many lines as
+    /// the label needs; tall's three lines at their longest, or wide's
+    /// column at its tallest; the board; the countdown card; and the
+    /// transport row.
+    fn boxes(layout: &ViewerLayout, label: TallLabelRoom) -> Vec<(String, Rect)> {
+        use super::super::layout::{VIEWER_COUNTDOWN_CARD, viewer_controls_width};
+
+        let window = layout.window;
+        let label_lines = match (layout.has_column(), label) {
+            (true, _) => 0,
+            (false, TallLabelRoom::TwoLines) => 2,
+            (false, TallLabelRoom::ThreeLines) => 3,
+        };
+        let row = VIEWER_CONTROL_HEIGHT.max(text_height(label_lines, VIEWER_LABEL_SIZE));
+        let button_top = layout.header_top() + (row - VIEWER_CONTROL_HEIGHT) / 2.0;
+        let mut boxes = vec![
+            (
+                "Back".to_string(),
+                rect(
+                    VIEWER_HEADER_INSET,
+                    button_top,
+                    VIEWER_BACK_WIDTH,
+                    VIEWER_CONTROL_HEIGHT,
+                ),
+            ),
+            (
+                "Match Settings".into(),
+                rect(
+                    window.x - VIEWER_HEADER_INSET - VIEWER_MATCH_SETTINGS_WIDTH,
+                    button_top,
+                    VIEWER_MATCH_SETTINGS_WIDTH,
+                    VIEWER_CONTROL_HEIGHT,
+                ),
+            ),
+            ("board".into(), layout.board),
+        ];
+        if layout.has_column() {
+            let (left, top, width) = layout.column();
+            boxes.push((
+                "column".into(),
+                rect(left, top, width, column_height(width)),
+            ));
+        } else {
+            let quarter = (window.x - 2.0 * VIEWER_HEADER_INSET) / 4.0;
+            let height = text_height(label_lines, VIEWER_LABEL_SIZE);
+            boxes.push((
+                "label".into(),
+                rect(
+                    VIEWER_HEADER_INSET + quarter,
+                    layout.header_top() + (row - height) / 2.0,
+                    2.0 * quarter,
+                    height,
+                ),
+            ));
+            for (line, text, font_px) in [
+                (HeaderLine::Timer, LONGEST_TIMER, VIEWER_TIMER_SIZE),
+                (HeaderLine::Round, LONGEST_ROUND, VIEWER_ROUND_SIZE),
+                (HeaderLine::Result, LONGEST_RESULT, VIEWER_RESULT_SIZE),
+            ] {
+                let top = layout.tall_line_top(line);
+                boxes.push((
+                    format!("{line:?}"),
+                    centred_text(window.x, top, text.len(), 1, font_px),
+                ));
+            }
+        }
+        let card = VIEWER_COUNTDOWN_CARD.size;
+        let card_top = VIEWER_COUNTDOWN_CARD.overlay_top(layout.board.center().y, layout.zoom());
+        boxes.push((
+            "countdown card".into(),
+            rect((window.x - card.x) / 2.0, card_top, card.x, card.y),
+        ));
+        let controls = viewer_controls_width();
+        boxes.push((
+            "transport row".into(),
+            rect(
+                (window.x - controls) / 2.0,
+                window.y - layout.controls_bottom() - VIEWER_CONTROL_HEIGHT,
+                controls,
+                VIEWER_CONTROL_HEIGHT,
+            ),
+        ));
+        boxes
+    }
+
+    /// The score badges at their highest - where the top row's cursors put
+    /// them - at either end of the row: each player's alone, and the pair
+    /// that a shared point shows. Each is drawn as a box the badge's own
+    /// size in window pixels, around where [`score_badge_position`] puts it.
+    fn top_row_badges(layout: &ViewerLayout) -> Vec<(String, Rect)> {
+        let mut badges = Vec::new();
+        for x in [0, BOARD_SIZE - 1] {
+            let point = viewer_board_position(Point::new(x, BOARD_SIZE - 1));
+            for (shared, kind) in [(false, "alone"), (true, "paired")] {
+                for player in Player::ALL {
+                    let world = score_badge_position(point, player, shared, layout);
+                    badges.push((
+                        format!("{player:?}'s badge {kind} at {x}"),
+                        Rect::from_center_size(layout.window_point(world), SCORE_BADGE_SIZE),
+                    ));
+                }
+            }
+        }
+        badges
+    }
+
+    /// The heart of it: at every size, everything the screen can show at
+    /// its largest stands inside the window and at least a pixel clear of
+    /// everything else - for either room a label can need in tall. The
+    /// board is the one thing meant to have things over it: the countdown
+    /// card, and the score badges, which stand up and to the right of their
+    /// cursors and so reach past its edge into the room kept around it.
+    /// Two badges are held apart only where they are shown together as a
+    /// pair; one cursor's badge may meet another's, as it always could when
+    /// the two stand on neighbouring points. The positive half is the
+    /// count: every size lays out every box.
+    #[test]
+    fn nothing_overlaps_and_nothing_leaves_the_window_at_any_size() {
+        let meets = |a: &Rect, b: &Rect| !a.inflate(0.5).intersect(b.inflate(0.5)).is_empty();
+        for label in LABEL_ROOMS {
+            for size in layout_sweep() {
+                let layout = viewer_layout(size, label);
+                let context = format!("{size} ({:?}, {label:?})", layout.arrangement);
+                let boxes = boxes(&layout, label);
+                let badges = top_row_badges(&layout);
+                let expected = if layout.has_column() { 6 } else { 9 };
+                assert_eq!(boxes.len(), expected, "{context}: {boxes:?}");
+                assert_eq!(badges.len(), 8, "{context}");
+                let window = Rect::from_corners(Vec2::ZERO, size);
+                for (name, rect) in boxes.iter().chain(&badges) {
+                    assert!(
+                        window.contains(rect.min) && window.contains(rect.max),
+                        "{context}: {name} {rect:?} leaves the window"
+                    );
+                }
+                for (index, (name, rect)) in boxes.iter().enumerate() {
+                    for (other, other_rect) in &boxes[index + 1..] {
+                        let names = [name.as_str(), other.as_str()];
+                        if names.contains(&"board") && names.contains(&"countdown card") {
+                            // Held over the board below.
+                            continue;
+                        }
+                        assert!(
+                            !meets(rect, other_rect),
+                            "{context}: {name} {rect:?} meets {other} {other_rect:?}"
+                        );
+                    }
+                    if name == "board" {
+                        continue;
+                    }
+                    for (badge, badge_rect) in &badges {
+                        assert!(
+                            !meets(rect, badge_rect),
+                            "{context}: {name} {rect:?} meets {badge} {badge_rect:?}"
+                        );
+                    }
+                }
+                for pair in badges.chunks(4) {
+                    let (one, two) = (&pair[2], &pair[3]);
+                    assert!(one.0.contains("paired") && two.0.contains("paired"));
+                    assert!(
+                        !meets(&one.1, &two.1),
+                        "{context}: {} {:?} meets {} {:?}",
+                        one.0,
+                        one.1,
+                        two.0,
+                        two.1
+                    );
+                }
+                let card = boxes
+                    .iter()
+                    .find(|(name, _)| name == "countdown card")
+                    .unwrap()
+                    .1;
+                assert!(
+                    layout.board.contains(card.min) && layout.board.contains(card.max),
+                    "{context}: the card {card:?} stands over the board"
+                );
             }
         }
     }
 
+    /// Tall keeps the room the 1040x900 layout keeps between its parts at
+    /// every size: 43 px from the result line to the board and 38 from the
+    /// board to the transport row, within 8 of each other, so the board
+    /// stands balanced between them; and the top row's score badges, which
+    /// rise above the board by 32 px less 5 px a zoom, at least 15 px under
+    /// the result line - 16 at the board's own size.
     #[test]
-    fn replay_viewer_vertical_layout_is_compact_safe_balanced_and_fits() {
-        let header_board_gap = viewer_header_board_gap();
-        let board_controls_gap = viewer_board_controls_gap();
+    fn tall_keeps_its_gaps_balanced_and_the_badges_clear_of_the_header() {
+        let mut seen = 0;
+        for label in LABEL_ROOMS {
+            for size in layout_sweep() {
+                let layout = viewer_layout(size, label);
+                if layout.has_column() {
+                    continue;
+                }
+                seen += 1;
+                let result_bottom = layout.tall_line_top(HeaderLine::Result) + VIEWER_RESULT_HEIGHT;
+                let above = layout.board.min.y - result_bottom;
+                let controls_top = size.y - layout.controls_bottom() - VIEWER_CONTROL_HEIGHT;
+                let below = controls_top - layout.board.max.y;
+                assert!((above - 43.0).abs() < 1e-3, "{size}: {above}");
+                assert!((below - 38.0).abs() < 1e-3, "{size}: {below}");
+                let highest = top_row_badges(&layout)
+                    .iter()
+                    .map(|(_, badge)| badge.min.y)
+                    .fold(f32::MAX, f32::min);
+                let gap = highest - result_bottom;
+                assert!(gap >= 15.0, "{size}: {gap}");
+                assert!(
+                    (gap - (11.0 + 5.0 * layout.zoom())).abs() < 1e-3,
+                    "{size}: {gap}"
+                );
+            }
+        }
+        assert!(seen > 100, "the sweep reaches tall: {seen}");
+        let opening = opening();
+        let result_bottom = opening.tall_line_top(HeaderLine::Result) + VIEWER_RESULT_HEIGHT;
+        let highest = opening.window_point(score_badge_position(
+            viewer_board_position(Point::new(0, BOARD_SIZE - 1)),
+            Player::One,
+            false,
+            &opening,
+        ));
+        assert_eq!(highest.y - SCORE_BADGE_SIZE.y / 2.0 - result_bottom, 16.0);
+    }
 
-        assert!(header_board_gap <= VIEWER_HEADER_BOARD_MAX_GAP);
-        assert!(viewer_header_badge_gap() >= VIEWER_HEADER_BADGE_MIN_GAP);
-        assert!(board_controls_gap >= VIEWER_BOARD_CONTROL_MIN_GAP);
-        assert!((header_board_gap - board_controls_gap).abs() <= VIEWER_VERTICAL_BALANCE_TOLERANCE);
-        const { assert!(VIEWER_HEADER_TOP >= 0.0) };
-        assert!(viewer_result_bottom() < viewer_board_top_from_window());
-        assert!(viewer_board_bottom_from_window() < viewer_controls_top_from_window());
-        assert!(VIEWER_CONTROL_BOTTOM + VIEWER_CONTROL_HEIGHT <= WINDOW_HEIGHT as f32);
-        assert!(VIEWER_MATCH_SETTINGS_MODAL_WIDTH < WINDOW_WIDTH as f32);
-        assert!(VIEWER_MATCH_SETTINGS_MODAL_MAX_HEIGHT < WINDOW_HEIGHT as f32);
+    /// Wide's column holds its longest texts with room to spare above the
+    /// transport row, at every wide size: [`column_height`] is what the
+    /// overlap test lays out, and this says how much it has left, and that
+    /// the label takes the most lines in the narrowest column.
+    #[test]
+    fn wides_column_holds_the_longest_label_at_every_size() {
+        let mut least = f32::MAX;
+        let mut narrowest = (f32::MAX, 0);
+        for size in layout_sweep() {
+            let layout = viewer_layout(size, TallLabelRoom::TwoLines);
+            if !layout.has_column() {
+                continue;
+            }
+            let (_, top, width) = layout.column();
+            let controls_top = size.y - layout.controls_bottom() - VIEWER_CONTROL_HEIGHT;
+            least = least.min(controls_top - (top + column_height(width)));
+            if width < narrowest.0 {
+                narrowest = (
+                    width,
+                    longest_label_lines(chars_per_line(width, VIEWER_LABEL_SIZE)),
+                );
+            }
+        }
+        assert!(least >= 1.0, "{least}");
+        assert_eq!(narrowest, (220.0, 9), "the narrowest column and its lines");
+        let smallest = viewer_layout(WindowSize::MINIMUM.0, TallLabelRoom::TwoLines);
+        assert_eq!(smallest.column().2, 234.0, "the column at 1040x600");
+    }
+
+    /// The column's budget wraps the screen's own longest lines as
+    /// `bevy_ui` does ([`super::super::wrap`]), against counts worked out by
+    /// hand.
+    #[test]
+    fn the_budget_wraps_the_screens_lines_where_a_line_can_break() {
+        // 234 px is 15 characters at 26 px exactly, which the layout engine
+        // makes a little over 234, so it holds 14.
+        assert_eq!(chars_per_line(234.0, VIEWER_LABEL_SIZE), 14);
+        assert_eq!(chars_per_line(234.5, VIEWER_LABEL_SIZE), 15);
+        assert_eq!(chars_per_line(220.0, VIEWER_ROUND_SIZE), 22);
+        assert_eq!(chars_per_line(498.0, VIEWER_LABEL_SIZE), 31);
+        assert_eq!(chars_per_line(line_width(31, 26.0), VIEWER_LABEL_SIZE), 30);
+        // "Round 9999 - 60:00 " and "remaining".
+        assert_eq!(column_lines(LONGEST_ROUND, 22), 2);
+        assert_eq!(column_lines(LONGEST_ROUND, 28), 1);
+        // "Black | Black 999 - ", "White 998 | completed " and
+        // "2026-11-27 23:59": a line may start with "|" or "-" after a
+        // space, but a date does not break at its hyphens.
+        assert_eq!(column_lines(LONGEST_RESULT, 24), 3);
+        assert_eq!(column_lines(LONGEST_RESULT, 58), 1);
+        // "999:59 / " and "999:59": no line starts with "/".
+        assert_eq!(column_lines(LONGEST_TIMER, 15), 1);
+        assert_eq!(column_lines(LONGEST_TIMER, 14), 2);
+        assert_eq!(longest_label_lines(15), 9);
+        assert_eq!(longest_label_lines(31), 3);
+        assert_eq!(longest_label_lines(61), 1);
+    }
+
+    /// Which labels tall gives a third line to: the ones `bevy_ui` sets on
+    /// three lines of the narrowest header, 31 characters to a line, and
+    /// only those, with each label's lines worked out by hand. Every label
+    /// the game writes by itself takes two, at any score; so does a label
+    /// whose bracketed part, hyphenated words or quotation starts where a
+    /// line has to break, a word as long as a label, which breaks inside
+    /// itself, and a run of spaces at a break. A label whose words fall
+    /// badly takes three, as does one ending in spaces that the line before
+    /// has no room for, and one whose long word starts a line of its own and
+    /// then breaks inside itself. A real-layout test in `super` holds the
+    /// same judgement to what `bevy_ui` draws.
+    #[test]
+    fn tall_gives_a_third_line_only_to_a_label_set_on_three() {
+        let narrowest = MIN_WINDOW_WIDTH as f32;
+        assert_eq!(tall_label_chars(narrowest), 31);
+        use crate::replay::{default_replay_label, validate_label};
+        use crate::rules::Score;
+
+        let mut two_lines: Vec<String> = [
+            "Round zero",
+            // "Saturday rematch with my sister " and "best of three,
+            // second game", the space after "sister" past the line's end.
+            "Saturday rematch with my sister best of three, second game",
+            // "Friday night game with Alex " and "(rematch after the
+            // tournament)": a line may start with "(" after a space.
+            "Friday night game with Alex (rematch after the tournament)",
+            // "Practice game vs. Jordan " and "(handicap, teaching game)".
+            "Practice game vs. Jordan (handicap, teaching game)",
+            // "Rematch: best-of-three after " and "the long-awaited
+            // semi-final".
+            "Rematch: best-of-three after the long-awaited semi-final",
+            // "Club night 'friendly' game -- " and "\"no takebacks\" says
+            // Sam".
+            "Club night 'friendly' game -- \"no takebacks\" says Sam",
+            // "Thursday evening game with" and six spaces, the last past
+            // the line's end, and "lots of spaces here".
+            "Thursday evening game with      lots of spaces here",
+        ]
+        .map(String::from)
+        .into();
+        // 31 letters and 29.
+        two_lines.push(format!("A{}", "b".repeat(59)));
+        // "A ", 28 b's and a space, and "c".
+        two_lines.push(format!("A {} c", "b".repeat(28)));
+        for (black, white) in [(0, 0), (42, 38), (81, 80), (999, 998), (99_999, 99_998)] {
+            two_lines.push(default_replay_label(
+                Score { black, white },
+                "2026-11-27 23:59",
+            ));
+        }
+        for label in &two_lines {
+            assert!(validate_label(label).is_ok(), "{label:?}");
+            assert_eq!(
+                TallLabelRoom::for_label(label, narrowest),
+                TallLabelRoom::TwoLines,
+                "{label:?}"
+            );
+        }
+        for label in [
+            // "Saturday afternoon rematch ", "against my brother, best of "
+            // and "three".
+            "Saturday afternoon rematch against my brother, best of three",
+            // Three lines of 28, 28 and 4.
+            "Thursday   evening   game   with   lots   of   spaces   here",
+            // "A ", 31 b's with a space past the line, and a space.
+            &format!("A {}  ", "b".repeat(31)),
+            // "A ", 31 b's with a space past the line, and an empty line.
+            &format!("A {} ", "b".repeat(31)),
+            // "Ab ", and a word of 57 letters, which a line cannot hold:
+            // broken inside itself after 31, it takes a second and a third.
+            &format!("Ab {}", "c".repeat(57)),
+        ] {
+            assert!(validate_label(label).is_ok(), "{label:?}");
+            assert_eq!(
+                TallLabelRoom::for_label(label, narrowest),
+                TallLabelRoom::ThreeLines,
+                "{label:?}"
+            );
+        }
+        assert!(validate_label(&format!("A{}", "b".repeat(60))).is_err());
+        assert_eq!(LABEL_MAX_CHARS, 60);
+    }
+
+    /// The room tall's label is given is decided by each window's own
+    /// header. A line of the label holds as many whole characters as fit in
+    /// the middle half of the header row with half a character to spare -
+    /// 31 at 26 px from the narrowest window, 32 from a 1059 px one, since
+    /// at 1058 the 32nd only just fits, which the layout engine counts as
+    /// not fitting - and the label is set exactly that wide and half a
+    /// character more. And a label can take more lines in a wider header,
+    /// not only fewer: a space that fits on a line is followed by the
+    /// line-breaking rules, and no line starts with `!`. "Saturday night
+    /// with my brothers ! He won the final again" takes two lines at 31
+    /// characters ("Saturday night with my brothers " and "! He won the
+    /// final again"), three at 32 ("Saturday night with my ", "brothers !
+    /// He won the final " and "again"), and two again from 33 ("Saturday
+    /// night with my brothers !", the space after it past the line's end,
+    /// and "He won the final again"), which the header holds from a 1090 px
+    /// window.
+    #[test]
+    fn the_label_room_is_decided_by_the_windows_own_header() {
+        for (window, chars) in [
+            (1040.0, 31),
+            (1058.0, 31),
+            (1059.0, 32),
+            (1089.0, 32),
+            (1090.0, 33),
+            (1100.0, 33),
+            (1300.0, 39),
+            (2560.0, 80),
+        ] {
+            assert_eq!(tall_label_chars(window), chars, "{window}");
+            let layout = viewer_layout(Vec2::new(window, 900.0), TallLabelRoom::TwoLines);
+            let width = layout.tall_label_width();
+            assert!(
+                (width - (chars as f32 + 0.5) * 15.6).abs() < 1e-3,
+                "{window}: {width}"
+            );
+            assert!(
+                width <= (window - 44.0) / 2.0,
+                "{window}: the label fits its middle"
+            );
+        }
+        let label = "Saturday night with my brothers ! He won the final again";
+        for (window, room) in [
+            (1040.0, TallLabelRoom::TwoLines),
+            (1058.0, TallLabelRoom::TwoLines),
+            (1059.0, TallLabelRoom::ThreeLines),
+            (1060.0, TallLabelRoom::ThreeLines),
+            (1089.0, TallLabelRoom::ThreeLines),
+            (1090.0, TallLabelRoom::TwoLines),
+            (1300.0, TallLabelRoom::TwoLines),
+        ] {
+            assert_eq!(TallLabelRoom::for_label(label, window), room, "{window}");
+        }
+        // Tall, with either room, at the width where the room changes.
+        for room in LABEL_ROOMS {
+            let layout = viewer_layout(Vec2::new(1060.0, 900.0), room);
+            assert_eq!(layout.arrangement, Arrangement::Tall, "{room:?}");
+        }
+    }
+
+    /// The Key is set in one column wherever the window holds the panel
+    /// with 12 px above and below it - from 722 px tall, pinned on both
+    /// sides - and otherwise in two; either way it stands inside the window
+    /// with that edge around it, at every size.
+    #[test]
+    fn the_key_takes_two_columns_only_in_a_window_too_short_for_one() {
+        assert_eq!(layout(1040.0, 721.0).key, KeyColumns::Two);
+        assert_eq!(layout(1040.0, 722.0).key, KeyColumns::One);
+        assert_eq!(layout(2560.0, 721.0).key, KeyColumns::Two);
+        assert_eq!(KEY_ONE_COLUMN_HEIGHT + 24.0, 722.0);
+        assert_eq!(KEY_TWO_COLUMN_WIDTH, 1016.0);
+        let mut both = [false, false];
+        for size in layout_sweep() {
+            let layout = viewer_layout(size, TallLabelRoom::TwoLines);
+            let height = match layout.key {
+                KeyColumns::One => KEY_ONE_COLUMN_HEIGHT,
+                KeyColumns::Two => KEY_TWO_COLUMN_HEIGHT,
+            };
+            let panel = Rect::from_center_size(size / 2.0, Vec2::new(layout.key_width(), height));
+            let inside = Rect::from_corners(Vec2::splat(12.0), size - Vec2::splat(12.0));
+            assert!(
+                inside.contains(panel.min) && inside.contains(panel.max),
+                "{size}: {panel:?}"
+            );
+            both[usize::from(layout.key == KeyColumns::Two)] = true;
+        }
+        assert_eq!(both, [true, true]);
+    }
+
+    fn layout(width: f32, height: f32) -> ViewerLayout {
+        viewer_layout(Vec2::new(width, height), TallLabelRoom::TwoLines)
+    }
+
+    /// A badge is drawn at its own size whatever the board's zoom: its scale
+    /// undoes the zoom exactly, across the screen, and leaves depth alone.
+    #[test]
+    fn a_badge_is_drawn_at_its_own_size_at_every_zoom() {
+        for size in layout_sweep() {
+            let layout = viewer_layout(size, TallLabelRoom::TwoLines);
+            let scale = score_badge_scale(&layout);
+            assert!((scale.x * layout.zoom() - 1.0).abs() < 1e-6, "{size}");
+            assert_eq!(scale.x, scale.y);
+            assert_eq!(scale.z, 1.0);
+        }
+    }
+
+    /// At every named size and every point of the board, the badges as
+    /// drawn, in window pixels: up and to the right of their cursor, 4 px
+    /// off its drawn corner; a pair on a shared point side by side, 5 px
+    /// apart, Player One's the left one; and every badge 4 px inside the
+    /// window, a pair at the window's edge shifted together and never
+    /// swapped.
+    #[test]
+    fn the_badges_keep_their_gaps_and_order_in_window_pixels_at_every_size() {
+        for size in NAMED_WINDOW_SIZES {
+            let layout = viewer_layout(size, TallLabelRoom::TwoLines);
+            let drawn = |world: Vec2| layout.window_point(world);
+            for x in 0..BOARD_SIZE {
+                for y in 0..BOARD_SIZE {
+                    let point = viewer_board_position(Point::new(x, y));
+                    let cursor = drawn(point);
+                    for player in Player::ALL {
+                        let badge = drawn(score_badge_position(point, player, false, &layout));
+                        let half_cursor = cursor_visual_style(player).size * layout.zoom() / 2.0;
+                        let corner = cursor + Vec2::new(half_cursor, -half_cursor);
+                        let expected = corner + Vec2::new(4.0 + 21.0, -(4.0 + 14.0));
+                        assert!(
+                            (badge - expected).abs().max_element() < 1e-3,
+                            "{size} ({x}, {y}) {player:?}: {badge} for {expected}"
+                        );
+                    }
+                    let one = drawn(score_badge_position(point, Player::One, true, &layout));
+                    let two = drawn(score_badge_position(point, Player::Two, true, &layout));
+                    assert!((two.x - one.x - 47.0).abs() < 1e-3, "{size} ({x}, {y})");
+                    assert!((two.y - one.y).abs() < 1e-3, "{size} ({x}, {y})");
+                }
+            }
+            // At the window's edge the pair shifts together and the one
+            // nearest the edge keeps 4 px from it.
+            let far = layout.world_point(Vec2::new(size.x + 500.0, size.y / 2.0));
+            let one = drawn(score_badge_position(far, Player::One, true, &layout));
+            let two = drawn(score_badge_position(far, Player::Two, true, &layout));
+            assert!((two.x + 21.0 - (size.x - 4.0)).abs() < 1e-3, "{size}");
+            assert!((two.x - one.x - 47.0).abs() < 1e-3, "{size}");
+            let near = layout.world_point(Vec2::new(-500.0, -500.0));
+            let lone = drawn(score_badge_position(near, Player::One, false, &layout));
+            assert!(
+                (lone - Vec2::new(25.0, 18.0)).abs().max_element() < 1e-3,
+                "{size}"
+            );
+        }
     }
 }

@@ -336,15 +336,24 @@ restyles a `HudAction` button of its own marks it `ScreenStyled`; the
 alternative, an edge between the two display stages, would have fixed the
 order and kept two systems rewriting one fill every frame.
 
-The Replay Library and Replay Viewer are the exception to the stages. Neither
-`ReplayLibraryPlugin` nor `ReplayViewerPlugin` puts a system in an
+The Replay Library and Replay Viewer are the exception to the stages.
+Neither `ReplayLibraryPlugin` nor `ReplayViewerPlugin` puts a system in an
 `AppSystems` stage at all: each registers one self-contained `.chain()`,
-gated to its own screen and ordered `.after(UiAudioSet)` directly - the same
-audio ordering every stage gets. That leaves those
-chains unordered against every stage, which is safe for the same reason as
-above: the only systems sharing mutable data with them, `handle_ui_buttons`
-on `NextState<AppScreen>` and the marimba's input handler on `AudioCueQueue`,
-find nothing to act on while a Replay screen is up.
+gated to its own screen and ordered `.after(UiAudioSet)` directly - the
+same audio ordering every stage gets. That leaves those chains unordered
+against every stage, which is safe for the same reason as above: the only
+systems sharing mutable data with them, `handle_ui_buttons` on
+`NextState<AppScreen>`, the marimba's input handler on `AudioCueQueue`,
+and the Match's and Home's layout passes on the camera's `WorldFraming`,
+which the Viewer's writes too, find nothing to act on or are gated off
+while a Replay screen is up. Each chain begins with its layout pass, for a
+reason of its own. The Library's places nothing: it marks the list for
+rebuilding when a change of size changes what the page is built from,
+first, so that every handler after it pages by the page the frame will be
+rebuilt with. The Viewer's places the screen's nodes before the display
+pass at the end of the chain shows and hides them - one node, the
+countdown card's row, takes its place from the first and whether it is
+shown from the second, and each writes only its own fields of it.
 
 The nine edges above are the ordering *between* stages, not the whole
 ordering story. Within a stage, a plugin that needs its own systems ordered
@@ -439,8 +448,9 @@ Four ownership lifetimes exist:
   camera and the handles exist because re-uploading the same mesh/materials
   on every screen transition would be pure waste; nothing about them is
   screen-specific but the camera's framing, which a screen with a
-  world-space scene to place - the Match for its board, Home for its
-  diamond - sets and every change of screen puts back - see
+  world-space scene to place - the Match and the Replay Viewer for their
+  boards, Home for its diamond - sets and every change of screen puts back -
+  see
   [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it).
   The Help modal is here for a different reason,
   and is the category's first *interactive* member: it is reachable from two
@@ -518,45 +528,48 @@ Every other screen relies on the automatic mechanism exclusively.
 ## The window's size, and what answers to it
 
 The window opens at 1040x900 logical pixels, and every screen was first
-laid out for exactly that. The Match screen, Home, Settings, the Replay
-Library and the Help modal are now laid out for any size from 1040x600 up;
-the window itself is still fixed at the opening size (`resizable: false`),
-and the Replay Viewer is still laid out for it alone.
+laid out for exactly that. Every screen - the Match screen, Home,
+Settings, both Replay screens and the Help modal - is now laid out for any
+size from 1040x600 up, while the window itself is still fixed at the
+opening size (`resizable: false`).
 
 **One input.** `app::visuals::WindowSize` is the primary window's logical
 size, kept equal to it by `track_window_size` in `PreUpdate` and written
 only when the size really changes. A screen's layout is a pure function of
 `WindowSize::layout()`, which is that size raised to the 1040x600 minimum,
 so a window or a browser page smaller than the minimum is laid out as the
-minimum would be. Two read a little more, which a change of size does not
-change: the Replay Library's layout reads how many lines of notes stand
-over its list, and the Help modal's place reads the screen it is open
-over - over the Match, where the Match's heading and board stand, which
-are laid out from the size in their turn. `WINDOW_WIDTH` and
-`WINDOW_HEIGHT` are only the opening size; nothing adapted positions
-itself from them.
+minimum would be. Three read a little more, which a change of size does
+not change: the Replay Library's layout reads how many lines of notes stand
+over its list; the Replay Viewer's reads its Replay's label, which cannot
+change while it is open, to know whether the label takes a third line in
+the window's header; and the Help modal's place reads the screen it is
+open over - over the Match, where the Match's heading and board stand,
+which are laid out from the size in their turn. `WINDOW_WIDTH` and
+`WINDOW_HEIGHT` are only the opening size; nothing adapted positions itself
+from them.
 
 **Text never changes size.** Interface nodes are laid out in the window's
 own pixels at their own sizes, so the 14px floor holds at every size. What
-grows and shrinks is the world-space scene - the Match board with every
-mark on it, and Home's diamond - and it is placed and scaled by the main
-camera, not by moving or resizing the scene. A screen writes
-`WorldFraming`, a zoom and the world point at the window's centre, and
-`frame_main_camera` gives the camera that projection scale and
-translation in `PostUpdate`, before the projection is recomputed.
-`bevy_ui` never sees the projection. So `board_position`, `GRID_SPACING`
-and the rest of the boards' geometry, and the tests of it, are the same at
-every size, and every stroke keeps its proportion to the cell. A screen
-with no world-space scene to place writes nothing:
+grows and shrinks is the world-space scene - the Match board and the
+Replay Viewer's, each with every mark on it, and Home's diamond - and it
+is placed and scaled by the main camera, not by moving or resizing the
+scene. A screen writes `WorldFraming`, a zoom and the world point at the
+window's centre, and `frame_main_camera` gives the camera that projection
+scale and translation in `PostUpdate`, before the projection is
+recomputed. `bevy_ui` never sees the projection. So `board_position`,
+`GRID_SPACING` and the rest of the boards' geometry, and the tests of it,
+are the same at every size, and every stroke keeps its proportion to the
+cell. A screen with no world-space scene to place writes nothing:
 `reset_world_framing_on_screen_change`, in `StateTransition` beside the
 HUD's modal reset, puts the framing back to a scale of 1 over the origin
 on every change of screen, so Settings and the Replay Library never
-inherit a zoom. The Match writes its framing every frame and Home on entry
-and whenever the window's size changes, both after that reset. Text drawn in world space, as the
-Replay Viewer's score badges are, is scaled by the camera as well, and the
-14px floor's scan reads the sizes text is set at, not a camera's zoom; so
-on a screen that zooms, such text has to be counter-scaled or moved into
-`bevy_ui`.
+inherit a zoom. The Match and the Viewer write their framing every frame,
+and Home on entry and whenever the window's size changes, all after that
+reset. Text drawn in world space, as the Replay Viewer's score badges are,
+is scaled by the camera as well, and the 14px floor's scan reads the sizes
+text is set at, not a camera's zoom; so on a screen that zooms, such text
+has to be counter-scaled or moved into `bevy_ui`. The Viewer
+counter-scales its badges.
 
 **The Match screen** (`ui::match_screen::geometry`) has two arrangements.
 *Tall* is the 1040x900 layout, which in that window is the screen exactly
@@ -564,27 +577,29 @@ as it always was, pixel for pixel. *Wide* stands each player's stack
 beside the board from the title row down, puts the round panel to the
 heading's left and the Match timer to its right, and lets the board fill
 the height between the title row and the band under it. Either, in a
-window with more room than its board takes, stands centred down the
-window as one piece. The board ranges from 0.70 of its own size at the
-minimum to twice it. Below that cap, wide is chosen where it gives the
-board more than 4% more room than tall: so every window narrower than
-about 1.12 times its height is tall, and a wider one is tall until wide
-gains that much. The margins are fixed pixels, so that depends on the size
-as well as the shape - the opening shape stays tall up to about 1182x1023
-and is wide above it. Past the cap,
-the window's shape alone decides - the choice its shape gets where the
-larger room just reaches the cap - so a window keeps its arrangement
-however large it grows. Nothing but the board
-shrinks, so the smallest windows are made to fit by moving: the line of end
-reasons is never wrapped and the stacks stand further from the board when
-it needs the room, the round panel takes two lines beside the heading when
-one does not fit, and the band under the board holds two lines of text or
-one with a bar. The module's docs give the numbers. `ui::match_screen::layout`
-spawns each piece where the layout says, marks it with its
-`MatchPlacement`, and moves it when the window's size changes; the
-countdown card is placed over the same rows of the board at any zoom by the
-rule `ui::countdown_card` shares with the Replay Viewer, and the capture
-marks, being world-space, scale with the stones they stand on.
+window with more room than its board takes, stands centred down the window
+as one piece. The board ranges from 0.70 of its own size at the minimum to
+twice it. Which arrangement a window gets is the rule in
+`ui::arrangement`, which the Replay Viewer chooses by too, each screen
+from its own margins. Below the cap of twice the board's size, wide is
+chosen where it gives the board more than 4% more room than tall: so every
+window narrower than about 1.12 times its height is tall, and a wider one
+is tall until wide gains that much. The margins are fixed pixels, so that
+depends on the size as well as the shape - the opening shape stays tall up
+to about 1182x1023 and is wide above it. Past the cap, the window's shape
+alone decides - the choice its shape gets where the larger room just
+reaches the cap - so a window keeps its arrangement however large it
+grows. Nothing but the board shrinks, so the smallest windows are made to
+fit by moving: the line of end reasons is never wrapped and the stacks
+stand further from the board when it needs the room, the round panel takes
+two lines beside the heading when one does not fit, and the band under the
+board holds two lines of text or one with a bar. The module's docs give
+the numbers. `ui::match_screen::layout` spawns each piece where the layout
+says, marks it with its `MatchPlacement`, and moves it when the window's
+size changes; the countdown card is placed over the same rows of the board
+at any zoom by the rule `ui::countdown_card` shares with the Replay
+Viewer, and the capture marks, being world-space, scale with the stones
+they stand on.
 
 **Home** (`ui::home::geometry`) stays centred at its own size. Its diamond
 keeps its own size down to a window about 709 px tall, and in a shorter
@@ -595,6 +610,49 @@ them in a taller window, wherever its bars - measured where they are
 drawn, not by the instrument's node - stand at least 12 px above the
 window's bottom there, which is in windows at least 848 px tall; in a
 shorter one it stands upright beside the panel.
+
+**The Replay Viewer** (`ui::replay::viewer::geometry`) has two
+arrangements too, chosen by the same rule from its own margins. *Tall* is
+the 1040x900 layout, pixel for pixel in that window but for a label that
+takes three lines there, below. *Wide* lets the board fill the height
+above the transport row, keeps Back and Match Settings in the top corners,
+and stands the Replay's label, the timer, the round and the result line in
+a column under Back; the transport row stays under the board. Either
+centres the board across the window, where the countdown card is centred,
+and stands centred down a window with room to spare, as the Match does.
+The board ranges from 0.79 of its own size at the minimum to twice it.
+With these margins, for a label that takes two lines in tall's header,
+every window narrower than about 1.20 times its height is tall, so the
+opening shape is tall at every size, and a window 1040 px wide is wide up
+to 778 px tall. Wide's column holds any label - up to 60 characters,
+wrapping onto as many lines as the column's width makes it - over the
+longest timer, round and result lines. Tall's header gives the label the
+two lines it always had room for, and sets it in as many whole characters
+as fit in the middle of the header row with half a character to spare, so
+that the rounding of its node's edges to the display's pixels cannot
+change where its lines break. A label that takes three lines in a window's
+header, its lines counted as `bevy_ui` breaks them
+(`ui::replay::viewer::wrap`), gets a line's more room above the board.
+Where the window's height limits the board, as at 1040x900, that draws the
+board a line smaller - 0.949 of its size there - with its bottom and the
+transport row where they were; where the window has height to spare, the
+header row rises half a line and the board and the transport row drop half
+a line. It is decided for each window, since a wider header can wrap a
+label onto more lines as well as fewer, so a resize across such a width
+moves the board by a line for such a label; the turning points the
+module's docs give for a three-line label are for the header of the window
+in question. It is the one place where what a text says moves anything on
+the screen - Help's columns, Settings' error line and the Library's search
+field read their texts only to set them - and the Replay, and so its
+label, cannot change while the screen is open. Such a label used to run
+into the timer. The score badges are drawn at their own size whatever the
+board's zoom, and placed in window pixels - their offsets from their
+cursors, a pair's gap and the clamp at the window's edge - so they are
+placed again when the window's size changes. The Key, too tall for a short
+window, sets its rows in two columns below 722 px.
+`ui::replay::viewer::layout` spawns each piece where the layout says and
+moves it, through one `place` function and a `ViewerPlacement` on each
+node, from a pass that runs first in the Viewer's own chain.
 
 **Settings** (`ui::settings::geometry`) has two arrangements, chosen by
 the window's height alone. *Tabs on top* is the 1040x900 layout, its
@@ -688,10 +746,11 @@ screen, since the modal belongs to none.
 ones and a few larger windows - and hold that nothing overlaps, nothing
 leaves the window, the board never falls below the smallest window's zoom
 nor grows past twice its size, and at 1040x900 every position is the one
-the screen always had; the real-layout tests run the same screens at the
-sizes in `NAMED_WINDOW_SIZES`, through the game's own schedule where the
-order of the passes matters. See
-[Pure tests versus ECS tests](TESTING.md#pure-tests-versus-ecs-tests).
+the screen always had, but for the Viewer's with a label that takes three
+lines there; the real-layout tests run the same screens at the sizes in
+`NAMED_WINDOW_SIZES`, through the game's own schedule where the order of
+the passes matters. See [Pure tests versus ECS
+tests](TESTING.md#pure-tests-versus-ecs-tests).
 
 ## Presentation: continuous vs change-driven display
 
@@ -744,44 +803,54 @@ instead of frame count:
   the purpose. Comparing the actual per-entity target value is what makes the
   distinction correctly.
 * **Boundary-gated redraws**, for the Replay Viewer's board specifically.
-  Unlike the live Match, a Replay's board, cursors, teleport markers, hidden
-  selections and score badges are not independent per-frame state - they are
-  entirely determined by which recorded event is currently in effect
-  (`Replay::playback_boundary_key`), and never change between two events.
-  Only `round_elapsed_seconds` (feeding the Round-time text) is continuously
-  interpolated between events. `update_viewer_display` caches the last-drawn
-  `(replay_id, boundary key)` in a `Local` and only calls
-  `update_viewer_board_visuals` when that pair changes - which happens
-  immediately on any boundary crossing, including a silent seek, with no
-  one-frame lag. The comparison itself borrows the cached key rather than
-  rebuilding it, so the steady-state path allocates nothing; the `replay_id`
-  is cloned only on the frames where the key actually changes and is stored.
-  That matters because the gate buys 180 entity iterations (81
-  intersections and the 81 rings behind them, two cursors, two score badges,
-  two Teleport Markers and twelve hidden-selection marks - each of those
-  fourteen one entity, with its strokes as children that move with it) whose
-  writes
-  are *already* compare-guarded - cloning a UUID twice per frame to save them
-  would have been at best a wash. The cache key includes `replay_id`, not just
-  the event index: the system only runs while the Viewer screen is active, so leaving
-  it does not itself re-run the system to reset the cache, and a *different*
-  Replay opened afterward could otherwise land on the same event index the
-  previous one last drew and incorrectly keep showing its board (a real bug
-  caught by
+  Unlike the live Match, a Replay's board, cursors, teleport markers,
+  hidden selections and score badges are not independent per-frame state:
+  playback changes them only by moving from one recorded event to the next
+  (`Replay::playback_boundary_key`), and never between two events. The
+  score badges also depend on the window's size, because they are drawn at
+  their own size whatever the board's zoom and placed in the window's
+  pixels. Only `round_elapsed_seconds` (feeding the Round-time text) is
+  continuously interpolated between events. `update_viewer_display` caches
+  the last-drawn `(replay_id, boundary key, window size)` in a `Local` and
+  calls `update_viewer_board_visuals` only when that changes or the board
+  has just been spawned - which happens immediately on any boundary
+  crossing, including a silent seek, on any change of the window's size,
+  and on every entry to the screen, with no one-frame lag. The comparison
+  itself borrows the cached key rather than rebuilding it, so the
+  steady-state path allocates nothing; the `replay_id` is cloned only on a
+  frame that redraws - the key changed, or the board was just spawned -
+  when the key is stored. That matters because the gate buys 180 entity
+  iterations (81 intersections and the 81 rings behind them, two cursors,
+  two score badges, two Teleport Markers and twelve hidden-selection
+  marks - each of those fourteen one entity, with its strokes as children
+  that move with it) whose writes are *already* compare-guarded - cloning a
+  UUID twice per frame to save them would have been at best a wash. The
+  system only runs while the Viewer screen is active, so leaving it does
+  not itself re-run the system to reset the cache, and two things follow.
+  The cache key includes `replay_id`, not just the event index: a
+  *different* Replay opened afterward could otherwise land on the same
+  event index the previous one last drew and incorrectly keep showing its
+  board (a real bug caught by
   `a_new_replay_at_the_same_boundary_index_is_never_mistaken_for_a_cached_one`
-  during development).
+  during development). And a board just spawned is drawn whatever the key:
+  every entry spawns the board afresh, its cursors and badges at the
+  world's origin, so the *same* Replay opened again at the start where it
+  was left would otherwise match the key and leave them there until
+  playback crossed an event, as it did until 2026-11-28.
 * **Size-gated placement**, for where things stand. The Match screen's
   `place_match_furniture`, Home's `place_home_furniture`, Settings'
-  `place_settings_furniture` and the Help modal's `place_help_modal`, all in
-  the `ScreenLayout` stage, move their nodes only on a frame the window's
-  size changed - or, on the Match, the frame its furniture was spawned,
-  which its spawners have already placed, and for the Help modal a frame
-  the screen under it changed - and then only the nodes that moved,
-  compared as above. The Replay Library rebuilds its page on such a frame
-  instead, and only when the new size changes what the page is built from,
-  as it does for every other change it shows. The Match's camera framing
-  is the one placement compared every frame, because a change of screen
-  resets it and the screen's first frame has to take it back. See
+  `place_settings_furniture` and the Help modal's `place_help_modal`, all
+  in the `ScreenLayout` stage, and the Replay Viewer's
+  `place_viewer_furniture`, first in its own chain, move their nodes only
+  on a frame the window's size changed - or, on the Match and the Viewer,
+  the frame their furniture was spawned, which their spawners have already
+  placed, and for the Help modal a frame the screen under it changed - and
+  then only the nodes that moved, compared as above. The Replay Library
+  rebuilds its page on such a frame instead, and only when the new size
+  changes what the page is built from, as it does for every other change it
+  shows. The Match's and the Viewer's camera framings are the one placement
+  compared every frame, because a change of screen resets them and the
+  screen's first frame has to take them back. See
   [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it).
 
 What stays a true, unguarded per-frame write on purpose:
@@ -1115,15 +1184,17 @@ The Replay Viewer's score badges, side by side when both cursors share a
 point, are told apart by position: Player One's is always the left one, and
 the Viewer's Key says so in a row of its own. The order is deliberately not
 the game's seating, which puts Black / Player 1 on the right, but the order
-every score readout in the game uses - the result line above the board, the
+every score readout in the game uses - the Viewer's result line, the
 Replay Library's summary and a Replay's default name all name Black first -
 so the pair reads in the same order as the line that gives the same two
 numbers. The Match screen's end scores answer to neither convention, by
 design since 2026-10-07: each player's final score stands beside their own
 name in their own corner, so there is no order between the two numbers for
-either convention to decide. A test spawns the Key and holds its
-sentence and swatch to whatever `score_badge_position` draws, so the board's
-order cannot change without the Key's.
+either convention to decide. The Key's sentence points to the result line
+wherever the arrangement puts it, with a wording for each. A test spawns
+the Key and holds both wordings and the swatch to whatever
+`score_badge_position` draws, so the board's order cannot change without
+the Key's.
 
 ## Motion, and what a capture shows
 
@@ -3186,9 +3257,10 @@ documentation, and tidies the guard away.
    systems that read and update them. A further file earns its place by
    owning one concern that pair has no room for -
    `settings/display.rs` for the per-frame sync pass,
-   `replay/viewer/geometry.rs` for the window measurements both spawning
-   and drawing depend on, `replay/viewer/modals.rs` for two overlays that
-   were a third of one screen's spawn code.
+   `replay/viewer/geometry.rs` for where everything stands in a window of
+   any size, which spawning, placing and drawing all depend on,
+   `replay/viewer/modals.rs` for two overlays that were a third of one
+   screen's spawn code.
 3. When a screen's *parts* differ from each other more than spawning differs
    from updating, cut by part instead. `ui/settings` is four tabs, and two of
    them carry state the others do not: `settings/game.rs` owns the
@@ -3217,9 +3289,10 @@ documentation, and tidies the guard away.
 ### Lay a screen out for any window size
 
 The Match screen and Home are the worked examples; Settings is the one for
-a screen with a display stage of its own, the Replay Library for a screen
-whose systems are in no stage, and the Help modal for one that belongs to
-no screen. See
+a screen with a display stage of its own, the Replay Library and the Replay
+Viewer for a screen whose systems are in no stage, the Viewer for text drawn
+on a board as well, and the Help modal for one that belongs to no screen.
+See
 [The window's size, and what answers to it](#the-windows-size-and-what-answers-to-it)
 for why each step is the way it is.
 

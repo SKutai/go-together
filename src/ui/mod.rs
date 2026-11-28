@@ -22,6 +22,8 @@
 //! * [`widgets`] - the two reusable button spawners.
 //! * [`countdown_card`] - the Round 0 countdown card the Match screen and
 //!   the Replay Viewer both draw over their boards, and where it stands.
+//! * [`arrangement`] - the rule by which the Match screen and the Replay
+//!   Viewer each choose between their tall and wide arrangements.
 //! * [`help`] - the paginated Help modal, one entity shown on Home
 //!   and Match.
 //! * [`home`] - the title screen, including the marimba Easter egg.
@@ -48,6 +50,7 @@
 //! [`focus::Focusable`] in its own layout, not by talking to another
 //! plugin.
 
+mod arrangement;
 pub(crate) mod button;
 mod countdown_card;
 mod focus;

@@ -203,8 +203,10 @@ pub use schema::{
 #[cfg(any(feature = "client", test))]
 pub(crate) use recording::MatchRecorder;
 // Nothing in production builds a default label outside `recording` itself;
-// this path exists for `replay_library`'s test that the real local-timestamp
-// text keeps the longest possible label inside the label rule.
+// this path exists for the client's tests that need the label the game
+// writes: `replay_library`'s, that the real local-timestamp text keeps the
+// longest possible label inside the label rule, and the Replay Viewer's,
+// that every such label takes two lines of its header.
 #[cfg(all(feature = "client", test))]
 pub(crate) use recording::default_replay_label;
 

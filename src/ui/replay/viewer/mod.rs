@@ -15,7 +15,7 @@
 //! Jumping, scrubbing or restarting deliberately emits nothing, so seeking
 //! cannot produce a burst of stale cues.
 //!
-//! # Why this screen has four submodules
+//! # Why this screen has five submodules
 //!
 //! The Match and Replay Library screens each divide into a `mod.rs` and a
 //! `layout.rs`, and `ui/settings` is cut into six files - two of them owning
@@ -24,12 +24,18 @@
 //! does not fit in two files either, and the extra cuts fall where the
 //! dependencies already do:
 //!
-//! * [`geometry`] - the fixed window budget, the sizes of the two
-//!   Replay-only marks, and the pure functions that place a stone, a hidden
-//!   selection or a score badge. Spawning and per-frame drawing both depend
-//!   on it and it depends on neither, so it cannot live in either.
+//! * [`geometry`] - where everything stands in a window of any size, the
+//!   sizes of the two Replay-only marks, and the pure functions that place a
+//!   stone, a hidden selection or a score badge. Spawning, placing and
+//!   per-frame drawing all depend on it and it depends on none of them, so
+//!   it cannot live in any.
+//! * [`wrap`] - where `bevy_ui` breaks a line of text, which [`geometry`]
+//!   reads to know how many lines the Replay's label takes. It depends on
+//!   nothing in the game, which lets it be checked against the text layout
+//!   engine's own line breaker.
 //! * [`layout`] - spawns the board, the cursors, the markers, the hidden
-//!   selections, the badges and the transport bar, once, on entry.
+//!   selections, the badges and the transport bar, once, on entry, and the
+//!   pass that keeps them where the window's size puts them.
 //! * [`modals`] - the Key and Match Settings overlays, nearly half of the
 //!   spawn code between them and involved in nothing else.
 //! * [`display`] - the per-frame pass that restyles those entities from the
@@ -43,6 +49,7 @@ mod display;
 mod geometry;
 mod layout;
 mod modals;
+mod wrap;
 
 use bevy::prelude::*;
 
@@ -53,12 +60,15 @@ use crate::replay::{PlaybackController, Replay};
 use crate::rules::{Player, Point, Score};
 use crate::ui::button::{Activated, UiButtonPlugin};
 use display::update_viewer_display;
-use layout::spawn_viewer_screen;
+use layout::{place_viewer_furniture, spawn_viewer_screen};
 /// Registers the viewer screen's lifecycle and its ordered update pipeline.
 ///
-/// Input is applied before the clock advances and before the board is drawn, so
-/// a seek requested this frame is reflected immediately and cannot briefly
-/// render the previous timeline position.
+/// Where things stand comes first: the placement pass moves the furniture
+/// for the window's size before the display pass writes the parts of it that
+/// follow playback, one of them on a node the placement pass places too.
+/// Then input is applied before the clock advances and before the board is
+/// drawn, so a seek requested this frame is reflected immediately and cannot
+/// briefly render the previous timeline position.
 pub(super) struct ReplayViewerPlugin;
 
 impl Plugin for ReplayViewerPlugin {
@@ -76,6 +86,7 @@ impl Plugin for ReplayViewerPlugin {
             .add_systems(
                 Update,
                 (
+                    place_viewer_furniture,
                     handle_viewer_keyboard,
                     handle_viewer_buttons,
                     advance_viewer,
@@ -177,7 +188,7 @@ struct ViewerCountdown;
 #[derive(Component)]
 struct ViewerButtonLabel;
 
-#[derive(Component)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 enum ViewerText {
     Label,
     Timer,
@@ -540,40 +551,22 @@ mod tests {
         ));
     }
 
-    /// The whole Viewer over `app`'s layout - one of the real-layout apps in
-    /// `crate::ui::focus` - with the production `Update` chain, opened on
-    /// `replay` at its start. Spawned on the first update.
-    fn viewer_screen_app(mut app: App, replay: Replay) -> App {
-        use crate::app::visuals::StoneMesh;
+    /// The whole Viewer under real `bevy_ui` layout and the game's own
+    /// plugins and schedule, in a window of `window` logical pixels: the
+    /// window's layout and the main camera's framing, the focus core and
+    /// this screen's plugin, with the production stages, entered from the
+    /// Replay Library by a real state transition, as the Library's Play
+    /// opens a Replay: on `replay`, at its start. The entering frame has
+    /// run, so the screen is spawned, placed, framed and laid out.
+    fn viewer_app(window: Vec2, replay: Replay) -> App {
+        use crate::app::configure_app_systems;
+        use crate::app::visuals::{MainCamera, StoneMesh, WindowLayoutPlugin};
         use crate::gameplay::InputGate;
-        use crate::ui::focus::UiFocusPlugin;
+        use crate::ui::focus::{UiFocusPlugin, real_layout_app};
         use crate::ui::hud::HudState;
 
-        app.add_plugins(bevy::state::app::StatesPlugin)
-            .insert_state(AppScreen::ReplayViewer)
-            .add_plugins(UiFocusPlugin)
-            .init_resource::<Assets<ColorMaterial>>()
-            .init_resource::<Assets<Mesh>>()
-            .init_resource::<Time>()
-            .init_resource::<ButtonInput<KeyCode>>()
-            .insert_resource(HudState::default())
-            .insert_resource(InputGate::default())
-            .insert_resource(AudioCueQueue::default())
-            .insert_resource(ReplayViewerState {
-                replay_id: Some(replay.id.clone()),
-                replay: Some(replay),
-                ..default()
-            })
-            .add_systems(
-                Update,
-                (
-                    handle_viewer_keyboard,
-                    handle_viewer_buttons,
-                    advance_viewer,
-                    update_viewer_display,
-                )
-                    .chain(),
-            );
+        let mut app = real_layout_app(window);
+        app.init_resource::<Assets<ColorMaterial>>();
         let palette = {
             let mut materials = app.world_mut().resource_mut::<Assets<ColorMaterial>>();
             crate::app::visuals::test_stone_palette(&mut materials)
@@ -582,118 +575,1272 @@ mod tests {
             let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
             StoneMesh(meshes.add(Circle::new(1.0)))
         };
-        app.insert_resource(palette)
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .insert_state(AppScreen::ReplayLibrary)
+            .add_plugins(WindowLayoutPlugin)
+            .add_plugins(UiFocusPlugin)
+            .add_plugins(ReplayViewerPlugin)
+            .insert_resource(palette)
             .insert_resource(stone_mesh)
-            .add_systems(Startup, spawn_viewer_screen);
+            .insert_resource(HudState::default())
+            .insert_resource(InputGate::default())
+            .insert_resource(AudioCueQueue::default())
+            .init_resource::<ButtonInput<KeyCode>>();
+        configure_app_systems(&mut app);
+        let camera = app
+            .world_mut()
+            .query_filtered::<Entity, With<Camera2d>>()
+            .single(app.world())
+            .expect("the real-layout app has one camera");
+        app.world_mut().entity_mut(camera).insert(MainCamera);
+        app.update();
+        open_from_the_library(&mut app, replay);
         app
     }
 
-    /// The Round 0 countdown, laid out with its text by `bevy_ui` itself
-    /// and read back: the digit is drawn in the middle of its card, and the
-    /// card stands over the same point of this board as the Match screen's
-    /// over the live one. Until 2026-10-05 the card was itself the `Text`
-    /// node, and its `3` sat in the card's top-left corner while the card
-    /// was exactly where it was meant to be - `crate::ui::countdown_card`
-    /// says why. A test of node rects alone cannot see that, which is why
-    /// the digit is measured by its glyphs.
-    #[test]
-    fn the_countdown_digit_is_drawn_centred_on_a_card_over_the_board() {
-        use super::geometry::{VIEWER_BOARD_CENTER_Y, VIEWER_GRID_SPACING};
-        use crate::app::visuals::{WindowSize, WorldFraming};
-        use crate::ui::countdown_card::{
-            assert_countdown_card_lands_on_board, measure_countdown_card,
-        };
-        use crate::ui::focus::real_layout_app;
+    /// Opens `replay` as the Library's Play does - the session's Replay,
+    /// then the change of screen - and runs the frame that enters the
+    /// Viewer.
+    fn open_from_the_library(app: &mut App, replay: Replay) {
+        {
+            let mut viewer = app.world_mut().resource_mut::<ReplayViewerState>();
+            viewer.replay_id = Some(replay.id.clone());
+            viewer.replay = Some(replay);
+        }
+        app.world_mut()
+            .resource_mut::<NextState<AppScreen>>()
+            .set(AppScreen::ReplayViewer);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<State<AppScreen>>().get(),
+            AppScreen::ReplayViewer
+        );
+    }
 
+    /// The layout the Viewer in `app` is laid out by: its window's, for its
+    /// Replay's label.
+    fn layout_of(app: &App) -> geometry::ViewerLayout {
+        use crate::app::visuals::WindowSize;
+
+        let label = &app
+            .world()
+            .resource::<ReplayViewerState>()
+            .replay
+            .as_ref()
+            .expect("a Replay is open")
+            .label;
+        let size = app.world().resource::<WindowSize>().layout();
+        geometry::viewer_layout(size, geometry::TallLabelRoom::for_label(label, size.x))
+    }
+
+    /// The camera's framing in `app` is the one the Viewer's layout gives
+    /// its board, and the main camera draws with it.
+    fn assert_frames_its_board(app: &mut App, context: &str) {
+        use crate::app::visuals::{MainCamera, WorldFraming};
+
+        let framing = layout_of(app).framing();
+        assert_eq!(
+            *app.world().resource::<WorldFraming>(),
+            framing,
+            "{context}"
+        );
+        let (projection, transform) = app
+            .world_mut()
+            .query_filtered::<(&Projection, &Transform), With<MainCamera>>()
+            .single(app.world())
+            .unwrap();
+        let Projection::Orthographic(projection) = projection else {
+            panic!("the main camera is orthographic");
+        };
+        assert_eq!(projection.scale, 1.0 / framing.zoom, "{context}");
+        assert_eq!(
+            transform.translation.truncate(),
+            framing.center,
+            "{context}"
+        );
+    }
+
+    /// The Round 0 fixture, whose countdown shows its 3 half a second in.
+    fn round_zero_fixture() -> Replay {
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/replays/v6-round-zero.json");
         let json = std::fs::read_to_string(fixture).expect("the Round 0 fixture is checked in");
-        let replay = Replay::from_json(&json).expect("the fixture is a valid Replay");
-        let mut app = viewer_screen_app(real_layout_app(WindowSize::OPENING.0), replay);
-        app.update();
-        // Half a second in, the fixture's countdown is showing its 3. The
-        // display pass shows the card on the next update, and the layout
-        // after it places the digit.
-        app.world_mut()
-            .resource_mut::<ReplayViewerState>()
-            .controller
-            .position_seconds = 0.5;
-        app.update();
-        app.update();
-
-        // Where the camera draws the board's centre, worked out from its
-        // world position rather than by the helper that places the card.
-        let landing = measure_countdown_card(&mut app, "3");
-        let board_center = WorldFraming::IDENTITY
-            .window_point(Vec2::new(0.0, VIEWER_BOARD_CENTER_Y), WindowSize::OPENING.0);
-        assert_countdown_card_lands_on_board(&landing, board_center, VIEWER_GRID_SPACING, 1.0);
+        Replay::from_json(&json).expect("the fixture is a valid Replay")
     }
 
-    /// The pointer reaches every control the Viewer shows, at its centre,
-    /// under real layout and real picking: nothing drawn over the board,
-    /// the header or the transport stops it, which matters because picking
-    /// stops at the first node under the pointer whatever that node is.
-    /// With either overlay open the pointer reaches its Close and nothing
-    /// beneath it.
+    /// The Round 0 countdown at every named size, laid out with its text by
+    /// `bevy_ui` itself and read back: the digit is drawn in the middle of
+    /// its card, and the card stands over the same point of this board as
+    /// the Match screen's over the live one, at the zoom the board is drawn
+    /// at - where the board's centre really is drawn, by the camera's
+    /// framing. Until 2026-10-05 the card was itself the `Text` node, and
+    /// its `3` sat in the card's top-left corner while the card was exactly
+    /// where it was meant to be - `crate::ui::countdown_card` says why. A
+    /// test of node rects alone cannot see that, which is why the digit is
+    /// measured by its glyphs.
+    #[test]
+    fn the_countdown_digit_is_drawn_centred_on_a_card_over_the_board() {
+        use super::geometry::{VIEWER_BOARD_CENTER_Y, VIEWER_GRID_SPACING};
+        use crate::app::visuals::{NAMED_WINDOW_SIZES, WorldFraming};
+        use crate::ui::countdown_card::{
+            assert_countdown_card_lands_on_board, measure_countdown_card,
+        };
+
+        for window in NAMED_WINDOW_SIZES {
+            let mut app = viewer_app(window, round_zero_fixture());
+            // Half a second in, the fixture's countdown is showing its 3.
+            // The display pass shows the card on the next update, and the
+            // layout after it places the digit.
+            app.world_mut()
+                .resource_mut::<ReplayViewerState>()
+                .controller
+                .position_seconds = 0.5;
+            app.update();
+            app.update();
+
+            // Where the camera draws the board's centre, worked out from its
+            // world position rather than by the helper that places the card.
+            let landing = measure_countdown_card(&mut app, "3");
+            let framing = *app.world().resource::<WorldFraming>();
+            let board_center = framing.window_point(Vec2::new(0.0, VIEWER_BOARD_CENTER_Y), window);
+            let top = assert_countdown_card_lands_on_board(
+                &landing,
+                board_center,
+                VIEWER_GRID_SPACING,
+                framing.zoom,
+            );
+            if window == crate::app::visuals::WindowSize::OPENING.0 {
+                // 297 px down: the 268 px it stood at before 2026-10-05,
+                // 29 px too high, and those 29, to the half pixel the
+                // layout rounds to.
+                assert!((top - 296.9).abs() <= 0.5, "{top}");
+            }
+        }
+    }
+
+    /// A Replay that ended by every automatic limit at once, the most end
+    /// reasons the Match Settings modal lists.
+    fn every_end_reason() -> Replay {
+        use crate::replay::EndReason;
+
+        let mut replay = fixed_metadata_replay();
+        replay.end_reasons = vec![
+            EndReason::MatchTimeLimit,
+            EndReason::RoundLimit,
+            EndReason::NoStoneRoundLimit,
+            EndReason::PointTarget,
+        ];
+        replay
+    }
+
+    /// Every text `app` shows lies inside a window of `window` logical
+    /// pixels, and there is some to show.
+    fn assert_every_text_is_inside(app: &mut App, window: Vec2, context: &str) {
+        use crate::ui::focus::laid_out_texts;
+
+        let texts = laid_out_texts(app);
+        assert!(texts.len() > 10, "{context}: {texts:?}");
+        let inside = Rect::from_corners(Vec2::ZERO, window);
+        for (text, rect) in texts {
+            assert!(
+                inside.contains(rect.min) && inside.contains(rect.max),
+                "{context}: {text:?} at {rect:?} leaves the {window} window"
+            );
+        }
+    }
+
+    /// At every named size, the pointer reaches every control the Viewer
+    /// shows, at its centre, under real layout and real picking: nothing
+    /// drawn over the board, the header or the transport stops it, which
+    /// matters because picking stops at the first node under the pointer
+    /// whatever that node is. Every text stands inside the window. With
+    /// either overlay open - Match Settings for a Replay with every end
+    /// reason it can list - the pointer reaches its Close and nothing
+    /// beneath it, and every text still stands inside the window.
     #[test]
     fn the_pointer_reaches_every_viewer_control_and_an_overlay_covers_the_rest() {
+        use crate::app::visuals::NAMED_WINDOW_SIZES;
         use crate::ui::button::{covered_at_their_centres, reachable_buttons};
-        use crate::ui::focus::{FocusGroup, Focusable, real_layout_app};
+        use crate::ui::focus::{FocusGroup, Focusable};
 
-        let mut app = viewer_screen_app(
-            real_layout_app(crate::app::visuals::WindowSize::OPENING.0),
-            fixed_metadata_replay(),
-        );
-        app.update();
-        app.update();
-        let controls = reachable_buttons(&mut app);
-        let screen_controls = {
-            let world = app.world_mut();
-            world
-                .query::<&Focusable>()
-                .iter(world)
-                .filter(|focusable| focusable.group == FocusGroup::Screen)
-                .count()
-        };
-        assert_eq!(
-            controls.len(),
-            screen_controls,
-            "every header and transport control, and neither overlay's Close"
-        );
-        assert_eq!(covered_at_their_centres(&mut app, &controls), []);
-
-        for (open, close) in [
-            (
-                (|viewer: &mut ReplayViewerState| viewer.key_open = true)
-                    as fn(&mut ReplayViewerState),
-                ViewerAction::CloseKey,
-            ),
-            (
-                |viewer: &mut ReplayViewerState| viewer.match_settings_open = true,
-                ViewerAction::CloseMatchSettings,
-            ),
-        ] {
-            open(&mut app.world_mut().resource_mut::<ReplayViewerState>());
+        for window in NAMED_WINDOW_SIZES {
+            let mut app = viewer_app(window, every_end_reason());
             app.update();
-            app.update();
-            let shown = reachable_buttons(&mut app);
-            let closes: Vec<_> = shown
-                .iter()
-                .copied()
-                .filter(|entity| app.world().get::<ViewerAction>(*entity) == Some(&close))
-                .collect();
-            assert_eq!(closes.len(), 1, "{close:?} is shown");
-            assert_eq!(covered_at_their_centres(&mut app, &closes), [], "{close:?}");
+            let controls = reachable_buttons(&mut app);
+            let screen_controls = {
+                let world = app.world_mut();
+                world
+                    .query::<&Focusable>()
+                    .iter(world)
+                    .filter(|focusable| focusable.group == FocusGroup::Screen)
+                    .count()
+            };
+            assert_eq!(
+                controls.len(),
+                screen_controls,
+                "{window}: every header and transport control, and neither overlay's Close"
+            );
             assert_eq!(
                 covered_at_their_centres(&mut app, &controls),
-                controls,
-                "under the overlay {close:?} closes, every control is covered"
+                [],
+                "{window}"
             );
-            close_open_viewer_modal(&mut app.world_mut().resource_mut::<ReplayViewerState>());
-            app.update();
-            app.update();
+            assert_every_text_is_inside(&mut app, window, &format!("{window}"));
+
+            for (open, close) in [
+                (
+                    (|viewer: &mut ReplayViewerState| viewer.key_open = true)
+                        as fn(&mut ReplayViewerState),
+                    ViewerAction::CloseKey,
+                ),
+                (
+                    |viewer: &mut ReplayViewerState| viewer.match_settings_open = true,
+                    ViewerAction::CloseMatchSettings,
+                ),
+            ] {
+                open(&mut app.world_mut().resource_mut::<ReplayViewerState>());
+                app.update();
+                app.update();
+                let shown = reachable_buttons(&mut app);
+                let closes: Vec<_> = shown
+                    .iter()
+                    .copied()
+                    .filter(|entity| app.world().get::<ViewerAction>(*entity) == Some(&close))
+                    .collect();
+                assert_eq!(closes.len(), 1, "{window}: {close:?} is shown");
+                assert_eq!(
+                    covered_at_their_centres(&mut app, &closes),
+                    [],
+                    "{window}: {close:?}"
+                );
+                assert_eq!(
+                    covered_at_their_centres(&mut app, &controls),
+                    controls,
+                    "{window}: under the overlay {close:?} closes, every control is covered"
+                );
+                assert_every_text_is_inside(&mut app, window, &format!("{window} {close:?}"));
+                close_open_viewer_modal(&mut app.world_mut().resource_mut::<ReplayViewerState>());
+                app.update();
+                app.update();
+            }
+            assert_eq!(
+                covered_at_their_centres(&mut app, &controls),
+                [],
+                "{window}"
+            );
         }
-        assert_eq!(covered_at_their_centres(&mut app, &controls), []);
+    }
+
+    /// Through the game's own schedule, at every named size: the Viewer
+    /// frames its board on entry, a change of screen puts the framing back,
+    /// and coming back frames the board again. The layout pass writes the
+    /// framing on every frame of the Viewer, so it holds even on an entry
+    /// where the window's size has not changed since the last; a pass run
+    /// only when the size changes, or not at all, would leave the board
+    /// drawn at its own size over the origin. And the same Replay opened
+    /// again, at the start where it was left, has everything placed where
+    /// a first entry places it - every placed node, both cursors and both
+    /// score badges, which the new board spawns at the world's origin and
+    /// the display pass has to place even though the Replay, the event in
+    /// effect and the window's size are all as they were.
+    #[test]
+    fn leaving_the_viewer_and_coming_back_frames_the_board_again() {
+        use crate::app::visuals::{NAMED_WINDOW_SIZES, WorldFraming};
+
+        for window in NAMED_WINDOW_SIZES {
+            let mut app = viewer_app(window, fixed_metadata_replay());
+            assert_frames_its_board(&mut app, &format!("{window} on entry"));
+            app.world_mut()
+                .resource_mut::<NextState<AppScreen>>()
+                .set(AppScreen::ReplayLibrary);
+            app.update();
+            assert_eq!(
+                *app.world().resource::<WorldFraming>(),
+                WorldFraming::IDENTITY,
+                "{window} back in the Library"
+            );
+            open_from_the_library(&mut app, fixed_metadata_replay());
+            assert_frames_its_board(&mut app, &format!("{window} back in the Viewer"));
+            let again = placed_state(&mut app);
+            let first = placed_state(&mut viewer_app(window, fixed_metadata_replay()));
+            assert!(
+                first
+                    .2
+                    .iter()
+                    .all(|cursor| cursor.translation != Vec3::ZERO),
+                "{window}: a first entry places the cursors away from the origin"
+            );
+            assert_eq!(again, first, "{window}: opened again");
+        }
+        let mut wide = viewer_app(Vec2::new(1280.0, 641.0), fixed_metadata_replay());
+        assert_ne!(
+            *wide.world().resource::<WorldFraming>(),
+            WorldFraming::IDENTITY,
+            "the laptop's framing is not the identity, so the check can fail"
+        );
+        assert_frames_its_board(&mut wide, "the laptop");
+    }
+
+    /// What the Viewer's passes write where things stand: every placed
+    /// node's `Node`, keyed by its placement, in the order it was spawned;
+    /// both score badges' transforms; and both cursors', Player One's first
+    /// of each.
+    type PlacedState = (
+        Vec<(layout::ViewerPlacement, Node)>,
+        Vec<Transform>,
+        Vec<Transform>,
+    );
+
+    /// The [`PlacedState`] of the Viewer in `app`.
+    fn placed_state(app: &mut App) -> PlacedState {
+        let world = app.world_mut();
+        let mut nodes: Vec<_> = world
+            .query::<(Entity, &layout::ViewerPlacement, &Node)>()
+            .iter(world)
+            .map(|(entity, placement, node)| (entity, *placement, node.clone()))
+            .collect();
+        nodes.sort_by_key(|(entity, ..)| *entity);
+        let mut badges: Vec<_> = world
+            .query::<(&ViewerScoreBadge, &Transform)>()
+            .iter(world)
+            .map(|(badge, transform)| (player_index(badge.0), *transform))
+            .collect();
+        badges.sort_by_key(|(player, _)| *player);
+        let mut cursors: Vec<_> = world
+            .query::<(&ViewerCursor, &Transform)>()
+            .iter(world)
+            .map(|(cursor, transform)| (player_index(cursor.0), *transform))
+            .collect();
+        cursors.sort_by_key(|(player, _)| *player);
+        (
+            nodes
+                .into_iter()
+                .map(|(_, placement, node)| (placement, node))
+                .collect(),
+            badges.into_iter().map(|(_, transform)| transform).collect(),
+            cursors
+                .into_iter()
+                .map(|(_, transform)| transform)
+                .collect(),
+        )
+    }
+
+    /// Makes the primary window `size` logical pixels, as a player's
+    /// resize does, and runs a frame; the window's size, which every layout
+    /// pass reads, follows it in that frame, and `bevy_ui` lays the screen
+    /// out at it, the test app's camera following the window.
+    fn resize(app: &mut App, size: Vec2) {
+        use crate::app::visuals::WindowSize;
+        use bevy::window::PrimaryWindow;
+
+        let window = app
+            .world_mut()
+            .query_filtered::<Entity, With<PrimaryWindow>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .resolution
+            .set(size.x, size.y);
+        app.update();
+        assert_eq!(app.world().resource::<WindowSize>().0, size);
+    }
+
+    /// A resize of the window while the Viewer is open writes every placed
+    /// node, the framing and the score badges where a fresh entry at the
+    /// new size writes them, in the frame of the resize - and for a window
+    /// smaller than the minimum, where a fresh entry at the minimum writes
+    /// them - and resizing back restores each exactly. With the countdown
+    /// showing, so the one node the display pass shows and hides as well is
+    /// moved and stays shown. It compares what the passes write; the
+    /// pointer and layout tests hold what `bevy_ui` makes of it at each
+    /// size.
+    #[test]
+    fn a_change_of_window_size_moves_the_viewer_and_moving_back_restores_it() {
+        use crate::app::visuals::WindowSize;
+
+        let laptop = Vec2::new(1280.0, 641.0);
+        let at_countdown = |app: &mut App| {
+            app.world_mut()
+                .resource_mut::<ReplayViewerState>()
+                .controller
+                .position_seconds = 0.5;
+            app.update();
+        };
+        let countdown_shown = |app: &mut App| {
+            let world = app.world_mut();
+            world
+                .query_filtered::<&Node, With<ViewerCountdown>>()
+                .single(world)
+                .unwrap()
+                .display
+                == Display::Flex
+        };
+        let mut app = viewer_app(WindowSize::OPENING.0, round_zero_fixture());
+        at_countdown(&mut app);
+        assert!(countdown_shown(&mut app));
+        let opening = placed_state(&mut app);
+        // The header row, the middle of it, tall's label and its three
+        // lines, wide's column, the countdown, the transport row, the Key's
+        // panel, body and two columns, and the two wordings of the Key's
+        // badge row.
+        assert_eq!(opening.0.len(), 15);
+
+        resize(&mut app, laptop);
+        let moved = placed_state(&mut app);
+        assert_ne!(moved, opening);
+        let mut fresh = viewer_app(laptop, round_zero_fixture());
+        at_countdown(&mut fresh);
+        assert_eq!(moved, placed_state(&mut fresh));
+        assert!(countdown_shown(&mut app), "moved, and still shown");
+        assert_frames_its_board(&mut app, "at the laptop's size");
+
+        // A window smaller than the minimum is laid out as the minimum.
+        resize(&mut app, Vec2::new(800.0, 500.0));
+        let mut minimum = viewer_app(WindowSize::MINIMUM.0, round_zero_fixture());
+        at_countdown(&mut minimum);
+        assert_eq!(placed_state(&mut app), placed_state(&mut minimum));
+
+        resize(&mut app, WindowSize::OPENING.0);
+        assert_eq!(placed_state(&mut app), opening);
+        assert_frames_its_board(&mut app, "back at the opening size");
+    }
+
+    /// Where `entity`, drawn in world space, is drawn in the window by the
+    /// main camera, worked out from the camera's own projection and place
+    /// rather than from the layout: its centre in window pixels, and how
+    /// many window pixels one of its own units is drawn at.
+    fn drawn_by_the_camera(app: &mut App, entity: Entity) -> (Vec2, f32) {
+        use crate::app::visuals::{MainCamera, WindowSize};
+
+        let window = app.world().resource::<WindowSize>().0;
+        let (projection, camera) = app
+            .world_mut()
+            .query_filtered::<(&Projection, &GlobalTransform), With<MainCamera>>()
+            .single(app.world())
+            .unwrap();
+        let Projection::Orthographic(projection) = projection else {
+            panic!("the main camera is orthographic");
+        };
+        let (scale, camera) = (projection.scale, camera.translation());
+        let drawn = app.world().get::<GlobalTransform>(entity).unwrap();
+        let offset = (drawn.translation() - camera).truncate() / scale;
+        (
+            Vec2::new(window.x / 2.0 + offset.x, window.y / 2.0 - offset.y),
+            drawn.scale().x / scale,
+        )
+    }
+
+    /// At every named size, both score badges with both cursors on one
+    /// point, as the main camera draws them: each 42 by 28 window pixels,
+    /// its score set at 15 px - whatever the board's zoom, which would
+    /// otherwise draw them at 12 px in the smallest window - the two side
+    /// by side, 5 px apart, Player One's on the left; and each 4 px off the
+    /// corner of the larger cursor, as drawn. And once more in the opening
+    /// window for a Replay whose label takes three lines there, the one
+    /// case in which that window's board is not drawn at its own size; in
+    /// each, the camera frames the board where the layout puts it.
+    #[test]
+    fn the_badges_are_drawn_at_their_own_size_side_by_side_at_every_size() {
+        use super::geometry::SCORE_BADGE_SIZE;
+        use crate::app::visuals::{NAMED_WINDOW_SIZES, WindowSize, cursor_visual_style};
+        use crate::replay::MatchRecorder;
+        use crate::replay::test_support::frame;
+
+        let shared = Point::new(3, 5);
+        let start = crate::replay::ReplayFrame {
+            cursors: [shared, shared],
+            ..frame()
+        };
+        let mut recorder = MatchRecorder::new(1, start.clone());
+        let replay = recorder.complete(2, 1.0, start).unwrap();
+        let mut three_lines = replay.clone();
+        three_lines.label = "Saturday afternoon rematch against my brother, best of three".into();
+        let mut zooms = Vec::new();
+        let cases = NAMED_WINDOW_SIZES
+            .into_iter()
+            .map(|window| (window, replay.clone()))
+            .chain([(WindowSize::OPENING.0, three_lines)]);
+        for (window, replay) in cases {
+            let label_lines = geometry::TallLabelRoom::for_label(&replay.label, window.x);
+            let mut app = viewer_app(window, replay);
+            app.update();
+            assert_frames_its_board(&mut app, &format!("{window} {label_lines:?}"));
+            let mut badges: Vec<_> = app
+                .world_mut()
+                .query::<(Entity, &ViewerScoreBadge, &Children)>()
+                .iter(app.world())
+                .map(|(entity, badge, children)| (player_index(badge.0), entity, children.to_vec()))
+                .collect();
+            badges.sort_by_key(|(player, ..)| *player);
+            assert_eq!(badges.len(), 2);
+            let mut drawn = Vec::new();
+            for (_, badge, children) in badges {
+                let (centre, per_unit) = drawn_by_the_camera(&mut app, badge);
+                let size = SCORE_BADGE_SIZE * per_unit;
+                assert!(
+                    (size - Vec2::new(42.0, 28.0)).abs().max_element() < 1e-3,
+                    "{window}: a badge drawn {size}"
+                );
+                let score = children
+                    .iter()
+                    .copied()
+                    .find(|child| app.world().get::<Text2d>(*child).is_some())
+                    .expect("a badge holds its score");
+                let FontSize::Px(font_px) = app.world().get::<TextFont>(score).unwrap().font_size
+                else {
+                    panic!("the score is sized in pixels");
+                };
+                let (_, score_per_unit) = drawn_by_the_camera(&mut app, score);
+                assert!(
+                    (font_px * score_per_unit - 15.0).abs() < 1e-3,
+                    "{window}: the score drawn at {} px",
+                    font_px * score_per_unit
+                );
+                drawn.push(Rect::from_center_size(centre, size));
+            }
+            let (one, two) = (drawn[0], drawn[1]);
+            assert!(
+                (two.min.x - one.max.x - 5.0).abs() < 1e-3,
+                "{window}: {one:?} and {two:?} are not 5 px apart"
+            );
+            assert!(
+                one.max.x < two.min.x,
+                "{window}: Player One's is the left one"
+            );
+            assert!((one.min.y - two.min.y).abs() < 1e-3, "{window}");
+
+            let cursor = app
+                .world_mut()
+                .query::<(Entity, &ViewerCursor)>()
+                .iter(app.world())
+                .find(|(_, cursor)| cursor.0 == Player::One)
+                .map(|(entity, _)| entity)
+                .unwrap();
+            let (cursor, per_unit) = drawn_by_the_camera(&mut app, cursor);
+            let half = cursor_visual_style(Player::One).size * per_unit / 2.0;
+            assert!(
+                (one.min.x - (cursor.x + half) - 4.0).abs() < 1e-3
+                    && ((cursor.y - half) - one.max.y - 4.0).abs() < 1e-3,
+                "{window}: {one:?} is not 4 px off the cursor's corner"
+            );
+            zooms.push(per_unit);
+        }
+        assert!(
+            zooms.iter().any(|zoom| *zoom < 0.8) && zooms.iter().any(|zoom| *zoom > 1.9),
+            "the sizes reach small and large boards: {zooms:?}"
+        );
+        let three_lines = zooms.last().unwrap();
+        assert!(
+            (three_lines - 0.949).abs() < 0.001,
+            "a label on three lines draws the opening window's board at 0.949: {three_lines}"
+        );
+    }
+
+    /// A Replay whose header texts are as long as the screen makes room
+    /// for - `label`, the timer at 999:59 of 999:59, round 9,999 with Round
+    /// Time on, a three-digit score each and a four-digit year - or, `past`
+    /// them, a digit longer: 1,000 minutes, round 10,000 and a score of
+    /// 1,000. Its start, in that round and playing, is in effect until its
+    /// end, which is a little past the last second the timer shows, so the
+    /// tests look half a second before the end ([`longest_moment`]).
+    fn longest_texts(label: &str, past: bool) -> Replay {
+        use crate::match_settings::{MatchSettingField, MatchSettings};
+        use crate::replay::{MatchRecorder, ReplayFrame, ReplayPhase};
+        use crate::rules::Score;
+
+        let mut settings = MatchSettings::default();
+        settings.set_value(MatchSettingField::RoundTime, 3_600);
+        settings.set_enabled(MatchSettingField::RoundTime, true);
+        let start = ReplayFrame {
+            phase: ReplayPhase::Playing,
+            current_round: if past { 10_000 } else { 9_999 },
+            ..crate::replay::test_support::frame()
+        };
+        let mut recorder = MatchRecorder::for_test(1, start.clone(), settings);
+        let duration = if past { 60_000.9 } else { 59_999.9 };
+        let mut replay = recorder.complete(2, duration, start).unwrap();
+        replay.label = label.into();
+        let score = if past { 1_000 } else { 999 };
+        replay.score = Score {
+            black: score,
+            white: score - 1,
+        };
+        // 2026-11-18, in any time zone.
+        replay.completed_at_ms = 1_795_000_000_000;
+        replay
+    }
+
+    /// Where the tests of [`longest_texts`] look: half a second before its
+    /// end, where its start is still in effect and the timer reads 999:59
+    /// of 999:59, or 1000:00 of 1000:00 past them.
+    fn longest_moment(replay: &Replay) -> f64 {
+        replay.duration_seconds - 0.5
+    }
+
+    /// `text` with every digit a 9: what a line of it breaks like, since a
+    /// line breaks alike whichever digits a number has.
+    fn as_nines(text: &str) -> String {
+        text.chars()
+            .map(|character| {
+                if character.is_ascii_digit() {
+                    '9'
+                } else {
+                    character
+                }
+            })
+            .collect()
+    }
+
+    /// The words of the one shown text in `role`.
+    fn shown_text(app: &mut App, role: ViewerText) -> String {
+        use bevy::ui::ComputedNode;
+
+        let world = app.world_mut();
+        let shown: Vec<String> = world
+            .query::<(&ViewerText, &Text, &ComputedNode, &InheritedVisibility)>()
+            .iter(world)
+            .filter(|(text, _, node, visibility)| {
+                **text == role && visibility.get() && node.size() != Vec2::ZERO
+            })
+            .map(|(_, text, ..)| text.0.clone())
+            .collect();
+        assert_eq!(shown.len(), 1, "one {role:?} is shown: {shown:?}");
+        shown[0].clone()
+    }
+
+    /// Labels of 60 characters, the most a Replay holds, that wrap badly: one
+    /// word to a line at the column's narrowest, alternating a letter and a
+    /// word that fills what is left; one that takes three lines in tall's
+    /// header; and one with nowhere to break but within a word.
+    const LONGEST_LABELS: [&str; 3] = [
+        "A bbbbbbbbbbbbbb c dddddddddddddd e ffffffffffffff g hhhhhhh",
+        "Saturday afternoon rematch against my brother, best of three",
+        "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ];
+
+    /// The texts every button stands over, and every visible text drawn
+    /// elsewhere, and the board and the score badges as the camera draws
+    /// them, each labelled: what the overlap test below checks.
+    fn drawn_items(app: &mut App) -> Vec<(String, Rect)> {
+        use super::geometry::{SCORE_BADGE_SIZE, VIEWER_BOARD_CENTER_Y, VIEWER_BOARD_OUTER_SIZE};
+        use crate::app::visuals::{WindowSize, WorldFraming};
+        use crate::ui::focus::drawn_texts;
+        use bevy::ui::{ComputedNode, UiGlobalTransform};
+
+        let window = app.world().resource::<WindowSize>().0;
+        let mut buttons: Vec<(String, Entity, Rect)> = Vec::new();
+        {
+            let world = app.world_mut();
+            let mut nodes = world.query::<(
+                Entity,
+                &ViewerAction,
+                &ComputedNode,
+                &UiGlobalTransform,
+                &InheritedVisibility,
+            )>();
+            for (entity, action, node, transform, visibility) in nodes.iter(world) {
+                if !visibility.get() || node.size() == Vec2::ZERO {
+                    continue;
+                }
+                let scale = node.inverse_scale_factor;
+                let rect = Rect::from_center_size(transform.translation * scale, node.size * scale);
+                buttons.push((format!("{action:?}"), entity, rect));
+            }
+        }
+        let in_a_button = |app: &App, mut entity: Entity| loop {
+            if buttons.iter().any(|(_, button, _)| *button == entity) {
+                break true;
+            }
+            match app.world().get::<ChildOf>(entity) {
+                Some(parent) => entity = parent.parent(),
+                None => break false,
+            }
+        };
+        let mut items: Vec<(String, Rect)> = buttons
+            .iter()
+            .map(|(label, _, rect)| (label.clone(), *rect))
+            .collect();
+        for (entity, text, ink) in drawn_texts(app) {
+            if !in_a_button(app, entity) {
+                items.push((format!("{text:?}"), ink));
+            }
+        }
+        let framing = *app.world().resource::<WorldFraming>();
+        let (centre, half) = (
+            Vec2::new(0.0, VIEWER_BOARD_CENTER_Y),
+            Vec2::splat(VIEWER_BOARD_OUTER_SIZE / 2.0),
+        );
+        items.push((
+            "board".into(),
+            Rect::from_corners(
+                framing.window_point(centre - half, window),
+                framing.window_point(centre + half, window),
+            ),
+        ));
+        let badges: Vec<Entity> = app
+            .world_mut()
+            .query_filtered::<Entity, With<ViewerScoreBadge>>()
+            .iter(app.world())
+            .collect();
+        for badge in badges {
+            let (centre, per_unit) = drawn_by_the_camera(app, badge);
+            items.push((
+                "score badge".into(),
+                Rect::from_center_size(centre, SCORE_BADGE_SIZE * per_unit),
+            ));
+        }
+        items
+    }
+
+    /// At every named size, with the header's texts at their longest - each
+    /// of three badly wrapping 60-character labels, and the longest timer,
+    /// round and result lines the layout makes room for, which the screen
+    /// is seen to draw - and then a digit past every assumption the layout
+    /// makes about those three, nothing the Viewer draws meets anything
+    /// else and nothing leaves the window: measured from what `bevy_ui`
+    /// laid out, glyphs for text and boxes for buttons, and the board and
+    /// the score badges where the camera draws them. A text inside a button
+    /// is that button's. The score badges are the one thing meant to stand
+    /// over another, the board.
+    #[test]
+    fn the_longest_texts_stand_clear_of_everything_at_every_size() {
+        use super::geometry::{LONGEST_RESULT, LONGEST_ROUND, LONGEST_TIMER};
+        use crate::app::visuals::NAMED_WINDOW_SIZES;
+
+        for window in NAMED_WINDOW_SIZES {
+            for label in LONGEST_LABELS {
+                for past in [false, true] {
+                    let replay = longest_texts(label, past);
+                    let moment = longest_moment(&replay);
+                    let mut app = viewer_app(window, replay);
+                    app.world_mut()
+                        .resource_mut::<ReplayViewerState>()
+                        .controller
+                        .position_seconds = moment;
+                    app.update();
+                    app.update();
+                    let context = format!("{window} {label:?} past: {past}");
+                    for (role, longest) in [
+                        (ViewerText::Timer, LONGEST_TIMER),
+                        (ViewerText::Round, LONGEST_ROUND),
+                        (ViewerText::Result, LONGEST_RESULT),
+                    ] {
+                        let drawn = shown_text(&mut app, role);
+                        if past {
+                            assert!(drawn.len() > longest.len(), "{context}: {drawn:?}");
+                        } else {
+                            assert_eq!(as_nines(&drawn), as_nines(longest), "{context}");
+                        }
+                    }
+                    assert_drawn_apart(&mut app, window, &context);
+                }
+            }
+        }
+    }
+
+    /// Everything the Viewer in `app` draws, as [`drawn_items`] measures it,
+    /// stands inside the window and meets nothing else, but for the score
+    /// badges, which stand over the board.
+    fn assert_drawn_apart(app: &mut App, window: Vec2, context: &str) {
+        let items = drawn_items(app);
+        // Back, Match Settings, the nine transport controls, the label, the
+        // timer, the round, the result, the board and two badges.
+        assert_eq!(items.len(), 18, "{context}: {items:#?}");
+        let inside = Rect::from_corners(Vec2::ZERO, window);
+        for (name, rect) in &items {
+            assert!(
+                inside.contains(rect.min) && inside.contains(rect.max),
+                "{context}: {name} at {rect:?} leaves the window"
+            );
+        }
+        for (index, (name, rect)) in items.iter().enumerate() {
+            for (other, other_rect) in &items[index + 1..] {
+                let pair = [name.as_str(), other.as_str()];
+                if pair.contains(&"board") && pair.contains(&"score badge") {
+                    continue;
+                }
+                assert!(
+                    rect.intersect(*other_rect).is_empty(),
+                    "{context}: {name} {rect:?} meets {other} {other_rect:?}"
+                );
+            }
+        }
+    }
+
+    /// How many lines `bevy_ui` set a label of 26 px on: its layout's
+    /// height in lines. A line with nothing drawn on it - spaces at the end
+    /// of a label, or the empty line after one past the end of a full line
+    /// - counts, as it does in the height the label takes.
+    fn lines_set(layout: &bevy::text::TextLayoutInfo) -> usize {
+        use crate::ui::text_metrics::text_height;
+
+        let line = text_height(1, geometry::VIEWER_LABEL_SIZE) * layout.scale_factor;
+        (layout.size.y / line).round() as usize
+    }
+
+    /// How many lines the one shown label is set on.
+    fn label_lines(app: &mut App) -> usize {
+        use bevy::text::TextLayoutInfo;
+        use bevy::ui::ComputedNode;
+
+        let world = app.world_mut();
+        let shown: Vec<usize> = world
+            .query::<(
+                &ViewerText,
+                &ComputedNode,
+                &TextLayoutInfo,
+                &InheritedVisibility,
+            )>()
+            .iter(world)
+            .filter(|(text, node, _, visibility)| {
+                **text == ViewerText::Label && visibility.get() && node.size() != Vec2::ZERO
+            })
+            .map(|(_, _, layout, _)| lines_set(layout))
+            .collect();
+        assert_eq!(shown.len(), 1, "one label is shown");
+        shown[0]
+    }
+
+    /// Labels a player might write, among them the ones that tell a line
+    /// count that follows `bevy_ui` from one that does not: a bracket, a
+    /// quotation mark or a hyphen where a line has to break, a word as
+    /// long as a label, runs of spaces at a break and at the end.
+    const REALISTIC_LABELS: [&str; 17] = [
+        "Round zero",
+        "Saturday rematch with my sister best of three, second game",
+        "Friday night game with Alex (rematch after the tournament)",
+        "Practice game vs. Jordan (handicap, teaching game)",
+        "Rematch: best-of-three after the long-awaited semi-final",
+        "Club night 'friendly' game -- \"no takebacks\" says Sam",
+        "Club night / table 4 / round 2 of the knock-out stage",
+        "Game (rematch) for the title: who wins? Nobody knows yet!",
+        "Final [game 3 of 5] {sudden death} - played 2026-11-27",
+        "Thursday evening game with      lots of spaces here",
+        "Thursday   evening   game   with   lots   of   spaces   here",
+        "Saturday afternoon rematch against my brother, best of three",
+        "A bbbbbbbbbbbbbb c dddddddddddddd e ffffffffffffff g hhhhhhh",
+        "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "Ends with spaces where the line is already full   ",
+        "Short, with spaces at the end   ",
+        // A space typed after a full second line: an empty third.
+        "Saturday game with my aunt Lucy, best of three, round one. ",
+    ];
+
+    /// A label that takes three lines in tall's header only from a window
+    /// wider than the narrowest: a space that fits on a line is followed by
+    /// the line-breaking rules, and no line starts with `!`.
+    const WIDER_THREE_LINES: &str = "Saturday night with my brothers ! He won the final again";
+
+    /// The tall windows the Viewer's label is checked in: the narrowest;
+    /// 1058 and 1059 px wide, either side of where a line of the label
+    /// first holds 32 characters; 1100x900, 33; and 1300x1300, 39.
+    const TALL_WINDOWS: [Vec2; 5] = [
+        Vec2::new(1040.0, 900.0),
+        Vec2::new(1058.0, 900.0),
+        Vec2::new(1059.0, 900.0),
+        Vec2::new(1100.0, 900.0),
+        Vec2::new(1300.0, 1300.0),
+    ];
+
+    /// The judgement of which labels tall gives a third line, against what
+    /// `bevy_ui` does with them in the Viewer itself, in tall windows from
+    /// the narrowest up: in each, every label given two lines is drawn on
+    /// two at most, every label drawn on two is given two, and nothing
+    /// drawn meets anything else - a label drawn on three among them, whose
+    /// third line used to run over the timer - for the labels a player
+    /// might write, one that takes three lines only in a wider window, and
+    /// one the game writes by itself.
+    #[test]
+    fn tall_draws_a_label_it_gives_two_lines_on_two_at_most() {
+        use super::geometry::TallLabelRoom;
+        use crate::replay::default_replay_label;
+        use crate::rules::Score;
+        use crate::ui::arrangement::Arrangement;
+
+        let mut labels: Vec<String> = REALISTIC_LABELS.map(String::from).into();
+        labels.push(WIDER_THREE_LINES.into());
+        labels.push(default_replay_label(
+            Score {
+                black: 999,
+                white: 998,
+            },
+            "2026-11-27 23:59",
+        ));
+        let mut seen = [0; 2];
+        for window in TALL_WINDOWS {
+            for label in &labels {
+                let mut replay = fixed_metadata_replay();
+                replay.label = label.clone();
+                let mut app = viewer_app(window, replay);
+                app.update();
+                let context = format!("{window} {label:?}");
+                assert_eq!(layout_of(&app).arrangement, Arrangement::Tall, "{context}");
+                let lines = label_lines(&mut app);
+                let given_two =
+                    TallLabelRoom::for_label(label, window.x) == TallLabelRoom::TwoLines;
+                assert_eq!(given_two, lines <= 2, "{context} is drawn on {lines} lines");
+                assert_drawn_apart(&mut app, window, &context);
+                seen[usize::from(given_two)] += 1;
+                if label == WIDER_THREE_LINES {
+                    // Three at 32 characters, two at 31 and from 33.
+                    let expected = if window.x == 1059.0 { 3 } else { 2 };
+                    assert_eq!(lines, expected, "{context}");
+                }
+            }
+        }
+        assert!(seen[0] >= 10 && seen[1] >= 80, "{seen:?}");
+    }
+
+    /// Labels of many kinds, for
+    /// [`the_label_check_counts_the_lines_bevy_ui_sets`] at `chars`
+    /// characters to a line: the realistic ones; the labels the game writes
+    /// by itself, at small and large scores; each printable punctuation
+    /// mark at every place from four characters before the end of a full
+    /// first line to one after it - after a space, after a word, inside a
+    /// word, between spaces, before a digit after a space or a letter, and
+    /// inside a number - and every two marks side by side where a full line
+    /// ends, so that where a rule lets the first line break, or does not,
+    /// decides where the second starts; and some hundreds generated from
+    /// words, punctuation and runs of spaces. Every one is a label a Replay
+    /// may have.
+    fn label_corpus(chars: usize) -> Vec<String> {
+        use crate::replay::{default_replay_label, validate_label};
+        use crate::rules::Score;
+
+        let mut labels: Vec<String> = REALISTIC_LABELS.map(String::from).into();
+        labels.push(WIDER_THREE_LINES.into());
+        for (black, white) in [
+            (0, 0),
+            (3, 1),
+            (42, 38),
+            (81, 80),
+            (999, 998),
+            (99_999, 99_998),
+        ] {
+            for started in ["2026-01-01 00:00", "2026-11-27 23:59"] {
+                labels.push(default_replay_label(Score { black, white }, started));
+            }
+        }
+        for mark in (b'!'..=b'~').filter(|byte| !byte.is_ascii_alphanumeric()) {
+            let mark = char::from(mark);
+            for at in chars - 4..=chars + 1 {
+                // A word that ends just before `at`, and one more letter.
+                let (short, long) = ("a".repeat(at - 2), "a".repeat(at - 1));
+                for head in [
+                    format!("A{short} {mark}bbbbbbbbbb cc"),
+                    format!("A{long}{mark} bbbbbbbbbb cc"),
+                    format!("A{long}{mark}bbbbbbbbbb cc"),
+                    format!("A{short} {mark} bbbbbbbbbb cc"),
+                    format!("A{short} {mark}9bbbbbbbbb cc"),
+                    format!("A{long}{mark}9bbbbbbbbb cc"),
+                    format!("A{} 9{mark}9bbbbbbbb cc", "a".repeat(at - 3)),
+                ] {
+                    let mut label = head;
+                    label.truncate(60);
+                    labels.push(label);
+                }
+            }
+        }
+        // Every two marks side by side where a full line ends, after a
+        // space earlier on the line: whether a line may break between them
+        // decides whether it ends there or at that space.
+        let marks: Vec<char> = (b'!'..=b'~')
+            .filter(|byte| !byte.is_ascii_alphanumeric())
+            .map(char::from)
+            .collect();
+        for first in &marks {
+            for second in &marks {
+                let mut label = format!("A {}{first}{second}bbbbbbbbbb cc", "a".repeat(chars - 3));
+                label.truncate(60);
+                labels.push(label);
+            }
+        }
+        // A small generator, so the corpus is the same on every run.
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15 ^ chars as u64;
+        let mut next = |below: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % below as u64) as usize
+        };
+        let words = [
+            "a",
+            "of",
+            "the",
+            "game",
+            "match",
+            "rematch",
+            "Saturday",
+            "tournament",
+            "semi-final",
+            "best-of-three",
+            "(rematch)",
+            "\"quoted\"",
+            "'single'",
+            "-",
+            "/",
+            "|",
+            "vs.",
+            "1/2",
+            "3:45",
+            "2026-11-27",
+            "#4",
+            "$5",
+            "50%",
+            "!",
+            "?",
+            "a,b",
+            "(",
+            ")",
+            "[x]",
+            "{y}",
+            "e.g.",
+            "...",
+            "--",
+            "x-",
+            "-y",
+            "Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        ];
+        for _ in 0..400 {
+            let mut label = String::from("A");
+            let length = 20 + next(41);
+            while label.len() < length {
+                let spaces = [1, 1, 1, 1, 2, 3, 0][next(7)];
+                label.push_str(&" ".repeat(spaces));
+                label.push_str(words[next(words.len())]);
+            }
+            label.truncate(length);
+            labels.push(label);
+        }
+        for label in &labels {
+            assert!(validate_label(label).is_ok(), "{label:?}");
+        }
+        labels
+    }
+
+    /// The widths the label corpus is laid out at, in logical pixels: tall's
+    /// label in the narrowest window, 31 characters and half of one; in a
+    /// 1059 px window, 32 and half of one; and in a window past the cap's
+    /// width, 51 and half of one; wide's column at 1040x600, 234 px, which
+    /// is 15 characters exactly and holds 14; at 1920x1080, 434 px; and two
+    /// more exact fits, 468 px and 546 px, which hold 29 and 34.
+    const CORPUS_WIDTHS: [f32; 7] = [491.4, 507.0, 803.4, 234.0, 434.0, 468.0, 546.0];
+
+    /// Every label of [`label_corpus`], laid out by `bevy_ui` at each of
+    /// [`CORPUS_WIDTHS`] as tall sets its label, and its lines read back
+    /// character by character from where `bevy_ui` put each glyph: every
+    /// character stands on the line [`wrap`] puts it on, at the number of
+    /// characters [`wrap::chars_per_line`] says the width holds, and every
+    /// label is set on as many lines as `wrap` counts, empty last ones
+    /// included - [`wrap::wrapped_lines`], the count tall's room is decided
+    /// by, among them. So tall gives a third line to exactly the labels `bevy_ui`
+    /// sets on three, and a change to any one of `wrap`'s rules moves some
+    /// character here onto another line.
+    #[test]
+    fn the_label_check_counts_the_lines_bevy_ui_sets() {
+        use super::geometry::VIEWER_LABEL_SIZE;
+        use super::layout::header_text;
+        use crate::app::visuals::WindowSize;
+        use crate::ui::focus::real_layout_app;
+        use bevy::text::TextLayoutInfo;
+
+        let mut app = real_layout_app(WindowSize::OPENING.0);
+        let mut laid_out = Vec::new();
+        for width in CORPUS_WIDTHS {
+            let chars = wrap::chars_per_line(width, VIEWER_LABEL_SIZE);
+            let root = app
+                .world_mut()
+                .spawn(Node {
+                    position_type: PositionType::Absolute,
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                })
+                .id();
+            for label in label_corpus(chars) {
+                let node = app
+                    .world_mut()
+                    .spawn((
+                        header_text(ViewerText::Label, label.clone()),
+                        Node {
+                            width: px(width),
+                            ..default()
+                        },
+                        ChildOf(root),
+                    ))
+                    .id();
+                laid_out.push((width, chars, label, node));
+            }
+        }
+        app.update();
+        app.update();
+        let mut seen = [0; 4];
+        for (width, chars, label, node) in &laid_out {
+            let layout = app.world().get::<TextLayoutInfo>(*node).unwrap();
+            let context = format!("{width} px, {chars} characters: {label:?}");
+            assert_eq!(layout.glyphs.len(), label.len(), "{context}: a glyph each");
+            let mut starts = Vec::new();
+            wrap::for_each_line(label.as_bytes(), *chars, true, |start| starts.push(start));
+            let lines_of: Vec<u32> = (0..label.len())
+                .map(|index| (starts.partition_point(|start| *start <= index) - 1) as u32)
+                .collect();
+            let drawn: Vec<u32> = layout.glyphs.iter().map(|glyph| glyph.line_index).collect();
+            assert_eq!(drawn, lines_of, "{context}: the line each character is on");
+            let set = lines_set(layout);
+            assert_eq!(set, starts.len(), "{context}: the lines");
+            assert_eq!(
+                wrap::wrapped_lines(label, *chars, true),
+                set,
+                "{context}: the count the room is decided by"
+            );
+            seen[set.min(3)] += 1;
+        }
+        assert!(
+            seen[1] >= 500 && seen[2] >= 5_000 && seen[3] >= 500,
+            "the corpus reaches one, two and three lines and more: {seen:?}"
+        );
+    }
+
+    /// The node box of the one shown node carrying `marker`, in logical
+    /// pixels from the window's top-left.
+    fn shown_box<M: Component>(app: &mut App) -> Rect {
+        use bevy::ui::{ComputedNode, UiGlobalTransform};
+
+        let world = app.world_mut();
+        let shown: Vec<Rect> = world
+            .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<M>>()
+            .iter(world)
+            .filter(|(node, _)| node.size() != Vec2::ZERO)
+            .map(|(node, transform)| {
+                let scale = node.inverse_scale_factor;
+                Rect::from_center_size(transform.translation * scale, node.size * scale)
+            })
+            .collect();
+        assert_eq!(shown.len(), 1);
+        shown[0]
+    }
+
+    /// What the Key says of the score badges at 1040x900, byte for byte the
+    /// sentence it has always said there, and what it says in wide, where
+    /// the result line stands beside the board.
+    const KEY_BADGE_SENTENCE_TALL: &str = "Score badges show each player's score beside their cursor. When both cursors share a point, Black / P1's is on the left, as in the score at the top.";
+    const KEY_BADGE_SENTENCE_WIDE: &str = "Score badges show each player's score beside their cursor. When both cursors share a point, Black / P1's is on the left, as in the score beside the board.";
+
+    /// The Key's panel and the Match Settings panel, as `bevy_ui` lays them
+    /// out, stand inside the window with 12 px to spare at every named size
+    /// and at either side of the Key's switch to two columns, 721 and 722
+    /// px tall: Match Settings for a Replay with every end reason it lists,
+    /// and the Key in one column from 722 px and in two below. The Key's
+    /// height in each form is what the layout reckons with, measured here
+    /// at a scale factor of 1. And the Key shows the one wording of its
+    /// badge sentence that is true in the window's arrangement: in tall,
+    /// as at 1040x900, the sentence it has always shown there, and in wide
+    /// the one that points beside the board.
+    #[test]
+    fn the_key_stands_inside_the_window_in_either_form() {
+        use super::geometry::{
+            KEY_ONE_COLUMN_HEIGHT, KEY_ONE_COLUMN_WIDTH, KEY_TWO_COLUMN_HEIGHT,
+            KEY_TWO_COLUMN_WIDTH,
+        };
+        use crate::app::visuals::NAMED_WINDOW_SIZES;
+
+        let mut sizes = NAMED_WINDOW_SIZES.to_vec();
+        sizes.extend([Vec2::new(1040.0, 721.0), Vec2::new(1040.0, 722.0)]);
+        let mut forms = Vec::new();
+        let mut wordings_seen = [false, false];
+        for window in sizes {
+            let mut app = viewer_app(window, every_end_reason());
+            let inside = Rect::from_corners(Vec2::splat(12.0), window - Vec2::splat(12.0));
+            app.world_mut().resource_mut::<ReplayViewerState>().key_open = true;
+            app.update();
+            app.update();
+            let panel = {
+                let world = app.world_mut();
+                let panels: Vec<Entity> = world
+                    .query::<(Entity, &layout::ViewerPlacement)>()
+                    .iter(world)
+                    .filter(|(_, placement)| **placement == layout::ViewerPlacement::KeyPanel)
+                    .map(|(entity, _)| entity)
+                    .collect();
+                panels[0]
+            };
+            let key = {
+                use bevy::ui::{ComputedNode, UiGlobalTransform};
+                let node = app.world().get::<ComputedNode>(panel).unwrap();
+                let transform = app.world().get::<UiGlobalTransform>(panel).unwrap();
+                let scale = node.inverse_scale_factor;
+                Rect::from_center_size(transform.translation * scale, node.size * scale)
+            };
+            assert!(
+                inside.contains(key.min) && inside.contains(key.max),
+                "{window}: the Key {key:?}"
+            );
+            let one_column = window.y >= 722.0;
+            let expected = if one_column {
+                Vec2::new(KEY_ONE_COLUMN_WIDTH, KEY_ONE_COLUMN_HEIGHT)
+            } else {
+                Vec2::new(KEY_TWO_COLUMN_WIDTH, KEY_TWO_COLUMN_HEIGHT)
+            };
+            assert!(
+                (key.size() - expected).abs().max_element() < 0.5,
+                "{window}: the Key is {} against {expected}",
+                key.size()
+            );
+            let shown_wordings: Vec<String> = {
+                use bevy::ui::ComputedNode;
+                let world = app.world_mut();
+                world
+                    .query::<(
+                        &layout::ViewerPlacement,
+                        &Text,
+                        &ComputedNode,
+                        &InheritedVisibility,
+                    )>()
+                    .iter(world)
+                    .filter(|(placement, _, node, visibility)| {
+                        matches!(placement, layout::ViewerPlacement::KeySentence(_))
+                            && visibility.get()
+                            && node.size() != Vec2::ZERO
+                    })
+                    .map(|(_, text, ..)| text.0.clone())
+                    .collect()
+            };
+            let (wording, seen) = match layout_of(&app).arrangement {
+                crate::ui::arrangement::Arrangement::Tall => (KEY_BADGE_SENTENCE_TALL, 0),
+                crate::ui::arrangement::Arrangement::Wide => (KEY_BADGE_SENTENCE_WIDE, 1),
+            };
+            assert_eq!(shown_wordings, [wording], "{window}");
+            wordings_seen[seen] = true;
+            forms.push(one_column);
+            close_open_viewer_modal(&mut app.world_mut().resource_mut::<ReplayViewerState>());
+            app.world_mut()
+                .resource_mut::<ReplayViewerState>()
+                .match_settings_open = true;
+            app.update();
+            app.update();
+            let settings = shown_box::<ViewerMatchSettingsModal>(&mut app);
+            assert_eq!(settings, Rect::from_corners(Vec2::ZERO, window), "{window}");
+            let panel = {
+                use bevy::ui::{ComputedNode, UiGlobalTransform};
+                let world = app.world_mut();
+                let root = world
+                    .query_filtered::<Entity, With<ViewerMatchSettingsModal>>()
+                    .single(world)
+                    .unwrap();
+                let panel = world.get::<Children>(root).unwrap()[0];
+                let node = world.get::<ComputedNode>(panel).unwrap();
+                let transform = world.get::<UiGlobalTransform>(panel).unwrap();
+                let scale = node.inverse_scale_factor;
+                Rect::from_center_size(transform.translation * scale, node.size * scale)
+            };
+            assert!(
+                inside.contains(panel.min) && inside.contains(panel.max),
+                "{window}: Match Settings {panel:?}"
+            );
+        }
+        assert!(forms.contains(&true) && forms.contains(&false));
+        assert_eq!(wordings_seen, [true, true], "both wordings were checked");
     }
 
     /// The whole screen driven without a pointer, over real `bevy_ui`
@@ -705,11 +1852,10 @@ mod tests {
     /// does the same with the D-pad and South; and Play really plays.
     #[test]
     fn the_viewer_is_operable_without_a_pointer_and_the_ring_survives_an_overlay() {
-        use crate::ui::focus::real_layout_app;
         use bevy::input_focus::{InputFocus, InputFocusVisible};
 
-        let mut app = viewer_screen_app(
-            real_layout_app(crate::app::visuals::WindowSize::OPENING.0),
+        let mut app = viewer_app(
+            crate::app::visuals::WindowSize::OPENING.0,
             fixed_metadata_replay(),
         );
         app.update();
@@ -1063,5 +2209,119 @@ mod tests {
         assert_eq!(viewer.controller, PlaybackController::default());
         assert!(!viewer.key_open);
         assert!(!viewer.match_settings_open);
+    }
+
+    /// The opening window as `bevy_ui` lays it out through the game's own
+    /// plugins, written out as numbers: Back and Match Settings in the
+    /// header row, the label between them and the three lines under it,
+    /// every control of the transport row and Play's label, and no other
+    /// button or header text - and the board drawn by the camera at its own
+    /// size over the origin. They are the numbers the screen was laid out
+    /// at before it was laid out for other sizes, measured on `main` on
+    /// 2026-11-28 with the same reading, but for the label's node: that is
+    /// now as wide as 31 characters and half of one, 492 px where it was
+    /// 498, and centred as before, so its glyphs are drawn where `main`
+    /// drew them, which their ink is held to. A slip in an arm of the
+    /// placement that the opening window reaches shows here, and not only
+    /// in the pure layout's arithmetic.
+    #[test]
+    fn the_opening_window_lays_the_viewer_out_where_it_always_did() {
+        use crate::app::visuals::{WindowSize, WorldFraming};
+        use crate::ui::focus::drawn_texts;
+        use bevy::ui::{ComputedNode, UiGlobalTransform};
+
+        let mut app = viewer_app(WindowSize::OPENING.0, fixed_metadata_replay());
+        app.update();
+        assert_eq!(
+            *app.world().resource::<WorldFraming>(),
+            WorldFraming::IDENTITY
+        );
+        assert_frames_its_board(&mut app, "the opening window");
+        let rect = |left: f32, top: f32, width: f32, height: f32| {
+            Rect::new(left, top, left + width, top + height)
+        };
+        let shown_rect = |node: &ComputedNode, transform: &UiGlobalTransform| {
+            let scale = node.inverse_scale_factor;
+            Rect::from_center_size(transform.translation * scale, node.size * scale)
+        };
+        let close =
+            |a: Rect, b: Rect| (a.min - b.min).abs().max(a.max - b.max).max_element() < 1e-3;
+        let world = app.world_mut();
+        let buttons: Vec<(ViewerAction, Rect)> = world
+            .query::<(
+                &ViewerAction,
+                &ComputedNode,
+                &UiGlobalTransform,
+                &InheritedVisibility,
+            )>()
+            .iter(world)
+            .filter(|(_, node, _, visibility)| visibility.get() && node.size() != Vec2::ZERO)
+            .map(|(action, node, transform, _)| (*action, shown_rect(node, transform)))
+            .collect();
+        for (action, expected) in [
+            (ViewerAction::BackToReplays, rect(22.0, 12.0, 86.0, 38.0)),
+            (ViewerAction::MatchSettings, rect(873.0, 12.0, 145.0, 38.0)),
+            (ViewerAction::Key, rect(83.0, 840.0, 70.0, 38.0)),
+            (ViewerAction::Rewind, rect(181.0, 840.0, 90.0, 38.0)),
+            (ViewerAction::JumpBack, rect(279.0, 840.0, 105.0, 38.0)),
+            (ViewerAction::PlayPause, rect(392.0, 840.0, 90.0, 38.0)),
+            (ViewerAction::JumpForward, rect(490.0, 840.0, 115.0, 38.0)),
+            (ViewerAction::FastForward, rect(613.0, 840.0, 115.0, 38.0)),
+            (ViewerAction::Speed(0.5), rect(756.0, 840.0, 62.0, 38.0)),
+            (ViewerAction::Speed(1.0), rect(826.0, 840.0, 62.0, 38.0)),
+            (ViewerAction::Speed(2.0), rect(896.0, 840.0, 62.0, 38.0)),
+        ] {
+            let found: Vec<Rect> = buttons
+                .iter()
+                .filter(|(shown, _)| *shown == action)
+                .map(|(_, rect)| *rect)
+                .collect();
+            assert_eq!(found.len(), 1, "{action:?} is shown once");
+            assert!(close(found[0], expected), "{action:?} at {:?}", found[0]);
+        }
+        assert_eq!(buttons.len(), 11, "and nothing else: {buttons:?}");
+        let texts: Vec<(ViewerText, Rect)> = world
+            .query::<(
+                &ViewerText,
+                &ComputedNode,
+                &UiGlobalTransform,
+                &InheritedVisibility,
+            )>()
+            .iter(world)
+            .filter(|(_, node, _, visibility)| visibility.get() && node.size() != Vec2::ZERO)
+            .map(|(text, node, transform, _)| (*text, shown_rect(node, transform)))
+            .collect();
+        for (role, expected) in [
+            (ViewerText::Label, rect(274.0, 15.0, 492.0, 32.0)),
+            (ViewerText::Timer, rect(0.0, 80.0, 1040.0, 22.0)),
+            (ViewerText::Round, rect(0.0, 104.0, 1040.0, 20.0)),
+            (ViewerText::Result, rect(0.0, 128.0, 1040.0, 17.0)),
+            (ViewerText::PlayPause, rect(419.0, 850.0, 36.0, 18.0)),
+        ] {
+            let found: Vec<Rect> = texts
+                .iter()
+                .filter(|(shown, _)| *shown == role)
+                .map(|(_, rect)| *rect)
+                .collect();
+            assert_eq!(found.len(), 1, "one {role:?} is shown");
+            assert!(close(found[0], expected), "{role:?} at {:?}", found[0]);
+        }
+        assert_eq!(texts.len(), 5, "and no other text: {texts:?}");
+        let label = drawn_texts(&mut app)
+            .into_iter()
+            .filter(|(_, text, _)| text == "Sample Replay")
+            .map(|(_, _, ink)| ink)
+            .collect::<Vec<_>>();
+        assert_eq!(label.len(), 1);
+        let expected = Rect::new(418.6, 19.0, 620.8, 45.0);
+        assert!(
+            (label[0].min - expected.min)
+                .abs()
+                .max(label[0].max - expected.max)
+                .max_element()
+                < 0.01,
+            "the label's ink at {:?}",
+            label[0]
+        );
     }
 }

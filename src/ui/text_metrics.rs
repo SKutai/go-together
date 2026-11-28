@@ -10,9 +10,11 @@
 //! row, which chooses between one line and two for its clocks; Home,
 //! Settings and the Replay Library, which leave room for their titles and
 //! notes; the Library's search field and Settings' error line, which cut a
-//! text to the characters their lines hold; and the Help modal, whose two
-//! columns hold a known number of characters and lines. `bevy_ui` is still what lays the text
-//! out and draws it, and the test here holds the two to each other.
+//! text to the characters their lines hold; the Replay Viewer's header,
+//! which keeps room for as many lines as its label takes; and the Help
+//! modal, whose two columns hold a known number of characters and lines.
+//! `bevy_ui` is still what lays the text out and draws it, and the test
+//! here holds the two to each other.
 //!
 //! A different font, or Bevy laying text out differently, is what would
 //! make these untrue, and the test is what would say so.
@@ -126,18 +128,23 @@ mod tests {
     /// laid out by `bevy_ui` with the game's font and read back: each node
     /// is as wide as the estimate and as tall, to the pixel the layout
     /// rounds to. The texts are the longest the Match screen's title row
-    /// and corners are made to hold, two of them on two lines, and the
-    /// titles Home, Settings, the Replay Library and the Help modal leave
-    /// room for - the Help modal's longest - at their sizes.
+    /// and corners are made to hold, two of them on two lines; the titles
+    /// Home, Settings, the Replay Library and the Help modal leave room
+    /// for, the Help modal's the longest, at their sizes; and the longest
+    /// label the Replay Viewer's header holds, on one.
     #[test]
     fn the_estimates_are_what_bevy_ui_lays_the_game_font_out_at() {
         use crate::app::visuals::WindowSize;
         use crate::ui::focus::real_layout_app;
 
-        let texts: [(&str, f32); 12] = [
+        let texts: [(&str, f32); 13] = [
             ("Go Together", 68.0),
             ("Match Replays", 38.0),
             ("Terms: Gray, Suicide, Ko & Territory", 30.0),
+            (
+                "Saturday afternoon rematch against my brother, best of three",
+                26.0,
+            ),
             ("GO TOGETHER", 34.0),
             ("WHITE 789", 24.0),
             ("TIME  999:59", 18.0),

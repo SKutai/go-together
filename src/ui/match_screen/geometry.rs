@@ -37,26 +37,21 @@
 //! board reaches twice its own - the whole of it, board and interface
 //! together, stands centred down the window as one piece.
 //!
-//! Wide is used only where it would draw the board more than [`WIDE_GAIN`]
-//! times as large as tall would - 4% larger. So tall is used in every
-//! window narrower than about 1.12 times its height, and in a wider one
-//! until wide gains that much. The margins are fixed pixels, so below the
-//! cap that point depends on the size as well as the shape: 1040x900 is
-//! tall, and its shape stays tall up to about 1182x1023 and is wide from
-//! there, as 1200x1038 is, because there wide's board is more than 4%
-//! larger. Near the boundary a slightly larger window can get a board up to
-//! 4% smaller, as it crosses back into tall; the margin is what keeps the
-//! change of arrangement worth making.
-//!
-//! Past the cap - in a window where the larger of the two rooms would draw
-//! the board at more than twice its size - the window's shape alone
-//! decides, so that a window keeps its arrangement however large it grows:
-//! the arrangement is the one the same shape gets at the size where that
-//! larger room just reaches the cap ([`wide_is_chosen`]). Worked out from
-//! the margins, a window past the cap is wide when it is more than about
-//! 1.12 times as wide as it is tall - the same proportion below which no
-//! window is ever wide: 2560x1600, 3840x2160 and 5120x2880 are wide, as
-//! 2560x1440 is, and a portrait window is tall.
+//! Which of the two a window gets is the rule in [`crate::ui::arrangement`],
+//! which the Replay Viewer chooses by too: wide only where it would draw
+//! the board more than 4% larger than tall would, and past the cap - where
+//! the larger of the two rooms would draw the board at more than twice its
+//! size - by the window's shape alone. With this screen's margins
+//! ([`MATCH_ARRANGEMENTS`]), tall is used in every window narrower than
+//! about 1.12 times its height, and in a wider one until wide gains that
+//! much. The margins are fixed pixels, so below the cap that point depends
+//! on the size as well as the shape: 1040x900 is tall, and its shape stays
+//! tall up to about 1182x1023 and is wide from there, as 1200x1038 is,
+//! because there wide's board is more than 4% larger. Past the cap a window
+//! is wide when it is more than about 1.12 times as wide as it is tall -
+//! the same proportion below which no window is ever wide: 2560x1600,
+//! 3840x2160 and 5120x2880 are wide, as 2560x1440 is, and a portrait window
+//! is tall.
 //!
 //! # Making room
 //!
@@ -104,13 +99,8 @@ use super::layout::{
     ROUND_PANEL_SIZE, UNDER_HEADING_ROW_GAP,
 };
 use crate::app::visuals::{BOARD_CENTER_Y, WorldFraming};
+use crate::ui::arrangement::{Arrangement, Arrangements, MAX_ZOOM, Margins};
 use crate::ui::text_metrics::{line_width, text_height};
-
-/// How much more room wide must give the board than tall before it is
-/// used: 4%.
-pub(super) const WIDE_GAIN: f32 = 1.04;
-/// The most the board grows: twice its own size.
-pub(super) const MAX_ZOOM: f32 = 2.0;
 
 /// The room the 1040x900 layout keeps around its board: above it for the
 /// heading and the column under it, below it for the end-gesture line and
@@ -195,13 +185,6 @@ pub(super) const ROUND_PANEL_MAX_CHARS: [usize; 2] = [25, 10];
 #[cfg(test)]
 pub(super) const TIMER_MAX_CHARS: usize = 12;
 
-/// Which of the two arrangements a window gets.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Arrangement {
-    Tall,
-    Wide,
-}
-
 /// How many lines a readout beside the heading is written on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Lines {
@@ -265,56 +248,34 @@ pub(super) struct MatchLayout {
 
 /// Lays the Match screen out for a window of `window` logical pixels,
 /// which the caller has already raised to the minimum with
-/// `WindowSize::layout`: in the arrangement [`wide_is_chosen`] picks, with
-/// the room it leaves the board, capped at twice the board's size.
+/// `WindowSize::layout`: in the arrangement [`MATCH_ARRANGEMENTS`] chooses,
+/// with the room it leaves the board, capped at twice the board's size.
 pub(super) fn match_layout(window: Vec2) -> MatchLayout {
-    let capped = |room: f32| room.min(BOARD_CAP);
-    if wide_is_chosen(window) {
-        wide_layout(window, capped(wide_room(window)))
-    } else {
-        tall_layout(window, capped(tall_room(window)))
+    let arrangement = MATCH_ARRANGEMENTS.choose(window);
+    let size = MATCH_ARRANGEMENTS.board(window, arrangement);
+    match arrangement {
+        Arrangement::Wide => wide_layout(window, size),
+        Arrangement::Tall => tall_layout(window, size),
     }
 }
 
-/// The most the board is drawn: twice its own size.
-const BOARD_CAP: f32 = BOARD_OUTER_SIZE * MAX_ZOOM;
-
-/// Whether `window` gets the wide arrangement. Below the cap, where wide's
-/// room is more than [`WIDE_GAIN`] times tall's. Past it, where the larger
-/// room would pass the cap, the same choice is made instead at the window
-/// scaled down, at the same shape, to the size where that room just reaches
-/// the cap, and kept for every larger window of that shape: so past the cap
-/// the shape alone decides. At the cap itself the two agree, so no window
-/// changes arrangement as it grows across it.
-fn wide_is_chosen(window: Vec2) -> bool {
-    let at = window * cap_scale(window).min(1.0);
-    wide_room(at) > tall_room(at) * WIDE_GAIN
-}
-
-/// The factor that scales `window`, keeping its shape, to the size where
-/// the larger of the two rooms is exactly [`BOARD_CAP`]. Each room is the
-/// lesser of a width and a height, each the window's less fixed margins, so
-/// it reaches the cap at the scale where the later of those two does; the
-/// larger room is the one that reaches it first.
-fn cap_scale(window: Vec2) -> f32 {
-    let reaches =
-        |sides: f32, ends: f32| ((BOARD_CAP + sides) / window.x).max((BOARD_CAP + ends) / window.y);
-    reaches(2.0 * TALL_SIDE, TALL_TOP + TALL_BOTTOM)
-        .min(reaches(2.0 * WIDE_SIDE, WIDE_TOP + WIDE_BOTTOM))
-}
-
-/// The board tall would draw in `window`, before the cap: the room it
-/// keeps around a board, taken from the window.
-fn tall_room(window: Vec2) -> f32 {
-    (window.x - 2.0 * TALL_SIDE).min(window.y - TALL_TOP - TALL_BOTTOM)
-}
-
-/// The board wide would draw in `window`, before the cap: the height
-/// between the title row and the band under the board, or the width
-/// between the least room for the two stacks, whichever is less.
-fn wide_room(window: Vec2) -> f32 {
-    (window.y - WIDE_TOP - WIDE_BOTTOM).min(window.x - 2.0 * WIDE_SIDE)
-}
+/// The room each arrangement keeps around the board, and its cap: tall's
+/// is the 1040x900 layout's, and wide keeps the height between the title
+/// row and the band under the board, and the least room for the two
+/// stacks beside it.
+const MATCH_ARRANGEMENTS: Arrangements = Arrangements {
+    tall: Margins {
+        top: TALL_TOP,
+        bottom: TALL_BOTTOM,
+        side: TALL_SIDE,
+    },
+    wide: Margins {
+        top: WIDE_TOP,
+        bottom: WIDE_BOTTOM,
+        side: WIDE_SIDE,
+    },
+    cap: BOARD_OUTER_SIZE * MAX_ZOOM,
+};
 
 fn tall_layout(window: Vec2, size: f32) -> MatchLayout {
     let drop = (window.y - (TALL_TOP + size + TALL_BOTTOM)) / 2.0;
@@ -492,6 +453,7 @@ mod tests {
     use super::*;
     use crate::app::visuals::{NAMED_WINDOW_SIZES, WindowSize, layout_sweep};
     use crate::rules::Player;
+    use crate::ui::arrangement::WIDE_GAIN;
     use crate::ui::match_screen::capture::CAPTURE_COUNT_FONT_PX;
     use crate::ui::match_screen::layout::{
         CONTROL_HINT_MIN_HEIGHT, END_REASONS_GAP_BELOW, MATCH_COUNTDOWN_CARD, TIMER_SIZE,

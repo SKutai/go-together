@@ -436,26 +436,40 @@ hit-tested at the old size. A screen laid out for any size is
 tested at several:
 `app::visuals::NAMED_WINDOW_SIZES` names the ones that matter, from the
 1040x600 minimum and a 1280x720 laptop's maximised window up to 2560x1440,
-and the Match screen, Home, Settings, the Replay Library and the Help
-modal run their real-layout tests at all of them - every button reached by
-the pointer, every text inside the window, on the Match nothing drawn
-meeting anything else, and on Settings and the Library no two texts
-meeting. Settings runs them on every tab and with its reset confirmation
-open, at the heights either side of its change of arrangement too; the
-Library with no Replays, one, a page, more than a page, the longest
+and the Match screen, Home, Settings, the Replay Library, the Replay Viewer
+and the Help modal run their real-layout tests at all of them - every button
+reached by the pointer, every text inside the window, on the Match and the
+Viewer nothing drawn meeting anything else, and on Settings and the Library
+no two texts meeting. Settings runs them on every tab and with its reset
+confirmation open, at the heights either side of its change of arrangement
+too; the Library with no Replays, one, a page, more than a page, the longest
 labels and each of its notes, and with each dialog open; Help on every
 page, over Home and over the Match. Their layouts are pure functions as
 well (`ui::match_screen::geometry`, `ui::home::geometry`,
 `ui::settings::geometry`, `ui::replay::library::geometry`,
-`ui::help::geometry`) - of the size, and the Library's of the lines of
-notes over its list and the Help modal's of where the Match stands its
+`ui::replay::viewer::geometry`, `ui::help::geometry`) - of the size, and the
+Library's of the lines of notes over its list, the Viewer's of the room its
+Replay's label needs, and the Help modal's of where the Match stands its
 heading and board too - so their own tests run every size in
 `app::visuals::layout_sweep` - every 20 px from the minimum to 2560x1440,
 the named sizes, a few fractional ones and a few larger windows - and
 check the same things from the layout's own boxes. The two halves
 check different things: the sweep reaches every size, at the cost of
 trusting the layout's own idea of where each box is, and the real layout
-checks that idea against `bevy_ui` at the sizes it runs.
+checks that idea against `bevy_ui` at the sizes it runs. The room the
+Viewer's label needs is the one input to a layout's geometry that comes
+from a text - Help's columns, Settings' error line and the Library's search
+field read their texts too, but only to set those texts: its lines are
+counted as `bevy_ui` breaks them (`ui::replay::viewer::wrap`), and
+`the_label_check_counts_the_lines_bevy_ui_sets` lays nearly twenty thousand
+labels out with `bevy_ui` at seven widths - the label's in narrow, middling
+and wide tall windows, wide's column, and three that are an exact number
+of characters - and holds the line each character is drawn on, read from
+its glyph, to the line the count puts it on, character by character. The
+labels put every punctuation mark at every place around a full line's end,
+and every two marks side by side there, so a change to any one
+line-breaking rule, or to the class of any one character, moves some
+character to another line there.
 
 It is also how a test presses a button. `ui::button` carries the helpers -
 `click`, `hover`, `mouse_button`, `queue_mouse_button` for a key in the same
@@ -605,7 +619,8 @@ tests in `gameplay::countdown`: the recorded reveal frame carries the cleaned
 board and the sweep's credits, and validation re-derives both from the
 persisted selections.
 Viewer tests assert the Back/Match Settings navigation contract, modal
-exclusion and cleanup, old-Replay Off/Legacy defaults, and 1040x900 fit.
+exclusion and cleanup, old-Replay Off/Legacy defaults, and fit at every
+window size from the 1040x600 minimum up, as above.
 
 Run the same storage contract against an in-memory/mock backend in native tests.
 It should cover successful reads and writes, missing values, invalid serialized
@@ -786,22 +801,22 @@ asset changes:
 7. close the window normally.
 
 Since 2026-11-28 the tests check help-page length as well:
-`every_page_stands_inside_its_modal_at_every_size` in `ui::help` lays every
-page out at every named size, over Home and over the Match, and holds the
-pagination row where the modal's own numbers put it and the page's text
-above it. A page too long for its room is not clipped: it pushes the row
-and Close down the modal, and the test fails on the row.
+`every_page_stands_inside_its_modal_at_every_size` in `ui::help` lays
+every page out at every named size, over Home and over the Match, and
+holds the pagination row where the modal's own numbers put it and the
+page's text above it. A page too long for its room is not clipped: it
+pushes the row and Close down the modal, and the test fails on the row.
 `every_page_fits_two_columns_at_the_minimum` holds every page to the two
 columns of the 1040x600 window, line for line against a count worked out
 apart from the game. Both run with the default bindings and with the
 longest key names bound, which lengthen Keyboard Controls, Ending,
-Territory & Restart and the three controller pages. A page that outgrows its room fails them. The margins
-are still worth knowing, because they say how far a page can grow before it
-does, once the 18 px gap the modal keeps between the page and the row is
-taken off: a page takes one more line only with at least 21.6 px plus that
-gap, about 40 px by the glyph-box metric below and 45 px in the table's
-terms, so Keyboard Controls, Round 1+ and Shared Controller Actions are
-full. Measured from screenshots of the
+Territory & Restart and the three controller pages. A page that outgrows
+its room fails them. The margins are still worth knowing, because they say
+how far a page can grow before it does, once the 18 px gap the modal keeps
+between the page and the row is taken off: a page takes one more line only
+with at least 21.6 px plus that gap, about 40 px by the glyph-box metric
+below and 45 px in the table's terms, so Keyboard Controls, Round 1+ and
+Shared Controller Actions are full. Measured from screenshots of the
 original nine pages at 1040x900, and by the probe below for the two terms
 pages added on 2026-10-05, as the gap between the last line of body text
 and the top of the pagination row, against a body line pitch of about
@@ -1089,13 +1104,25 @@ above nor this probe apply to it. It has no pagination row and no fixed
 height: its panel is as tall as its rows and centred in the window, so a
 longer row cannot run into anything inside the panel; it moves the panel's
 top and bottom edges toward the window's instead. What has to hold is that
-the panel fits the 900 px window, and no test checks that either. Measured on
-2026-10-06 with the capture probe below, reading the `ComputedNode` of the
-node filled with `PANEL_BACKGROUND`: 624 px tall with 138 px clear above and
-below, and 695 px with 102.5 px clear once the score badges' row was added
-(698 px at a `UiScale` of 1.0, where text rounds differently). A Key
-sentence wraps at 65 characters - 624 px of 16 px monospace - so the same
-`textwrap` count predicts its lines, and each line costs about 19.5 px.
+the panel fits the window, and since 2026-11-28 a test holds that:
+`the_key_stands_inside_the_window_in_either_form` in `ui::replay::viewer`
+lays the Key out at every named window size and at either side of the
+height where it turns to two columns, holds it 12 px inside the window,
+and holds its height in each form to the figure measured for it, read from
+the `ComputedNode` of its panel at a scale factor of 1: 698 px in one
+column, which is what the layout chooses the Key's form by, and 494 in
+two. At twice that scale it measured 695 px in one column, on that day's
+captures - text rounds up to whole physical pixels, which adds less at a
+finer scale - and below a scale of 1, as in a zoomed-out browser, it was
+not measured. A row that grows changes those figures and fails the test
+until they are measured again. In one column a Key sentence wraps at 65
+characters - 624 px of 16 px monospace - so the same `textwrap` count
+predicts its lines, and each line costs about 19.5 px; in two columns, at
+44. The score badges' sentence points to the result line, which tall and
+wide put in different places, so it has a wording for each arrangement;
+the two wrap at the same places at either width, and the test holds which
+the Key shows in each arrangement: in tall, the sentence it has always
+shown, byte for byte.
 
 ### Capturing a screen to a file
 

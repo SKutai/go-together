@@ -75,11 +75,13 @@ impl Replay {
     /// Two calls returning the same key mean every discrete, non-interpolated
     /// part of the frame - board, cursors, markers, selections, score - is
     /// identical; only continuously-interpolated fields such as
-    /// `round_elapsed_seconds` may differ. The Replay Viewer uses this to
-    /// redraw the board only when playback crosses an event boundary, rather
-    /// than on every frame while the interpolated clock keeps ticking. The
-    /// key is an index into [`Replay::events`]; it is `None` only for an
-    /// empty timeline, which a validated Replay never has.
+    /// `round_elapsed_seconds` may differ. The Replay Viewer uses this so
+    /// as not to redraw the board on every frame while the interpolated
+    /// clock keeps ticking: playback moves the board only when it crosses
+    /// an event boundary, and anything else that moves it, such as a change
+    /// of the window's size, the Viewer redraws for itself. The key is an
+    /// index into [`Replay::events`]; it is `None` only for an empty
+    /// timeline, which a validated Replay never has.
     pub fn playback_boundary_key(&self, seconds: f64) -> Option<usize> {
         let target = seconds.clamp(0.0, self.duration_seconds);
         self.events
