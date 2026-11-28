@@ -62,8 +62,8 @@
 //!   longest - a four-digit round with an hour of Round Time left - fits
 //!   there, and otherwise on two, the round over its countdown. Which is
 //!   [`MatchLayout::round_lines`], and the display pass writes the text to
-//!   match. The Match timer, past 999 minutes at its longest, fits on one
-//!   line on its side at every size, and the tests hold it to that.
+//!   match. The Match timer, at 999:59, fits on one line on its side at
+//!   every size, and the tests hold it to that.
 //! * The band under the board holds two lines of end-gesture text or one
 //!   line and a bar, never both at once: a hold in progress replaces the
 //!   text with its short label, so the long restart line, wrapped by a
@@ -73,6 +73,17 @@
 //! each place can hold. Tests in `super` hold each budget to the text the
 //! screen really writes, and its real-layout tests hold the whole layout to
 //! what `bevy_ui` draws.
+//!
+//! Three of those budgets are assumptions rather than limits: a round
+//! under 10,000, a Match under 1,000 minutes and scores under 1,000. The
+//! largest Round Limit is 1,000 rounds, the largest Match Time Limit an
+//! hour and the largest Point Target 81, so only a Match with the limit
+//! that would have ended it switched off, many hours long, gets past one.
+//! Past them the layout does not make room, but nothing meets: the timer
+//! wraps onto two lines in its slot in the narrowest windows, and a round
+//! or a corner's name, a digit longer, grows outward into the clearance
+//! kept beside it. A real-layout test in `super` lays out a Match a digit
+//! past all three, at every named size, and finds it clear.
 
 use bevy::prelude::*;
 
@@ -155,8 +166,10 @@ const CLEARANCE: f32 = 12.0;
 /// The gap between the heading and the round panel or the timer beside it.
 const TITLE_GAP: f32 = 24.0;
 
-/// The longest text each place holds, in characters of the game's
-/// monospaced font; `super`'s tests hold each to the text written there.
+/// The longest text each place makes room for, in characters of the
+/// game's monospaced font; `super`'s tests hold each to the text written
+/// there. The module docs say which rest on assumptions, and what happens
+/// past them.
 /// The heading: `GO TOGETHER`, or a winner, `White Wins!`.
 pub(super) const HEADING_MAX_CHARS: usize = 11;
 /// A corner's name with a final score of up to three digits: `WHITE 789`.
@@ -166,8 +179,8 @@ pub(super) const END_REASONS_MAX_CHARS: usize = 66;
 /// The round panel with a four-digit round and an hour of Round Time left:
 /// on one line, and the longer of its two lines.
 pub(super) const ROUND_PANEL_MAX_CHARS: [usize; 2] = [25, 10];
-/// The Match timer past 999 minutes, which the tests hold to fitting on
-/// one line beside the heading at every size.
+/// The Match timer at 999:59, which the tests hold to fitting on one line
+/// beside the heading at every size.
 #[cfg(test)]
 pub(super) const TIMER_MAX_CHARS: usize = 12;
 

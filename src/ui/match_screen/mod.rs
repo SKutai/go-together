@@ -1748,9 +1748,12 @@ mod tests {
     }
 
     /// The Match in one of the states it is drawn in, with the longest text
-    /// each place can hold: a four-digit round with an hour of Round Time
-    /// left and a timer past 999 minutes during play, every end reason and
-    /// three-digit scores with the Replay-save notice at the end.
+    /// each place has room for: a four-digit round with an hour of Round
+    /// Time left and the timer at 999:59 during play, every end reason and
+    /// three-digit scores with the Replay-save notice at the end. The two
+    /// states "past the budgets" go a digit past each of those - round
+    /// 10,000, 1,000 minutes, four-digit scores - which a Match reaches only
+    /// with the limit that would have ended it switched off.
     fn worst_case_match(state: &str) -> GameState {
         let mut game = GameState::default();
         match state {
@@ -1759,7 +1762,7 @@ mod tests {
                 game.phase = MatchPhase::OpeningCountdown;
                 game.countdown_elapsed = MatchDuration::ZERO;
             }
-            "play" | "play, hints dismissed" => {
+            "play" | "play, hints dismissed" | "play, past the budgets" => {
                 let mut rules = MatchSettings::default();
                 rules.set_enabled(MatchSettingField::RoundTime, true);
                 rules.set_value(MatchSettingField::RoundTime, 3_600);
@@ -1767,11 +1770,15 @@ mod tests {
                 begin_active_match(&mut game);
                 game.round = 9_999;
                 game.elapsed = crate::clock::MatchInstant::from_secs(999 * 60 + 59);
+                if state == "play, past the budgets" {
+                    game.round = 10_000;
+                    game.elapsed = crate::clock::MatchInstant::from_secs(1_000 * 60);
+                }
                 if state == "play, hints dismissed" {
                     game.control_hints_visible = [false, false];
                 }
             }
-            "end" => {
+            "end" | "end, past the budgets" => {
                 let mut rules = MatchSettings::default();
                 rules.set_capture_points(true);
                 game.match_rules = crate::gameplay::MatchRules::snapshot(&rules);
@@ -1781,6 +1788,14 @@ mod tests {
                     white: 789,
                 };
                 game.elapsed = crate::clock::MatchInstant::from_secs(999 * 60 + 59);
+                if state == "end, past the budgets" {
+                    game.round = 10_000;
+                    game.capture_totals = Score {
+                        black: 1_456,
+                        white: 1_789,
+                    };
+                    game.elapsed = crate::clock::MatchInstant::from_secs(1_000 * 60);
+                }
                 assert!(game.finish(EVERY_AUTOMATIC_END_REASON.to_vec()));
                 game.replay_notice = crate::gameplay::REPLAY_SAVE_FAILED_NOTICE.into();
             }
@@ -1799,7 +1814,9 @@ mod tests {
     /// boxes is that box's, and is not counted again. The countdown card is
     /// the one thing meant to stand over another, the board, and it stands
     /// inside it. The capture counts, which only their own pass writes, are
-    /// written here, longest first.
+    /// written here, longest first. Two states go a digit past every text
+    /// budget the layout keeps, and stand clear all the same: the timer
+    /// wraps in its slot, and the rest grow into the room kept beside them.
     #[test]
     fn nothing_the_match_screen_draws_meets_anything_else_at_the_named_sizes() {
         use super::geometry::StackItem;
@@ -1815,6 +1832,8 @@ mod tests {
                 "play",
                 "play, hints dismissed",
                 "end",
+                "play, past the budgets",
+                "end, past the budgets",
             ] {
                 let mut app = match_layout_app(window, worst_case_match(state));
                 {
@@ -1929,7 +1948,7 @@ mod tests {
                 let expected_boxes = match state {
                     "Round 0" => 6,
                     "countdown" => 7,
-                    "play" => 5,
+                    "play" | "play, past the budgets" => 5,
                     "play, hints dismissed" => 3,
                     _ => 4,
                 };
