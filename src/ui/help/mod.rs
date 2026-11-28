@@ -1994,11 +1994,12 @@ mod tests {
         app.update();
     }
 
-    /// A window smaller than the minimum - fullscreen on a smaller screen,
-    /// a window manager that ignores the minimum, or a program that sets
-    /// the size - gets the modal the minimum gets: at 800x400 the modal's own reading of the
-    /// window raises it to 1040x600, over Home and over the Match, so every
-    /// placed node and the page's two columns are what they are at 1040x600.
+    /// A window smaller than the minimum - fullscreen on a smaller screen, a
+    /// window manager that ignores the minimum, or a program that sets the
+    /// size - gets the modal the minimum gets: at 800x400 the modal's own
+    /// reading of the window raises it to 1040x600, over Home and over the
+    /// Match, so every placed node and the page's two columns are what they are
+    /// at 1040x600.
     #[test]
     fn a_window_below_the_minimum_gets_the_minimums_modal() {
         use crate::app::visuals::WindowSize;

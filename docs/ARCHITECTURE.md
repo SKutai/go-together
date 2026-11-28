@@ -549,64 +549,63 @@ which are laid out from the size in their turn. `WINDOW_WIDTH` and
 `WINDOW_HEIGHT` are only the opening size; nothing adapted positions itself
 from them.
 
-**The window itself** (`app::window`). `primary_window` makes it from what
-the two hosts do differently, `platform::WindowPlatformConfig`, and what
-they share: it can be resized, and no smaller than 1040x600 logical pixels,
-which winit asks the platform to hold it to and, in a browser, writes on the
-canvas as its CSS `min-width` and `min-height`. A desktop window opens at
-1040x900 centred on the primary monitor where that monitor's logical size
-is at least 1040x1060, and maximised where it is not: winit reports no work
-area - no taskbar, Dock or menu bar - only each monitor's size, so the room
-a window needs is its own size plus an allowance of 160 px down for those
-bars, an estimate whose sources `OPENING_ALLOWANCE` gives. It is twice a
-title bar and a bar together, because Bevy puts a centred window's frame,
-title bar and all, where its inside would stand centred on the whole
-screen, so the window stands a title bar below the middle, and the room
-under it is half the spare height less the title bar. Bevy makes the
-window before it knows the monitors, so the window opens hidden and
-`place_the_opening_window` places it on the first frame and then shows it:
-at once when centred, and when maximised once the maximised size has
-arrived, so that no frame is drawn at a size the window is about to leave.
-Where no maximised size comes within half a second - a desktop with no
-window manager sends none, and an X11 window manager ignores a request
-from a window not yet mapped - the window is shown at 1040x900 and asked
-again on the next frame, once it is shown, and is drawn at 1040x900 until
-the maximised size arrives, if it does. With no primary monitor known the
-window cannot be centred, but it is maximised where every monitor listed is
-short of room, and otherwise shown at 1040x900 where the platform puts it.
-That is Wayland, which names no primary monitor but lists its outputs, and
-lets a window be maximised though not positioned; Wayland has not been
-tried with the game. An X server whose RandR lists no monitor, and a Mac
-whose display is asleep as the game starts, when macOS lists no active
-display (seen 2026-11-28; macOS then centres the window itself), list
-none. Nothing about the window is remembered from one run to the next.
+**The window itself** (`app::window`). `primary_window` makes it from what the
+two hosts do differently, `platform::WindowPlatformConfig`, and what they share:
+it can be resized, and no smaller than 1040x600 logical pixels, which winit asks
+the platform to hold it to and, in a browser, writes on the canvas as its CSS
+`min-width` and `min-height`. A desktop window opens at 1040x900 centred on the
+primary monitor where that monitor's logical size is at least 1040x1060, and
+maximised where it is not: winit reports no work area - no taskbar, Dock or menu
+bar - only each monitor's size, so the room a window needs is its own size plus
+an allowance of 160 px down for those bars, an estimate whose sources
+`OPENING_ALLOWANCE` gives. It is twice a title bar and a bar together, because
+Bevy puts a centred window's frame, title bar and all, where its inside would
+stand centred on the whole screen, so the window stands a title bar below the
+middle, and the room under it is half the spare height less the title bar. Bevy
+makes the window before it knows the monitors, so the window opens hidden and
+`place_the_opening_window` places it on the first frame and then shows it: at
+once when centred, and when maximised once the maximised size has arrived, so
+that no frame is drawn at a size the window is about to leave. Where no
+maximised size comes within half a second - a desktop with no window manager
+sends none, and an X11 window manager ignores a request from a window not yet
+mapped - the window is shown at 1040x900 and asked again on the next frame, once
+it is shown, and is drawn at 1040x900 until the maximised size arrives, if it
+does. With no primary monitor known the window cannot be centred, but it is
+maximised where every monitor listed is short of room, and otherwise shown at
+1040x900 where the platform puts it. That is Wayland, which names no primary
+monitor but lists its outputs, and lets a window be maximised though not
+positioned, nor hidden, so there the first frames are drawn at 1040x900 until
+the maximised size arrives; Wayland has not been tried with the game. An X
+server whose RandR lists no monitor, and a Mac whose display is asleep as the
+game starts, when macOS lists no active display (seen 2026-11-28; macOS then
+centres the window itself), list none. Nothing about the window is remembered
+from one run to the next.
 
-**Fullscreen.** F11 switches a desktop window to borderless fullscreen on
-the monitor it is on, and back, on every screen and whatever holds the
-keys. The way back restores the window as it was, which is the platform's
-to do: on macOS a 1280x720 window came back to its size and place from F11
-and from the green button, and on Windows a maximised one from F11, on
-2026-11-28. It is a reserved key, as F1 is, so it never binds,
-types or plays a note, and it is read as `just_pressed`, so a held key
-switches once. On macOS borderless fullscreen is the green button's own, a
-Space of its own, so F11 and the button are one fullscreen. Bevy never
-writes `Window::mode` back from the system, so the system's own state is
-read from winit every frame into `SystemFullscreen`, `Window::mode` is kept
-in step with it when it changes - after a green-button entry as after
-F11's - and F11 asks for the other of the system's two states. Only a change is
-followed, not a difference: winit reports a fullscreen once the platform
-has taken it up, which on macOS came a frame after F11's request and, for
-the green button's way out, at the end of its animation, and following the
+**Fullscreen.** F11 switches a desktop window to borderless fullscreen on the
+monitor it is on, and back, on every screen and whatever holds the keys. The way
+back restores the window as it was, which is the platform's to do: on macOS a
+1280x720 window came back to its size and place from F11 and from the green
+button, and on Windows a maximised one from F11, on 2026-11-28. It is a reserved
+key, as F1 is, so it never binds, types or plays a note, and it is read as
+`just_pressed`, so a held key switches once. On macOS borderless fullscreen is
+the green button's own, a Space of its own, so F11 and the button are one
+fullscreen. Bevy never writes `Window::mode` back from the system, so the
+system's own state is read from winit every frame into `SystemFullscreen`,
+`Window::mode` is kept in step with it when it changes - after a green-button
+entry as after F11's - and F11 asks for the other of the system's two states.
+Only a change is followed, not a difference: winit reports a fullscreen once the
+platform has taken it up, which on macOS came a frame after F11's request and,
+for the green button's way out, at the end of its animation, and following the
 old state meanwhile would undo what F11 asked for. A Mac with its default
-settings keeps the key from the game, though: the key alone sends volume
-down, and with fn it is Show Desktop's shortcut, which takes it first. So on
-a Mac, and only there, Control-Command-F - macOS's own fullscreen shortcut -
-does what F11 does, once a press; the green button works as well, and the
-game follows it. A
-browser keeps F11 for its own fullscreen: `web/shell.js`
-stops the key at the page's window, before winit's handler on the canvas,
-which cancels every key's default action, can cancel this one's, and the
-game reads nothing of it there.
+settings keeps the key from the game, though: the key alone sends volume down,
+and with fn it is Show Desktop's shortcut, which takes it first. So on a Mac,
+and only there, Control-Command-F - macOS's own fullscreen shortcut - does what
+F11 does, once a press; the green button works as well, and the game follows it.
+A browser keeps F11, and on a Mac Control-Command-F, for its own fullscreen:
+`web/shell.js` stops either key at the page's window, before winit's handler on
+the canvas, which cancels every key's default action, can cancel it, and the
+game reads nothing of it there. As in the desktop game, the chord's F stays the
+chord's, repeats and release too, until it is let go.
 
 **Below the minimum.** A window can still be smaller than 1040x600 -
 fullscreen on a smaller screen, under a window manager that ignores the
@@ -638,28 +637,26 @@ canvas's size as a resize, at the device pixel ratio. The canvas is sized
 by the shell rather than by `fit_canvas_to_parent`, because below the
 minimum it has to be laid out larger than the box it is drawn in.
 
-**Text never changes size.** Interface nodes are laid out in the window's
-own pixels at their own sizes, so the 14px floor holds at every size from
-the minimum up. What grows and shrinks is the world-space scene - the Match board and the
-Replay Viewer's, each with every mark on it, and Home's diamond - and it
-is placed and scaled by the main camera, not by moving or resizing the
-scene. A screen writes `WorldFraming`, a zoom and the world point at the
-window's centre, and `frame_main_camera` gives the camera that projection
-scale and translation in `PostUpdate`, before the projection is
-recomputed. `bevy_ui` never sees the projection. So `board_position`,
-`GRID_SPACING` and the rest of the boards' geometry, and the tests of it,
-are the same at every size, and every stroke keeps its proportion to the
-cell. A screen with no world-space scene to place writes nothing:
-`reset_world_framing_on_screen_change`, in `StateTransition` beside the
-HUD's modal reset, puts the framing back to a scale of 1 over the origin
-on every change of screen, so Settings and the Replay Library never
-inherit a zoom. The Match and the Viewer write their framing every frame,
-and Home on entry and whenever the window's size changes, all after that
-reset. Text drawn in world space, as the Replay Viewer's score badges are,
-is scaled by the camera as well, and the 14px floor's scan reads the sizes
-text is set at, not a camera's zoom; so on a screen that zooms, such text
-has to be counter-scaled or moved into `bevy_ui`. The Viewer
-counter-scales its badges.
+**Text never changes size.** Interface nodes are laid out in the window's own
+pixels at their own sizes, so the 14px floor holds at every size from the
+minimum up. What grows and shrinks is the world-space scene - the Match board
+and the Replay Viewer's, each with every mark on it, and Home's diamond - and it
+is placed and scaled by the main camera, not by moving or resizing the scene. A
+screen writes `WorldFraming`, a zoom and the world point at the window's centre,
+and `frame_main_camera` gives the camera that projection scale and translation
+in `PostUpdate`, before the projection is recomputed. `bevy_ui` never sees the
+projection. So `board_position`, `GRID_SPACING` and the rest of the boards'
+geometry, and the tests of it, are the same at every size, and every stroke
+keeps its proportion to the cell. A screen with no world-space scene to place
+writes nothing: `reset_world_framing_on_screen_change`, in `StateTransition`
+beside the HUD's modal reset, puts the framing back to a scale of 1 over the
+origin on every change of screen, so Settings and the Replay Library never
+inherit a zoom. The Match and the Viewer write their framing every frame, and
+Home on entry and whenever the window's size changes, all after that reset. Text
+drawn in world space, as the Replay Viewer's score badges are, is scaled by the
+camera as well, and the 14px floor's scan reads the sizes text is set at, not a
+camera's zoom; so on a screen that zooms, such text has to be counter-scaled or
+moved into `bevy_ui`. The Viewer counter-scales its badges.
 
 **The Match screen** (`ui::match_screen::geometry`) has two arrangements.
 *Tall* is the 1040x900 layout, which in that window is the screen exactly
@@ -1566,15 +1563,18 @@ confirm it. So is F1, the one fixed key that opens something: the Help modal,
 on Home and during a Match, closing it again on a second press. F11, the third
 reserved key, is read raw too, but by `app::window` rather than here: it
 changes the window, not anything in it. So does Control-Command-F on a Mac,
-which is no reserved key - F stays bindable - but whose F `app::window`
-takes out of `ButtonInput` from its press until it is let go, so that no
-binding, capture or ring sees it; the Home marimba and the Replay Library's
-text fields, which read keys as messages, ask it first. A screen whose own control is reading
-the raw devices - Settings during a binding capture or a numeric edit, the
-Replay Library while its search field or rename dialog is taking text - raises
-the focus module's `FocusYield` from its own `Update` chain, and the ring
-neither moves nor presses on the next frame's read. During a Match the ring
-and its navigation keys are admitted only while a HUD modal is open - the same
+which is no reserved key - F stays bindable - but whose F `app::window` takes
+out of `ButtonInput` from its press until it is let go, or until the window
+loses the keyboard, so that no binding, capture or ring sees it; the Home
+marimba, the Replay Library's text fields and Settings' numeric field, which
+read keys as messages, ask it first. Left Control is bindable, so an armed
+binding capture takes the chord's Control before its F arrives; there a Mac
+player uses the green button. A screen whose own control is reading the raw
+devices - Settings during a binding capture or a numeric edit, the Replay
+Library while its search field or rename dialog is taking text - raises the
+focus module's `FocusYield` from its own `Update` chain, and the ring neither
+moves nor presses on the next frame's read. During a Match the ring and its
+navigation keys are admitted only while a HUD modal is open - the same
 `modal_open` that `modal_pause_state` blocks gameplay input on, so the two are
 never live together - and nothing on the Match screen itself is focusable, so
 the ring there is the Help modal's three buttons and nothing else. The Match's
@@ -3016,22 +3016,22 @@ contract tests run natively against a mock backend; CI also lints, documents,
 and builds the real browser path for `wasm32-unknown-unknown`, all with
 warnings denied.
 
-The HTML shell supplies the `#go-together` canvas and sizes it to the page,
-less the status lines under it, and Bevy's window follows the canvas, so the
-game lays itself out at the page's size as it would in a desktop window of
-that size. A page or an iframe smaller than the smallest window the screens
-are laid out for, 1040x600 CSS px, gets a canvas that size in the short
-direction, which CSS scales down to fit, so the game is not relaid out below
-the minimum or clipped (see "The browser page" under [The window's size, and
-what answers to it](#the-windows-size-and-what-answers-to-it)). The shell
-passes F11 to the browser, for its own fullscreen. The shell precompiles the
-downloaded module, then a canvas pointer or focused-key gesture instantiates
-it asynchronously and starts the app - never synchronously, which Chromium
-refuses for a module this size. CPAL creates and resumes Web Audio a fraction
-of a second later, while the gesture's activation is still live, which Safari
-requires ([Starting in a browser](DISTRIBUTION.md#starting-in-a-browser) has
-the measurements). Keyboard events then follow the same semantic input path as
-native input. Browser gamepads join that path only when the browser/device
+The HTML shell supplies the `#go-together` canvas and sizes it to the page, less
+the status lines under it, and Bevy's window follows the canvas, so the game
+lays itself out at the page's size as it would in a desktop window of that size.
+A page or an iframe smaller than the smallest window the screens are laid out
+for, 1040x600 CSS px, gets a canvas that size in the short direction, which CSS
+scales down to fit, so the game is not relaid out below the minimum or clipped
+(see "The browser page" under [The window's size, and what answers to
+it](#the-windows-size-and-what-answers-to-it)). The shell passes F11, and on a
+Mac Control-Command-F, to the browser, for its own fullscreen. The shell
+precompiles the downloaded module, then a canvas pointer or focused-key gesture
+instantiates it asynchronously and starts the app - never synchronously, which
+Chromium refuses for a module this size. CPAL creates and resumes Web Audio a
+fraction of a second later, while the gesture's activation is still live, which
+Safari requires ([Starting in a browser](DISTRIBUTION.md#starting-in-a-browser)
+has the measurements). Keyboard events then follow the same semantic input path
+as native input. Browser gamepads join that path only when the browser/device
 exposes a standard mapping. The release is a plain same-origin static site: it
 has no service worker, offline cache, analytics, or application network API.
 

@@ -45,13 +45,14 @@
 //! and otherwise it is shown at the opening size where the platform puts
 //! it ([`opening_on`]). Wayland is that case: winit names no primary
 //! monitor there, though it lists the outputs, and a window cannot be
-//! positioned, only maximised. Wayland has not been tried with this game.
-//! An X server whose RandR lists no monitor, where winit's only answer is a
-//! 1x1 stand-in it never lists, and a Mac whose display is asleep as the
-//! game starts, when macOS lists no active display at all (seen on
-//! 2026-11-28), list none, and the window is shown where the platform puts
-//! it. A browser's canvas is neither hidden nor placed: the page puts it
-//! where it stands.
+//! positioned, only maximised - nor hidden, so there its first frames are drawn
+//! at the opening size until the maximised size arrives. Wayland has not been
+//! tried with this game. An X server whose RandR lists no monitor, where
+//! winit's only answer is a 1x1 stand-in it never lists, and a Mac whose
+//! display is asleep as the game starts, when macOS lists no active display at
+//! all (seen on 2026-11-28), list none, and the window is shown where the
+//! platform puts it. A browser's canvas is neither hidden nor placed: the page
+//! puts it where it stands.
 //!
 //! # Fullscreen
 //!
@@ -59,9 +60,10 @@
 //! and whatever has the keys: a modal, a binding capture or a text field.
 //! It is reserved (`crate::input::keyboard`), so it never binds, types or
 //! plays a note, and it is read as `just_pressed`, as F1 is, so a held key
-//! switches once. A browser keeps F11 for its own fullscreen: the page
-//! hands it to the browser before the game sees it, and the game reads
-//! nothing of it there either ([`WindowPlatformConfig::fullscreen_key`]).
+//! switches once. A browser keeps F11 for its own fullscreen, and on a Mac
+//! Control-Command-F too: the page hands either to the browser before the game
+//! sees it, and the game reads nothing of them there either
+//! ([`WindowPlatformConfig::fullscreen_key`]).
 //!
 //! A Mac with its default settings keeps F11 itself: the key alone turns
 //! the volume down, and with fn it is Show Desktop's shortcut, which takes
@@ -71,32 +73,34 @@
 //! a press. F stays an ordinary key: a chord is no binding, and a plain F,
 //! or F with other modifiers, is what it always was. But the chord's F is
 //! the chord's alone. [`take_the_fullscreen_chord`] takes it out of
-//! `ButtonInput` from its press until it is let go, so no binding, capture
-//! or ring sees it, and the two systems that read keys as messages - the
-//! Home marimba and the Replay Library's text fields - ask
-//! [`FullscreenChord::takes`] first (a text field types nothing while
-//! Control or Command is held in any case).
+//! `ButtonInput` from its press until it is let go, so no binding, capture or
+//! ring sees it, and the three that read keys as messages - the Home marimba,
+//! the Replay Library's text fields and Settings' numeric field - ask
+//! [`FullscreenChord::takes`] first, so neither the chord's F nor its repeats,
+//! once Control and Command are let go before it, play or type anything. A loss
+//! of the keyboard focus ends the hold. During an armed binding capture the
+//! chord's Control is taken as the binding before its F arrives
+//! (`crate::input::keyboard` says why that stands).
 //!
-//! Fullscreen is borderless, on the monitor the window is on, and going
-//! back restores the window as it was. That is the platform's to do; on
-//! macOS it did, for a 1280x720 window taken to fullscreen and back by F11
-//! and by the green button, and on Windows for a maximised window taken
-//! there and back by F11 (both on 2026-11-28). On macOS borderless fullscreen is the green button's own, a
-//! Space of its own, so F11 and the button are one fullscreen and either
-//! leaves what the other entered. But Bevy never writes `Window::mode`
-//! back from the system, so after the button it would still say windowed,
-//! and an F11 that read it would ask for the fullscreen already shown -
-//! and, since Bevy applies a mode only when it differs from the last one
-//! it applied, nothing at all. So the system's own state is read from
-//! winit every frame into [`SystemFullscreen`], `Window::mode` is kept in
-//! step with it whenever it changes, and F11 asks for the other of the
-//! system's two states ([`mode_after_f11`]), never of `Window::mode`'s.
-//! Only a change is followed, not a difference: winit reports a platform's
-//! fullscreen once the platform has taken it up, which can be a frame or
-//! more after it was asked for - on macOS F11's fullscreen was reported a
-//! frame late, and the button's way out not until its animation had
-//! ended, most of a second - and following the old state meanwhile would
-//! undo what F11 asked for before it took effect.
+//! Fullscreen is borderless, on the monitor the window is on, and going back
+//! restores the window as it was. That is the platform's to do; on macOS it
+//! did, for a 1280x720 window taken to fullscreen and back by F11 and by the
+//! green button, and on Windows for a maximised window taken there and back by
+//! F11 (both on 2026-11-28). On macOS borderless fullscreen is the green
+//! button's own, a Space of its own, so F11 and the button are one fullscreen
+//! and either leaves what the other entered. But Bevy never writes
+//! `Window::mode` back from the system, so after the button it would still say
+//! windowed, and an F11 that read it would ask for the fullscreen already
+//! shown - and, since Bevy applies a mode only when it differs from the last
+//! one it applied, nothing at all. So the system's own state is read from winit
+//! every frame into [`SystemFullscreen`], `Window::mode` is kept in step with
+//! it whenever it changes, and F11 asks for the other of the system's two
+//! states ([`mode_after_f11`]), never of `Window::mode`'s. Only a change is
+//! followed, not a difference: winit reports a platform's fullscreen once the
+//! platform has taken it up, which can be a frame or more after it was asked
+//! for - on macOS F11's fullscreen was reported a frame late, and the button's
+//! way out not until its animation had ended, most of a second - and following
+//! the old state meanwhile would undo what F11 asked for before it took effect.
 
 use std::time::Duration;
 
@@ -447,13 +451,13 @@ impl FullscreenChord {
     }
 }
 
-/// Reads the chord from this frame's key messages, after Bevy's input
-/// systems have pressed its F: an F pressed - not a repeat - with the
-/// chord's modifiers held asks for the switch, once, and from that press
-/// until F is let go `ButtonInput` holds no F, so no binding, capture or
-/// ring sees it, not even for a press and release within one frame. A
-/// window that loses the keyboard may never hear F let go, so a loss of
-/// focus ends the hold too, as it releases every key in `ButtonInput`.
+/// Reads the chord from this frame's key messages, after Bevy's input systems
+/// have pressed its F: an F pressed - not a repeat - with the chord's modifiers
+/// held asks for the switch, once, and from that press until F is let go
+/// `ButtonInput` holds no F, so no binding, capture or ring sees it, not even
+/// for a press and release within one frame. A window that loses the keyboard
+/// may never hear F let go, so a loss of focus ends the hold too, as it
+/// releases every key in `ButtonInput`.
 fn take_the_fullscreen_chord(
     mut chord: ResMut<FullscreenChord>,
     mut messages: MessageReader<KeyboardInput>,
@@ -1121,10 +1125,9 @@ mod tests {
         assert_eq!(mode(&mut app), fullscreen, "and switches nothing");
     }
 
-    /// A window that loses the keyboard mid-chord may never hear its F let
-    /// go. The loss ends the chord's hold, as it releases `ButtonInput`'s
-    /// keys, so the next F, once the window has the keyboard again, is an
-    /// F.
+    /// A window that loses the keyboard mid-chord may never hear its F let go.
+    /// The loss ends the chord's hold, as it releases `ButtonInput`'s keys, so
+    /// the next F, once the window has the keyboard again, is an F.
     #[test]
     fn a_loss_of_focus_ends_the_chords_hold() {
         let mut app = fullscreen_app(&with_the_chord(true));

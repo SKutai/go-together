@@ -1383,15 +1383,15 @@ pub(super) mod tests {
         out
     }
 
-    /// A window smaller than the minimum - fullscreen on a smaller screen,
-    /// a window manager that ignores the minimum, or a program that sets
-    /// the size - gets the frame the minimum gets: at 800x400 the screen's own readings of
-    /// the window raise it to 1040x600, so every node of the frame, its text
-    /// and its place are what they are at 1040x600 - entered there, where the
-    /// frame is the spawner's own, and resized to it from the opening window
-    /// with a long warning on the error line, where the placement pass moves
-    /// the frame and the display pass cuts the warning. As the game enters
-    /// and resizes it, through the screen's own plugin.
+    /// A window smaller than the minimum - fullscreen on a smaller screen, a
+    /// window manager that ignores the minimum, or a program that sets the
+    /// size - gets the frame the minimum gets: at 800x400 the screen's own
+    /// readings of the window raise it to 1040x600, so every node of the frame,
+    /// its text and its place are what they are at 1040x600 - entered there,
+    /// where the frame is the spawner's own, and resized to it from the opening
+    /// window with a long warning on the error line, where the placement pass
+    /// moves the frame and the display pass cuts the warning. As the game
+    /// enters and resizes it, through the screen's own plugin.
     #[test]
     fn a_window_below_the_minimum_gets_the_minimums_frame() {
         let below = Vec2::new(800.0, 400.0);

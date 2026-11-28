@@ -21,17 +21,22 @@
 //! screen of a desktop build. A browser keeps F11 for its own fullscreen,
 //! and the web page hands it to the browser before the game sees it. None
 //! of the three can be bound, persisted, or even represented as a
-//! `KeyboardKey`. On a Mac, where the default settings keep F11 itself,
-//! Control-Command-F switches fullscreen too; F stays bindable, since a
-//! chord is no binding, and `crate::app::window` keeps the chord's F from
-//! the binding while it is held. That is what lets each be read raw during live play,
-//! when gameplay reads every bindable key, and why a settings file naming
-//! any of them fails to parse rather than loading a key the interface
-//! would then read twice. [`KeyboardKey::from_key_code`] refuses the three
-//! as reserved, and every other key outside the list as unsupported, so
-//! that capture can ignore the first silently and explain the second.
-//! Assigning a key that another action already uses swaps the two keys and
-//! returns that other action, so every action always has a distinct key.
+//! `KeyboardKey`. That is what lets each be read raw during live play, when
+//! gameplay reads every bindable key, and why a settings file naming any of
+//! them fails to parse rather than loading a key the interface would then read
+//! twice. [`KeyboardKey::from_key_code`] refuses the three as reserved, and
+//! every other key outside the list as unsupported, so that capture can ignore
+//! the first silently and explain the second. Assigning a key that another
+//! action already uses swaps the two keys and returns that other action, so
+//! every action always has a distinct key.
+//!
+//! On a Mac, where the default settings keep F11 itself, Control-Command-F
+//! switches fullscreen too. It is no reserved key: F stays bindable, since a
+//! chord is no binding, and `crate::app::window` keeps the chord's F from the
+//! binding while it is held. Left Control is bindable, though, so during an
+//! armed capture the chord's Control is taken as the binding before its F
+//! arrives; nothing can tell that a chord is coming, so a Mac player switches
+//! fullscreen there with the window's green button.
 //!
 //! The `#[serde]` names on [`GameAction`] and [`KeyboardKey`] are part of the
 //! saved configuration format, but this module never touches the file:

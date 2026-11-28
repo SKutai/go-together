@@ -222,8 +222,8 @@ pub(super) fn capture_game_numeric_input(
         if mapping.game_editor.is_none() {
             break;
         }
-        // The F of Control-Command-F, on a Mac, is the fullscreen chord's,
-        // and so are its repeats once Control and Command are let go
+        // The F of Control-Command-F, on a Mac, is the fullscreen chord's, and
+        // so are its repeats once Control and Command are let go
         // (`app::window`): no character for the field, and no error.
         if event.state != ButtonState::Pressed
             || matches!(event.logical_key, bevy::input::keyboard::Key::Escape)
@@ -843,10 +843,10 @@ mod tests {
     }
 
     /// On a Mac the F of Control-Command-F is the fullscreen chord's
-    /// (`app::window`), and so are its repeats once Control and Command are
-    /// let go: a numeric field takes no character from them and shows no
-    /// error, where an F alone, with no chord on the platform, is refused
-    /// as not digits, as ever.
+    /// (`app::window`), and so are its repeats once Control and Command are let
+    /// go: a numeric field takes no character from them and shows no error,
+    /// where an F alone, with no chord on the platform, is refused as not
+    /// digits, as ever.
     #[test]
     fn the_fullscreen_chords_f_is_no_input_for_a_numeric_field() {
         use crate::app::window::FullscreenChord;

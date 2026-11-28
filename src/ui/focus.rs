@@ -63,23 +63,22 @@
 //! transition - an entity-keyed focus would die there on every search
 //! keystroke. That is demonstrated rather than anticipated:
 //! `ui::replay::library::ring`'s
-//! `focus_holds_its_place_on_every_frame_of_a_dirty_rebuild` runs four
-//! rebuilds under real layout and the production graph with the ring
-//! drawn on the same key throughout. Per screen, because the memory
-//! outlives a screen transition on purpose - it is what puts Home's ring
-//! back where it was after a Match or a visit to Settings - and a second
-//! screen with a ring must neither inherit that position nor overwrite it.
-//! One screen moves its own memory: the Replay Library, whose cards are
-//! keyed by their place on the page, moves the remembered place with them
-//! when a change of the window's size moves every card down the page, so
-//! that the ring stays on the Replay it was on (`ui::replay::library::ring`
-//! says when). [`UiFocusState::remembered`] and
-//! [`UiFocusState::move_remembered`] are how.
-//! [`refresh_focus_candidates`] re-reads the marked buttons
-//! after [`UiSystems::Layout`] each frame (so it sees the layout the player
-//! sees), drops anything whose [`ComputedNode`] size is zero - a
-//! `Display::None` subtree zeroes its nodes recursively, which two tests
-//! below check against real `bevy_ui` layout - and re-resolves the memory.
+//! `focus_holds_its_place_on_every_frame_of_a_dirty_rebuild` runs four rebuilds
+//! under real layout and the production graph with the ring drawn on the same
+//! key throughout. Per screen, because the memory outlives a screen transition
+//! on purpose - it is what puts Home's ring back where it was after a Match or
+//! a visit to Settings - and a second screen with a ring must neither inherit
+//! that position nor overwrite it. One screen moves its own memory: the Replay
+//! Library, whose cards are keyed by their place on the page, moves the
+//! remembered place with them when a change of the window's size moves every
+//! card down the page or up it, so that the ring stays on the Replay it was on
+//! (`ui::replay::library::ring` says when). [`UiFocusState::remembered`] and
+//! [`UiFocusState::move_remembered`] are how. [`refresh_focus_candidates`]
+//! re-reads the marked buttons after [`UiSystems::Layout`] each frame (so it
+//! sees the layout the player sees), drops anything whose [`ComputedNode`] size
+//! is zero - a `Display::None` subtree zeroes its nodes recursively, which two
+//! tests below check against real `bevy_ui` layout - and re-resolves the
+//! memory.
 //!
 //! # Groups and dialogs
 //!
@@ -1013,23 +1012,22 @@ fn update_focus_indicator(
 /// state by hand.
 ///
 /// No renderer runs, so the camera's render target is filled in by hand, as
-/// `bevy_ui`'s own layout tests do it, and the stores the renderer's
-/// plugins would make are added empty. The camera has no viewport of its
-/// own, so it draws the whole window, as the game's main camera does in
-/// any window at least the minimum; a test that marks it the main camera
-/// and adds the game's window layout gets the game's viewport for a
-/// smaller one. The window is `window` logical pixels at a scale factor of
-/// 1, so a logical pixel is a physical one, and the app's [`WindowSize`]
-/// says the same, so a screen that lays itself out from it is laid out for
-/// that window; a test of a screen as it was first laid out, for the
-/// opening window, passes the opening size, `WindowSize::OPENING.0`. `window` is in whole pixels, as a physical
-/// window is. A test that resizes the primary window is laid out at the
-/// new size from that frame on, since the camera follows the window as the
-/// renderer's camera system would keep it; [`WindowSize`] follows only
-/// where the test adds the game's own window tracking
-/// (`app::visuals::WindowLayoutPlugin`). Keys are not part of it: a test
-/// presses them by writing `ButtonInput<KeyCode>` directly, which
-/// `InputPlugin` would clear before the ring could read it.
+/// `bevy_ui`'s own layout tests do it, and the stores the renderer's plugins
+/// would make are added empty. The camera has no viewport of its own, so it
+/// draws the whole window, as the game's main camera does in any window at
+/// least the minimum; a test that marks it the main camera and adds the game's
+/// window layout gets the game's viewport for a smaller one. The window is
+/// `window` logical pixels at a scale factor of 1, so a logical pixel is a
+/// physical one, and the app's [`WindowSize`] says the same, so a screen that
+/// lays itself out from it is laid out for that window; a test of a screen as
+/// it was first laid out, for the opening window, passes the opening size,
+/// `WindowSize::OPENING.0`. `window` is in whole pixels, as a physical window
+/// is. A test that resizes the primary window is laid out at the new size from
+/// that frame on, since the camera follows the window as the renderer's camera
+/// system would keep it; [`WindowSize`] follows only where the test adds the
+/// game's own window tracking (`app::visuals::WindowLayoutPlugin`). Keys are
+/// not part of it: a test presses them by writing `ButtonInput<KeyCode>`
+/// directly, which `InputPlugin` would clear before the ring could read it.
 ///
 /// [`WindowSize`]: crate::app::visuals::WindowSize
 #[cfg(test)]

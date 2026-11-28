@@ -777,8 +777,8 @@ fn capture_library_text(
         || keys.pressed(KeyCode::SuperLeft)
         || keys.pressed(KeyCode::SuperRight);
     for event in keyboard_events.read() {
-        // The F of Control-Command-F, on a Mac, is the fullscreen chord's,
-        // and so are its repeats once Control and Command are let go
+        // The F of Control-Command-F, on a Mac, is the fullscreen chord's, and
+        // so are its repeats once Control and Command are let go
         // (`app::window`).
         if event.state != ButtonState::Pressed
             || chord

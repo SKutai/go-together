@@ -398,17 +398,17 @@ because `dist/` is also where `trunk serve` writes: a development session
 between the build and the archive replaces every file in it.
 
 Create an itch.io **HTML** project, mark the archive as playable in the browser,
-and give it a viewport of at least 1056x650. The canvas fills the frame less
-the page's padding and the status line under the canvas, 16 px across and
-about 49 px down - measured in Chrome on 2026-11-28, where a 1056x949 frame
-gave the canvas the game's opening 1040x900 - and the game lays itself out at
-the canvas's size from 1040x600 up, so a frame of any shape at least that
-large is used whole. A smaller frame still works: the canvas is laid out at
-the frame's size raised to the minimum and drawn scaled down to fit. Enable
-itch.io's fullscreen control and test both the embedded and fullscreen
-layouts. Do not require a top-level navigation or popup: the game is designed
-to remain inside the itch iframe. Keyboard play is supported; browser gamepads are
-best-effort and require the browser/device to expose a standard mapping.
+and give it a viewport of at least 1056x650. The canvas fills the frame less the
+page's padding and the status line under the canvas, 16 px across and about 49
+px down - measured in Chrome on 2026-11-28, where a 1056x949 frame gave the
+canvas the game's opening 1040x900 - and the game lays itself out at the
+canvas's size from 1040x600 up, so a frame of any shape at least that large is
+used whole. A smaller frame still works: the canvas is laid out at the frame's
+size raised to the minimum and drawn scaled down to fit. Enable itch.io's
+fullscreen control and test both the embedded and fullscreen layouts. Do not
+require a top-level navigation or popup: the game is designed to remain inside
+the itch iframe. Keyboard play is supported; browser gamepads are best-effort
+and require the browser/device to expose a standard mapping.
 
 The web build stores settings and at most the newest three completed Replays in
 browser storage. Test quota failure and blocked/private storage before

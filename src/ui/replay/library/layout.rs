@@ -1853,13 +1853,13 @@ mod tests {
         }
     }
 
-    /// A window smaller than the minimum - fullscreen on a smaller screen,
-    /// a window manager that ignores the minimum, or a program that sets
-    /// the size - is built as the minimum is: at 800x400 the screen's own reading of the
-    /// window raises it to 1040x600, so the page is built from the
-    /// minimum's layout, with the minimum's two cards, under real layout.
-    /// Laid out for its own size, that window would hold one; at 800x480 it
-    /// would hold the same two, which is why the test is not run there.
+    /// A window smaller than the minimum - fullscreen on a smaller screen, a
+    /// window manager that ignores the minimum, or a program that sets the
+    /// size - is built as the minimum is: at 800x400 the screen's own reading
+    /// of the window raises it to 1040x600, so the page is built from the
+    /// minimum's layout, with the minimum's two cards, under real layout. Laid
+    /// out for its own size, that window would hold one; at 800x480 it would
+    /// hold the same two, which is why the test is not run there.
     #[test]
     fn a_window_below_the_minimum_is_built_as_the_minimum() {
         use super::super::geometry::library_layout;

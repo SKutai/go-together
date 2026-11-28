@@ -1810,13 +1810,12 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// The same in two columns, a row at a time: at 1920x1080, twelve
-    /// cards in six rows of two, the ring on the twelfth card's Change
-    /// Label, in the right column, or on the eleventh's, in the left; in a
-    /// window too short for six rows the first card moves on by whole rows
-    /// until that card's row is the page's last - the same page for both,
-    /// where only the twelfth is the page's last card - and the ring stays
-    /// on that Replay's Change Label.
+    /// The same in two columns, a row at a time: at 1920x1080, twelve cards in
+    /// six rows of two, the ring on the twelfth card's Change Label, in the
+    /// right column, or on the eleventh's, in the left; in a window too short
+    /// for six rows the first card moves on by whole rows until that card's row
+    /// is the page's last - the same page for both, where only the twelfth is
+    /// the page's last card - and the ring stays on that Replay's Change Label.
     #[test]
     fn in_two_columns_the_ring_keeps_its_replay_a_row_at_a_time() {
         use super::super::geometry::library_layout;
