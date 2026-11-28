@@ -1634,7 +1634,8 @@ mod tests {
     /// character stands on the line [`wrap`] puts it on, at the number of
     /// characters [`wrap::chars_per_line`] says the width holds, and every
     /// label is set on as many lines as `wrap` counts, empty last ones
-    /// included. So tall gives a third line to exactly the labels `bevy_ui`
+    /// included - [`wrap::wrapped_lines`], the count tall's room is decided
+    /// by, among them. So tall gives a third line to exactly the labels `bevy_ui`
     /// sets on three, and a change to any one of `wrap`'s rules moves some
     /// character here onto another line.
     #[test]
@@ -1688,6 +1689,11 @@ mod tests {
             assert_eq!(drawn, lines_of, "{context}: the line each character is on");
             let set = lines_set(layout);
             assert_eq!(set, starts.len(), "{context}: the lines");
+            assert_eq!(
+                wrap::wrapped_lines(label, *chars, true),
+                set,
+                "{context}: the count the room is decided by"
+            );
             seen[set.min(3)] += 1;
         }
         assert!(
