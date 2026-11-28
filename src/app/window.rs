@@ -65,9 +65,9 @@
 //! step with it whenever it changes, and F11 asks for the other of the
 //! system's two states ([`mode_after_f11`]), never of `Window::mode`'s.
 //! Only a change is followed, not a difference: a compositor that is slow
-//! to confirm a request - Wayland's - goes on reporting the old state for
-//! a frame or two, and following that would undo the request before it
-//! was applied.
+//! to confirm a change - Wayland's - goes on reporting the old state for
+//! a frame or two, and following that would undo what F11 asked for
+//! before it took effect.
 
 use std::time::Duration;
 
@@ -83,18 +83,25 @@ use super::visuals::{MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_
 use crate::platform::WindowPlatformConfig;
 
 /// How much more than the opening window a monitor needs, in logical
-/// pixels, to have room for it: nothing across, since the bars a window
-/// shares a screen with lie above and below it, and 100 down. An estimate,
-/// chosen to cover the tallest of them with some to spare: Windows 11's
-/// title bar is 32 px (Microsoft's title bar design guidance,
-/// <https://learn.microsoft.com/en-us/windows/apps/design/basics/titlebar-design>)
-/// and its taskbar 48 px, together 80; on macOS a title bar is 28 pt and
-/// the menu bar of a display with a camera housing 33 pt, as measured on a
-/// 15-inch MacBook Air on 2026-11-28, together 61, with the Dock below
-/// them when it is shown, which was not measured. Among common screens the
-/// figure decides nothing between 83 and 124: a 1512x982 laptop opens
-/// maximised and a 1280x1024 monitor centred anywhere in that range.
-pub(crate) const OPENING_ALLOWANCE: Vec2 = Vec2::new(0.0, 100.0);
+/// pixels, to have room for it: nothing across, and 160 down. Bevy
+/// centres a window's inside on the whole screen and stands its title bar
+/// above that, so the window clears a bar along the screen's top or bottom
+/// edge only where the room left above and below its inside each holds
+/// the title bar and the bar: twice their sum. On Windows 11 that is
+/// 2 x (32 + 48): its title bar is 32 px (Microsoft's title bar design
+/// guidance,
+/// <https://learn.microsoft.com/en-us/windows/apps/design/basics/titlebar-design>),
+/// and its taskbar 48 px, measured on 2026-11-28 as the difference between
+/// a Windows 11 24H2 screen and its work area. On macOS a title bar is
+/// 28 pt and the menu bar of a display with a camera housing 33 pt, as
+/// measured on a 15-inch MacBook Air the same day, so 160 also clears a
+/// Dock up to 52 pt below; one shown larger was not measured. Across, the
+/// bars stand above and below a window unless a dock is moved to a side,
+/// and every common screen is wide enough to centre the window clear of
+/// one: the narrowest, 1280 wide, leaves 120 a side. An estimate, then,
+/// from those sources; with fewer than 160 px a 1036-px-tall Windows
+/// screen put the window's bottom 9 px under the taskbar, as measured.
+pub(crate) const OPENING_ALLOWANCE: Vec2 = Vec2::new(0.0, 160.0);
 
 /// How long a window that asked to be maximised stays hidden waiting for
 /// its new size before it is shown anyway, and asked again: half a second,
@@ -138,7 +145,7 @@ pub(crate) enum Opening {
 
 /// How the window opens on a monitor `monitor` logical pixels in size:
 /// centred where the monitor is at least the opening size plus
-/// [`OPENING_ALLOWANCE`] in both directions, 1040x1000, and maximised
+/// [`OPENING_ALLOWANCE`] in both directions, 1040x1060, and maximised
 /// where it falls short in either.
 pub(crate) fn opening_for(monitor: Vec2) -> Opening {
     let room = WindowSize::OPENING.0 + OPENING_ALLOWANCE;
@@ -385,21 +392,21 @@ mod tests {
         );
     }
 
-    /// Centred on a monitor at least 1040x1000 logical pixels, maximised on
+    /// Centred on a monitor at least 1040x1060 logical pixels, maximised on
     /// one short of that either way: each threshold on both sides, each
     /// direction on its own, and the common screens.
     #[test]
     fn the_window_opens_centred_where_the_monitor_has_room_and_maximised_where_not() {
         use Opening::{Centred, Maximised};
 
-        assert_eq!(OPENING_ALLOWANCE, Vec2::new(0.0, 100.0));
+        assert_eq!(OPENING_ALLOWANCE, Vec2::new(0.0, 160.0));
         for (monitor, expected) in [
-            // The thresholds, 1040 across and 1000 down.
-            (Vec2::new(1040.0, 1000.0), Centred),
-            (Vec2::new(1039.9, 1000.0), Maximised),
-            (Vec2::new(1040.0, 999.9), Maximised),
+            // The thresholds, 1040 across and 1060 down.
+            (Vec2::new(1040.0, 1060.0), Centred),
+            (Vec2::new(1039.9, 1060.0), Maximised),
+            (Vec2::new(1040.0, 1059.9), Maximised),
             (Vec2::new(1039.0, 1440.0), Maximised),
-            (Vec2::new(2560.0, 999.0), Maximised),
+            (Vec2::new(2560.0, 1059.0), Maximised),
             // Common screens: a 1920x1080 one at Windows' 150%, a 1366x768
             // one, a 1440x900 Mac, a 1920x1080 one at 125%, a 1920x1080
             // one, and a 2560x1440 one.
@@ -409,10 +416,16 @@ mod tests {
             (Vec2::new(1536.0, 864.0), Maximised),
             (Vec2::new(1920.0, 1080.0), Centred),
             (Vec2::new(2560.0, 1440.0), Centred),
-            // Where the allowance's range is bounded: a 14-inch MacBook
-            // Pro's default 1512x982, and a 1280x1024 monitor.
+            // Screens just short of the threshold: a 14-inch MacBook
+            // Pro's default 1512x982, a 1280x1024 monitor, a Windows
+            // screen 1036 tall, where a centred window's bottom would be
+            // under the taskbar, and a 1680x1050 one; and a 15-inch
+            // MacBook Air's 1710x1107, with room.
             (Vec2::new(1512.0, 982.0), Maximised),
-            (Vec2::new(1280.0, 1024.0), Centred),
+            (Vec2::new(1280.0, 1024.0), Maximised),
+            (Vec2::new(1710.0, 1036.0), Maximised),
+            (Vec2::new(1680.0, 1050.0), Maximised),
+            (Vec2::new(1710.0, 1107.0), Centred),
             // A 2560x1600 laptop at 175% gives a size in fractions.
             (Vec2::new(2560.0, 1600.0) / 1.75, Maximised),
         ] {
@@ -674,7 +687,10 @@ mod tests {
     /// is brought into step, and F11 then asks for the window - and asks
     /// again for fullscreen once the system has left it by the button. A
     /// press in the frame the system's state changes asks a frame later,
-    /// for the other of the new state.
+    /// for the other of the new state. And a press the system has not yet
+    /// followed, as a compositor slow to confirm leaves it, asks for the
+    /// other of what the system shows, not of `Window::mode`: fullscreen
+    /// again, where the mode already asks for it.
     #[test]
     fn f11_follows_a_fullscreen_the_system_entered_or_left_by_itself() {
         let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
@@ -715,6 +731,19 @@ mod tests {
             .clear();
         app.update();
         assert_eq!(mode(&mut app), fullscreen, "the press, a frame later");
+
+        // The system has not followed that press: it still shows the
+        // window, so the next press asks for fullscreen once more.
+        release(&mut app, KeyCode::F11);
+        app.update();
+        press(&mut app, KeyCode::F11);
+        app.update();
+        assert_eq!(
+            mode(&mut app),
+            fullscreen,
+            "the other of what the system shows, the window"
+        );
+        assert!(!app.world().resource::<SystemFullscreen>().0);
     }
 
     /// A browser keeps F11: with the browser's window the plugin reads
